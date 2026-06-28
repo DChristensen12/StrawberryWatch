@@ -6,9 +6,8 @@ from config.config import Config
 from src.ingest.api_client import fetch_network_snapshot
 
 
-# Columns that should never be treated as model features, even if numeric.
-# - EnviroDIY_Mayfly_Batt: sensor health telemetry, not a creek measurement
-# - Unnamed: 0, delta, Precip_Max: pandas/CSV artifacts from earlier exports
+# Numeric columns that are not creek measurements and should never be model features.
+# EnviroDIY_Mayfly_Batt is sensor health telemetry; the others are pandas/CSV artifacts.
 _NON_FEATURE_COLUMNS = {
     "Unnamed: 0",
     "delta",
@@ -16,17 +15,13 @@ _NON_FEATURE_COLUMNS = {
     "EnviroDIY_Mayfly_Batt",
 }
 
-# When the requested data window exceeds this many days, NWS LBNL1 cannot
-# cover it (it only retains ~7 days). Fall back to Open-Meteo's historical
-# archive, which goes back decades. Both sources produce the same column
-# names, so the model never sees the difference.
+# Beyond this many days, NWS LBNL1 doesn't have the history (~7 day retention).
+# Fall back to Open-Meteo, which goes back decades. Same column names either way.
 _NWS_HISTORICAL_LIMIT_DAYS = 5
 
-# Weather columns that are accumulated quantities (summed over the preceding
-# hour), not instantaneous readings. When we spread an hourly value across the
-# finer creek cadence, these must be divided so the pieces re-sum to the
-# original hourly total. Everything else (temperature, solar) is instantaneous
-# and gets copied across the sub-hourly rows unchanged.
+# Accumulated (hourly sum) weather columns, not instantaneous. These must be
+# divided when spread across sub-hourly creek rows so the pieces re-sum correctly.
+# Temperature and solar are instantaneous and get copied across unchanged.
 _ACCUMULATED_WEATHER_COLUMNS = {
     "rain_mm",
 }
@@ -39,17 +34,15 @@ def load_and_preprocess_data(
     data_source="api",
 ):
     """
-    Load creek data, caching to CSV. Fetches fresh data when the cache is
-    missing or force_download=True.
+    Loads creek data from the cache CSV, fetching fresh if the cache is missing
+    or force_download=True.
 
-    The cache is a rolling window: new fetches are merged with existing data
-    rather than overwriting it, then deduplicated on (datetime, location)
-    and trimmed to Config.ROLLING_WINDOW_DAYS. This means the on-disk file
-    becomes a usable working set for debugging, offline analysis, and
-    --mode update retrains, while staying bounded in size.
+    Cache works as a rolling window: new data is merged in and deduplicated on
+    (datetime, location), then trimmed to Config.ROLLING_WINDOW_DAYS. Stays
+    bounded in size while remaining useful for debugging and offline reruns.
 
-    data_source: "api" pulls from the public REST API (3 sensor features).
-                 "sql" pulls from the production MySQL database (richer features).
+    data_source: "api" pulls from the REST API (3 sensor features).
+                 "sql" pulls from production MySQL (richer).
     """
     if not os.path.exists(file_path) or force_download:
         source_label = "API" if data_source == "api" else "SQL database"
@@ -79,11 +72,9 @@ def load_and_preprocess_data(
                 sys.exit(1)
             print("Falling back to existing local file.")
         else:
-            # Rename raw MMW column names to Pulse's internal names.
-            # Only sensors that the API/SQL paths actually expose are listed
-            # here; the API tier delivers 3 features (cond, depth, temp) plus
-            # battery. The SQL tier may deliver more — any extra columns just
-            # pass through with their raw names and get used as model features.
+            # Rename raw MMW column names to internal ones. API exposes 3 features
+            # (cond, depth, temp) plus battery; SQL may have more. Extra columns pass
+            # through with their raw names and get picked up as model features.
             column_mapping = {
                 "Meter_Hydros21_Cond":  "conductivity",
                 "Meter_Hydros21_Depth": "depth",
@@ -96,7 +87,6 @@ def load_and_preprocess_data(
             if Config.USE_NWS_WEATHER:
                 df_raw = _merge_weather(df_raw, start_date, end_date, days)
 
-            # ─── Append to rolling cache ─────────────────────────────────
             os.makedirs(os.path.dirname(file_path), exist_ok=True)
             combined = _merge_with_cache(df_raw, file_path)
             combined = _trim_to_rolling_window(combined, Config.ROLLING_WINDOW_DAYS)
@@ -106,7 +96,6 @@ def load_and_preprocess_data(
                 f"({combined['datetime'].min()} → {combined['datetime'].max()})"
             )
 
-    # ─── Load from cache and finalize ──────────────────────────────────────
     df = pd.read_csv(file_path)
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     df = df.set_index("datetime").sort_index()
@@ -115,8 +104,7 @@ def load_and_preprocess_data(
     print(f"Rows: {df.shape[0]:,}")
     print(f"Range: {df.index.min()} to {df.index.max()}")
 
-    # Report which sites are present in the dataset and which are missing.
-    # Missing sites are normal (sensors can be down), but worth surfacing.
+    # Missing sites are normal (sensors go down), but worth surfacing.
     sites_present = sorted(df["location"].unique()) if "location" in df.columns else []
     expected = set(Config.LOCATIONS)
     missing = sorted(expected - set(sites_present))
@@ -146,10 +134,9 @@ def load_and_preprocess_data(
 
 def _merge_with_cache(df_new, file_path):
     """
-    Combine freshly-fetched data with whatever's already in the cache file,
-    deduplicating on (datetime, location). Newer rows win on conflict — this
-    lets late-arriving data correct earlier values if the upstream system
-    backfilled or recomputed something.
+    Combines freshly-fetched data with whatever's already in the cache file,
+    deduplicating on (datetime, location). Newer rows win on conflict, so
+    late-arriving backfills can correct earlier values.
     """
     if not os.path.exists(file_path):
         return df_new
@@ -158,14 +145,12 @@ def _merge_with_cache(df_new, file_path):
         existing = pd.read_csv(file_path)
         existing["datetime"] = pd.to_datetime(existing["datetime"], utc=True)
     except Exception as e:
-        # Cache file is corrupted or has incompatible schema. Don't crash —
-        # just start fresh with the new data. The old file gets overwritten.
+        # Cache file is corrupted or has an incompatible schema. Start fresh.
         print(f"[WARN] Could not read existing cache ({e}). Starting fresh.")
         return df_new
 
-    # Ensure schema compatibility. If columns drifted (e.g. you added a new
-    # weather feature), the union of columns gets used and missing values
-    # become NaN — pandas handles this fine.
+    # Union of columns handles schema drift (e.g. a new weather feature).
+    # Missing values become NaN, pandas handles it.
     combined = pd.concat([existing, df_new], ignore_index=True)
     combined["datetime"] = pd.to_datetime(combined["datetime"], utc=True)
 
@@ -180,9 +165,9 @@ def _merge_with_cache(df_new, file_path):
 
 def _trim_to_rolling_window(df, window_days):
     """
-    Keep only the last `window_days` of data. Anchored on the latest timestamp
-    in the dataset (not 'now'), so the cache stays useful even if a fetch
-    happens long after the last real observation.
+    Keeps the last `window_days` of data. Anchored on the dataset's latest
+    timestamp (not 'now'), so the cache stays useful even when fetches happen
+    well after the last real observation.
     """
     if df.empty or window_days is None or window_days <= 0:
         return df
@@ -199,13 +184,9 @@ def _trim_to_rolling_window(df, window_days):
 
 def _estimate_rows_per_hour(creek_datetimes):
     """
-    Figure out how many creek rows fall in a typical hour, from the median
-    gap between consecutive timestamps. The creek reports every 15 minutes,
-    so this is normally 4, but computing it keeps the rain disaggregation
-    correct if the cadence ever changes (e.g. a sensor switched to 5-min).
-
-    Returns a positive integer, defaulting to 4 if the cadence can't be
-    determined (too few rows, or all timestamps identical).
+    Infers how many creek rows fall in a typical hour from the median gap between timestamps.
+    Normally 4 (15-min cadence), but computing it keeps rain disaggregation correct if the
+    reporting rate ever changes. Defaults to 4 if the cadence can't be determined.
     """
     times = pd.Series(pd.to_datetime(creek_datetimes, utc=True)).drop_duplicates().sort_values()
     if len(times) < 2:
@@ -220,27 +201,15 @@ def _estimate_rows_per_hour(creek_datetimes):
 
 def _merge_weather(df_raw, start_date, end_date, days):
     """
-    Choose the appropriate weather source based on the window size and merge
-    it onto df_raw. NWS has 15-min resolution but only ~7 days of history;
-    Open-Meteo has hourly resolution but unlimited history.
+    Merges weather data onto df_raw, choosing the source based on window size.
 
-    Both sources return the same column names, so downstream code doesn't
-    need to know which one ran.
+    NWS has 15-min resolution but only ~7 days of history. Open-Meteo has hourly
+    resolution but goes back decades. Both return the same column names.
 
-    Rain disaggregation: Open-Meteo precipitation is an accumulation, the total
-    millimeters that fell during the preceding hour, not an instantaneous
-    reading. When we spread that one hourly value across the creek's four
-    15-minute rows, we must divide it so the four pieces re-sum to the original
-    hourly total. Copying the full hourly value to all four rows (the old
-    behavior) inflated cumulative rainfall ~4x, which both skewed the rain_mm
-    model feature and made the rain-aware threshold trip on a quarter of the
-    intended rainfall. Temperature and solar radiation are instantaneous and
-    are copied across the four rows unchanged.
-
-    If you ever switch the model or the rain-aware threshold to use sub-hourly
-    rain INTENSITY (rate) rather than a windowed SUM, this even split is no
-    longer right; you'd want a plain forward-fill of the rate instead. The
-    division here is specifically correct for sum-based use.
+    Rain disaggregation: Open-Meteo rain is an hourly accumulation, not instantaneous.
+    Dividing by rows_per_hour before merging means each sub-hourly creek row carries
+    its fair share, so windowed sums stay correct. Don't swap this for a forward-fill
+    if you ever switch to using rain intensity instead of a windowed sum.
     """
     if days <= _NWS_HISTORICAL_LIMIT_DAYS:
         from src.ingest.weather_client import fetch_nws_weather
@@ -257,11 +226,9 @@ def _merge_weather(df_raw, start_date, end_date, days):
         print("Weather data unavailable — proceeding without weather features.")
         return df_raw
 
-    # Collapse to one observation per hour. NWS reports every 15 min so each
-    # hour has ~4 obs; Open-Meteo is already hourly. For instantaneous values
-    # the hourly mean is right. For accumulated values (rain) we want the
-    # hourly sum, not the mean, so the hour's total is preserved before we
-    # disaggregate it back out across the creek's sub-hourly rows.
+    # NWS reports every 15 min; Open-Meteo is already hourly. For instantaneous
+    # values take the mean; for accumulated (rain) take the sum so the hourly
+    # total is preserved before disaggregating across sub-hourly rows.
     accumulated_present = [c for c in df_weather.columns if c in _ACCUMULATED_WEATHER_COLUMNS]
     instantaneous_present = [c for c in df_weather.columns if c not in _ACCUMULATED_WEATHER_COLUMNS]
 
@@ -289,7 +256,6 @@ def _merge_weather(df_raw, start_date, end_date, days):
             f"(columns: {accumulated_present}) to preserve windowed sums."
         )
 
-    # Build an hour-bucket key on the creek side and merge.
     creek_dt = pd.to_datetime(df_raw["datetime"], utc=True)
     df_raw["_hour_key"] = creek_dt.dt.floor("h")
 

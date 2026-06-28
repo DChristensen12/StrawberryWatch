@@ -1,4 +1,3 @@
-# tests/test_ingest/diagnose_api.py — replace contents
 import requests
 from config.config import Config
 from datetime import datetime, timedelta, timezone
@@ -11,7 +10,6 @@ base_params = [
     ("end", end.strftime("%Y-%m-%dT%H:%M:%S")),
 ]
 
-# Various combinations of column requests
 cases = [
     ("just timestamp + cond",       ["timestamp", "Meter_Hydros21_Cond"]),
     ("just timestamp + depth",      ["timestamp", "Meter_Hydros21_Depth"]),

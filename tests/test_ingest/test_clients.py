@@ -1,16 +1,3 @@
-"""
-Smoke tests for the three Pulse data clients.
-
-Run all tests:           python -m tests.test_clients
-Skip the SQL test:       python -m tests.test_clients --skip-sql
-Run just one:            python -m tests.test_clients --only api
-                         python -m tests.test_clients --only nws
-                         python -m tests.test_clients --only sql
-
-The SQL test requires that MYSQL_* env vars are set and that the MySQL
-host is reachable from this machine (e.g. via SSH tunnel to OCF).
-"""
-
 import argparse
 import sys
 import traceback
@@ -43,8 +30,6 @@ def show_df(df, label):
     print(f"  head:\n{df.head(2).to_string()}")
 
 
-# ─── Layer 0: imports ────────────────────────────────────────────────────────
-
 def test_imports():
     banner("Layer 0: imports")
     from config.config import Config  # noqa: F401
@@ -57,13 +42,10 @@ def test_imports():
     print("  src.ingest.weather_client ✓")
 
 
-# ─── Layer 1: config ─────────────────────────────────────────────────────────
-
 def test_config():
     banner("Layer 1: Config loads")
     from config.config import Config
 
-    # API
     print(f"  API_BASE_URL    = {Config.API_BASE_URL}")
     print(f"  API_TOKEN set?  = {bool(Config.API_TOKEN)}")
 
@@ -74,17 +56,13 @@ def test_config():
     print(f"  MYSQL_DATABASE  = {Config.MYSQL_DATABASE or '(unset)'}")
     print(f"  MYSQL_PORT      = {Config.MYSQL_PORT}")
 
-    # NWS
     print(f"  NWS_STATION_ID  = {Config.NWS_STATION_ID}")
     print(f"  NWS_USER_AGENT  = {Config.NWS_USER_AGENT}")
     print(f"  USE_NWS_WEATHER = {getattr(Config, 'USE_NWS_WEATHER', '(missing)')}")
 
-    # Model
     print(f"  LOCATIONS       = {Config.LOCATIONS}")
     print(f"  SEQUENCE_LENGTH = {Config.SEQUENCE_LENGTH}")
 
-
-# ─── Layer 2a: API client ────────────────────────────────────────────────────
 
 def test_api():
     banner("Layer 2a: API client")
@@ -94,12 +72,10 @@ def test_api():
     end   = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
-    # Single site
     print(f"\n  fetch_creek_data('oxford', last 2 days)")
     df = fetch_creek_data("oxford", start, end)
     show_df(df, "single-site")
 
-    # Network
     print(f"\n  fetch_network_snapshot(last 2 days)")
     df_net = fetch_network_snapshot(start, end)
     show_df(df_net, "network")
@@ -116,8 +92,6 @@ def test_api():
         print(f"  ⚠ missing sites: {sorted(missing)}")
     return True
 
-
-# ─── Layer 2b: NWS client ────────────────────────────────────────────────────
 
 def test_nws():
     banner("Layer 2b: NWS weather client")
@@ -142,8 +116,6 @@ def test_nws():
     return True
 
 
-# ─── Layer 2c: SQL client ────────────────────────────────────────────────────
-
 def test_sql():
     banner("Layer 2c: SQL client")
     from src.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
@@ -156,12 +128,10 @@ def test_sql():
     end   = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
-    # Single site
     print(f"\n  fetch_creek_data_sql('oxford', last 2 days)")
     df = fetch_creek_data_sql("oxford", start, end)
     show_df(df, "single-site")
 
-    # Network
     print(f"\n  fetch_network_snapshot_sql(last 2 days)")
     df_net = fetch_network_snapshot_sql(start, end)
     show_df(df_net, "network")
@@ -174,8 +144,6 @@ def test_sql():
     print(f"  sites returned: {sites_seen}")
     return True
 
-
-# ─── Layer 3: integration smoke test ─────────────────────────────────────────
 
 def test_integration():
     banner("Layer 3: timestamp alignment between sources")
@@ -210,8 +178,6 @@ def test_integration():
     print("  ✓ timestamps overlap; merge would have rows to join")
     return True
 
-
-# ─── Runner ──────────────────────────────────────────────────────────────────
 
 TESTS = {
     "imports":     test_imports,

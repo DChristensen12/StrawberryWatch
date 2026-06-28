@@ -21,26 +21,19 @@ def train_temporal_gnn(
     device=Config.DEVICE,
 ):
     """
-    Train temporal GNN. Uses mixed-precision acceleration on CUDA; falls back
-    to plain fp32 on CPU (autocast on CPU breaks oneDNN's LSTM kernel and gives
-    no speedup anyway since CPUs lack tensor cores).
+    Trains a temporal GNN via MSE reconstruction and returns losses plus a threshold.
 
-    Learns baseline creek physics via reconstruction (MSE loss). After training,
-    computes a spill-detection threshold from validation-set errors so that
-    inference uses a stable, training-defined definition of "anomalous" rather
-    than recomputing percentiles on whatever it happens to see at inference time.
+    Mixed-precision on CUDA, plain fp32 on CPU (autocast on CPU breaks oneDNN's
+    LSTM kernel and gives no speedup since CPUs lack tensor cores).
 
-    feature_cols is used to isolate the conductivity error when computing the
-    threshold (matches the "Model All, Alert One" strategy from the SCMG paper).
-    Spills show up as conductivity deviations; other features' prediction
-    errors are noise for our purpose. If feature_cols is not provided, falls
-    back to mean across all features (worse but safe).
+    After training, computes a spill-detection threshold from validation errors
+    on conductivity only ("Model All, Alert One"). Threshold gets computed at
+    train time so inference isn't sensitive to what it happens to see live.
+    If feature_cols isn't provided or doesn't include conductivity, falls back
+    to mean error across all features.
 
-    Returns:
-        train_losses: list of per-epoch training loss
-        val_losses:   list of per-epoch validation loss (empty if no val data)
-        threshold:    float, P_THRESHOLD_PERCENTILE of validation conductivity
-                      errors, or None if no validation data was provided
+    Returns (train_losses, val_losses, threshold). val_losses and threshold are
+    empty/None if no validation data was given.
     """
     model = model.to(device)
     edge_index = edge_index.to(device)
@@ -66,7 +59,6 @@ def train_temporal_gnn(
         epoch_loss = 0
         num_batches = 0
 
-        # Mini-batch training
         for i in range(0, len(train_sequences), batch_size):
             batch_seq = torch.FloatTensor(train_sequences[i:i+batch_size]).to(device)
             batch_target = torch.FloatTensor(train_targets[i:i+batch_size]).to(device)
@@ -102,7 +94,6 @@ def train_temporal_gnn(
         avg_train_loss = epoch_loss / num_batches
         train_losses.append(avg_train_loss)
 
-        # Validation
         if val_sequences is not None:
             model.eval()
             with torch.no_grad():
@@ -127,7 +118,6 @@ def train_temporal_gnn(
                     val_loss = criterion(val_pred, val_tgt).item()
             val_losses.append(val_loss)
 
-            # Track best model and handle early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_model_state = model.state_dict().copy()
@@ -138,24 +128,18 @@ def train_temporal_gnn(
                     print(f"[STATUS] Early stopping triggered at epoch {epoch+1}")
                     break
 
-        # Progress logging every 5 epochs
         if (epoch + 1) % 5 == 0 or epoch == 0:
             status = f"Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
             if val_sequences is not None:
                 status += f" | Val Loss: {val_loss:.6f}"
             print(status)
 
-    # Restore best weights if available
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
         print(f"[INFO] Restored model weights from epoch with Val Loss: {best_val_loss:.6f}")
 
-    # ─── Compute the spill threshold from validation errors ────────────────
-    # Use ONLY the conductivity channel for thresholding ("Model All, Alert
-    # One" strategy from the SCMG paper). Spills show up as conductivity
-    # deviations; including other features' errors in the threshold computation
-    # just dilutes the signal with noise from harder-to-predict variables like
-    # rain spikes or solar radiation at night.
+    # Conductivity-only threshold. Other channels add noise; spills show as
+    # conductivity deviations. See "Model All, Alert One" in the SCMG paper.
     threshold = None
     if val_sequences is not None:
         model.eval()

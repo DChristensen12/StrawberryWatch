@@ -18,6 +18,7 @@ _TIME_CANDIDATES = ["DateTimeUTC", "timestamp", "datetime"]
 
 
 def _find_time_column(df):
+    """Returns the first recognized timestamp column name found in df, or None."""
     for c in _TIME_CANDIDATES:
         if c in df.columns:
             return c
@@ -25,6 +26,7 @@ def _find_time_column(df):
 
 
 def _estimate_rows_per_hour(times):
+    """Infers rows per hour by checking the median gap between timestamps."""
     t = pd.Series(pd.to_datetime(times, utc=True)).drop_duplicates().sort_values()
     if len(t) < 2:
         return 4
@@ -36,12 +38,16 @@ def _estimate_rows_per_hour(times):
 
 
 def _cache_path(start_date, end_date):
+    """Builds the local cache file path for a given date range."""
     return os.path.join(_RAIN_CACHE_DIR, f"rain_{start_date.date()}_{end_date.date()}.csv")
 
 
 def _get_rain_hourly(start_date, end_date):
-    # Import here, not at module top, so an import problem surfaces as a clear
-    # runtime error during a fetch rather than killing the script silently.
+    """
+    Fetches hourly rain from Open-Meteo for the given range, with local CSV caching.
+    Returns a DataFrame indexed by datetime with a rain_mm column, or None on failure.
+    """
+    # Import here so a broken install surfaces as a runtime error, not a silent startup kill.
     from src.ingest.historical_weather_client import fetch_open_meteo_weather
 
     os.makedirs(_RAIN_CACHE_DIR, exist_ok=True)
@@ -69,6 +75,11 @@ def _get_rain_hourly(start_date, end_date):
 
 
 def backfill_file(path, overwrite_existing_rain=False):
+    """
+    Adds a rain_mm column to a single CSV file using Open-Meteo data.
+    Skips files that already have rain values unless overwrite_existing_rain is set.
+    Returns a status string: 'backfilled', 'skipped_*', or 'failed_fetch'.
+    """
     fname = os.path.basename(path)
     df = pd.read_csv(path, sep=None, engine="python")
 
@@ -117,6 +128,7 @@ def backfill_file(path, overwrite_existing_rain=False):
 
 
 def main(target_dirs, overwrite_existing_rain):
+    """Scans target_dirs for CSVs and backfills Open-Meteo rain data into each one."""
     print("=== backfill_rain starting ===", flush=True)
     paths = []
     for d in target_dirs:
@@ -152,4 +164,3 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     main(target_dirs=args.dirs, overwrite_existing_rain=args.overwrite)
-    

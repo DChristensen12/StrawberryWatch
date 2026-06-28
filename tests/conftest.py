@@ -1,15 +1,3 @@
-"""
-conftest.py
-Shared fixtures for the SCMG anomaly-detection test suite.
-
-Requires a trained model before tests can run:
-    python main.py --mode train
-
-This produces:
-    models/dusk_crayfish_weights.pt
-    models/dusk_crayfish_metadata.pkl   (scaler, feature_cols, location_to_idx, threshold)
-"""
-
 import pickle
 from pathlib import Path
 
@@ -20,8 +8,7 @@ ROOT = Path(__file__).parent.parent
 ANOMALY_DIR = ROOT / "data" / "anomalies"
 MODEL_DIR = ROOT / "models"
 
-# Default model the suite validates against. Kept as a module constant so a
-# future --model flag or env var can override it without touching fixtures.
+# Default model the suite validates against.
 MODEL_NAME = "dusk_crayfish"
 
 

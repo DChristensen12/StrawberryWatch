@@ -1,24 +1,3 @@
-"""
-api_client.py
-─────────────────────────────────────────────────────────────
-Public Strawberry Creek REST API data source for Pulse.
-
-Used when --data-source=api (the default).
-
-Important API quirks worked around in this client:
-
-1) The API rejects requests missing the 'vars' parameter, despite the docs
-   saying it's optional.
-
-2) The API has a server-side bug where multiple 'vars' parameters are not
-   accumulated — only the LAST one in the URL is honored. To get multiple
-   sensor columns we have to make one request per column and merge
-   client-side on the timestamp.
-
-3) The timestamp column is always included implicitly; we don't need to
-   ask for it. It comes back as 'DateTimeUTC'.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -34,9 +13,9 @@ from config.config import Config
 logger = logging.getLogger(__name__)
 
 
-# Sensor columns we pull for each site by default. Each is requested in its
-# own HTTP call because of API quirk #2 above. The minimum useful set for
-# Pulse downstream is cond/depth/temp; batt is included for health monitoring.
+# Sensor columns fetched per site. One HTTP call per column because the API
+# only honors the last 'vars' param when multiple are given. cond/depth/temp
+# are the minimum useful set; batt is there for sensor health monitoring.
 _DEFAULT_VARS = [
     "Meter_Hydros21_Cond",
     "Meter_Hydros21_Depth",
@@ -53,10 +32,11 @@ def _fetch_single_var(
     headers: dict,
 ) -> pd.DataFrame:
     """
-    Pull one (site, sensor) pair from the API. Returns a DataFrame with
+    Pulls one (site, sensor) pair from the API. Returns a DataFrame with
     'timestamp' and one sensor column, or empty on any failure.
 
-    Splitting one request per sensor is required by API quirk #2.
+    One request per sensor because the API only honors the last 'vars' param
+    when multiple are given.
     """
     params = [
         ("site", site),
@@ -106,14 +86,11 @@ def fetch_creek_data(
     variables: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
-    Query the Strawberry Creek API for one site over [start_time, end_time].
+    Queries the Strawberry Creek API for one site over [start_time, end_time].
 
-    Internally makes one HTTP request per sensor column (API quirk #2) and
-    merges them on timestamp. Returns a DataFrame with 'timestamp',
-    'station_id', and one column per available sensor at this site.
-
-    Sensors that the site doesn't expose are simply absent from the
-    resulting DataFrame — there's no error, the column just won't be there.
+    Makes one HTTP request per sensor column and merges them on timestamp.
+    Returns a DataFrame with 'timestamp', 'station_id', and one column per
+    available sensor. Sensors the site doesn't expose are just absent, no error.
     """
     headers = {}
     if Config.API_TOKEN:
@@ -130,7 +107,6 @@ def fetch_creek_data(
 
     vars_to_request = variables if variables else _DEFAULT_VARS
 
-    # Pull each sensor in its own request, collect non-empty frames.
     frames = []
     for var_name in vars_to_request:
         df = _fetch_single_var(site, start_str, end_str, var_name, headers)
@@ -141,13 +117,11 @@ def fetch_creek_data(
         logger.info(f"[{site}] no data for any requested variable in window")
         return pd.DataFrame()
 
-    # Merge all sensor frames on the timestamp column.
     merged = reduce(
         lambda left, right: pd.merge(left, right, on="timestamp", how="outer"),
         frames,
     )
 
-    # Normalize timestamp and sort.
     merged["timestamp"] = pd.to_datetime(merged["timestamp"], utc=True, errors="coerce")
     merged = (
         merged.dropna(subset=["timestamp"])
@@ -164,7 +138,7 @@ def fetch_creek_data(
 
 def fetch_network_snapshot(start_time, end_time) -> pd.DataFrame:
     """
-    Pull data for every site in Config.LOCATIONS and concatenate.
+    Pulls data for every site in Config.LOCATIONS and concatenates them.
     Same shape as sql_client.fetch_network_snapshot_sql.
     """
     frames = []

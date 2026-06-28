@@ -9,6 +9,7 @@ load_dotenv()
 
 
 def send_spill_alert(spill_count, locations_affected):
+    """Sends a system-level summary email when spills are detected."""
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
     receiver = os.getenv("ALERT_EMAIL_RECEIVER")
@@ -45,11 +46,9 @@ def send_spill_alert(spill_count, locations_affected):
 
 def _diagnosis_line(classification):
     """
-    Build the spill type sentence for an anomaly alert from a
-    metrics.classify_event result. Handles all three verdicts the classifier
-    can return, so the email never claims more certainty than the classifier
-    actually has. If classification is None (the classifier was not run for
-    this event), returns a neutral line so the alert still reads sensibly.
+    Turns a metrics.classify_event result into one plain-English sentence for
+    the alert email. Handles all three verdicts (diagnosed, possible_new_type,
+    undetermined) and falls back gracefully if classification is None.
     """
     if classification is None:
         return "Spill type was not classified for this anomaly."
@@ -86,13 +85,10 @@ def _diagnosis_line(classification):
 
 def send_anomaly_alert(location, score, threshold, event_time, classification=None):
     """
-    Send one per-event anomaly alert, stating where and when the anomaly was,
-    how far over threshold it scored, and the spill type diagnosis line.
+    Sends one alert email for a single detected anomaly event.
 
-    location, score, threshold, event_time describe a single detected event.
-    classification is the dict returned by metrics.classify_event for that
-    event, or None if it was not classified. Matches send_spill_alert's
-    credential handling and delivery exactly.
+    classification is the metrics.classify_event dict for this event, or None
+    if it wasn't classified. Credential handling mirrors send_spill_alert.
     """
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
@@ -142,18 +138,10 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
 
 def fire_anomaly_alerts(events):
     """
-    End to end helper. Takes a list of detected events and sends one alert per
-    event, then also sends the system level summary so the existing
-    send_spill_alert behavior is preserved.
+    Sends one detailed email per event and one system summary for the full batch.
 
-    Each event is a dict with keys: location, score, threshold, event_time, and
-    optionally classification (a metrics.classify_event result, or None). This
-    is what the detection step calls once it has grouped flagged timesteps into
-    events and, where possible, classified each one.
-
-    Sending one detailed per-event email plus one summary mirrors how the
-    detector thinks: the summary says how many and where, each per-event email
-    carries the score and the spill type diagnosis.
+    Each event dict needs: location, score, threshold, event_time, and
+    optionally classification (from metrics.classify_event, or None).
     """
     if not events:
         print("No anomaly events to alert on.")

@@ -1,29 +1,3 @@
-"""
-historical_weather_client.py
-─────────────────────────────────────────────────────────────
-Open-Meteo Historical Archive data source for training-time weather.
-
-The NWS observations endpoint only retains ~7 days at LBNL1, which makes it
-unsuitable for backfilling 30+ days of training data. Open-Meteo's archive
-goes back to 1940 and is free with no API key required.
-
-The returned columns match what weather_client.py produces, so the model
-sees consistent features regardless of which source supplied them:
-  air_temp_c, rain_mm, shortwave_radiation
-
-Trade-off vs LBNL1: Open-Meteo is hourly (not 15-min) and reanalyzed (not
-directly observed). Values are typically within 1-2°C of LBNL1 for the same
-location and hour, close enough that a model trained on Open-Meteo
-generalizes cleanly to LBNL1 at inference time.
-
-Feature selection: the SCMG anomaly-detection paper (Method 2 GNN, 6 features
-per node) uses Conductivity, Depth, Temperature, Rainfall, Solar Radiation,
-and Air Temperature. The first three come from creek sensors; the last
-three come from this client (and weather_client at inference time). Wind,
-dewpoint, humidity, and pressure were tried initially but added feature
-noise without improving spill detection.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -37,19 +11,15 @@ from config.config import Config
 
 logger = logging.getLogger(__name__)
 
-# Berkeley coordinates, roughly central to the SCMG sensor sites.
-# All 5 sites are within ~1.5 miles of this point and Berkeley weather is
-# spatially uniform at that scale.
+# Berkeley coordinates, central to the SCMG sites (all within ~1.5 miles).
+# Berkeley weather is uniform enough at this scale that one point is fine.
 _BERKELEY_LAT = 37.873
 _BERKELEY_LON = -122.260
 
 _OPEN_METEO_URL = "https://archive-api.open-meteo.com/v1/archive"
 
-# Map Open-Meteo parameter names to our canonical column names.
-# Units come from the Open-Meteo defaults plus wind_speed_unit=kmh.
-#   precipitation       to mm (per hour)
-#   shortwave_radiation to W/m squared
-#   temperature_2m      to degrees C
+# Maps Open-Meteo parameter names to our internal column names.
+# Units: precipitation in mm/hour, shortwave in W/m², temperature in °C.
 _OPEN_METEO_VARIABLES = [
     ("temperature_2m",      "air_temp_c"),
     ("precipitation",       "rain_mm"),
@@ -64,18 +34,14 @@ def fetch_open_meteo_weather(
     longitude: Optional[float] = None,
 ) -> pd.DataFrame:
     """
-    Fetch historical hourly weather from Open-Meteo's archive endpoint.
+    Fetches historical hourly weather from Open-Meteo's archive for the given date range.
 
-    Returns a DataFrame with a UTC DatetimeIndex and the same columns
-    weather_client.fetch_nws_weather produces, so data_loader can merge
-    them interchangeably.
+    Returns a DataFrame with a UTC DatetimeIndex and the same columns as
+    fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation), so data_loader
+    can swap sources without knowing which one ran.
 
-    Parameters
-    ----------
-    start_time, end_time : datetime | str
-        Inclusive bounds. Strings should be ISO-8601 dates or datetimes.
-    latitude, longitude : float, optional
-        Default Berkeley (37.873, -122.260).
+    start_time/end_time can be datetime objects or ISO-8601 strings.
+    Latitude/longitude default to central Berkeley if not given.
     """
     lat = latitude if latitude is not None else _BERKELEY_LAT
     lon = longitude if longitude is not None else _BERKELEY_LON
@@ -121,8 +87,7 @@ def fetch_open_meteo_weather(
         )
         return pd.DataFrame()
 
-    # Build the DataFrame. Each variable in Open-Meteo's response is a
-    # parallel array indexed by the 'time' array.
+    # Each variable is a parallel array indexed by 'time'.
     rows = {"datetime": times}
     for om_name, our_name in _OPEN_METEO_VARIABLES:
         rows[our_name] = hourly.get(om_name, [None] * len(times))

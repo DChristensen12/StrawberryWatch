@@ -1,16 +1,3 @@
-"""
-Break down the model's anomaly scores per (site, feature) for the most
-anomalous timesteps. Scores on conductivity only, matching main.py's
-"Model All, Alert One" strategy, so the ranking here reflects what the
-pipeline actually flags.
-
-The per-cell error grid still shows ALL features so we can see what else
-is happening at each flagged moment, but the ranking and threshold
-comparison use conductivity error averaged across nodes.
-
-Run after `python main.py --mode inference --data-source api`.
-"""
-
 import os
 import pickle
 
@@ -76,7 +63,6 @@ def main():
     )
     # errors shape: (n_sequences, n_nodes, n_features)
 
-    # Score on conductivity only, averaged across nodes (matches main.py)
     if cond_idx is not None:
         system_scores = np.mean(errors[:, :, cond_idx], axis=1)
     else:
@@ -118,7 +104,6 @@ def main():
             print(f"  {site_name:<14}  {row_str}{marker}")
         print()
 
-    # Aggregate over events flagged by the CONDUCTIVITY score
     if flags.any():
         flagged_errors = errors[flags]
         site_cond_during_flags = flagged_errors[:, :, cond_idx].mean(axis=0) if cond_idx is not None else flagged_errors.mean(axis=(0, 2))
@@ -131,7 +116,6 @@ def main():
             val = site_cond_during_flags[node_idx]
             print(f"    {site_name:<14}  {val:.4f}")
 
-        # Temporal breakdown of conductivity-flagged events
         print("\n  Conductivity-flagged anomalies by day:")
         flagged_times = timestamps[flags]
         from collections import Counter
@@ -144,4 +128,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    

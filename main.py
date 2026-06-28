@@ -12,10 +12,7 @@ from src.training.trainer import train_temporal_gnn
 from src.anomalies.anomaly_detector import compute_anomaly_scores, detect_spills_with_rain_adjustment
 
 
-# ─── Model registry ──────────────────────────────────────────────────────────
-# Maps a short --model name to the class to instantiate. To add a new model:
-# implement the class in its own file under src/models/, import it here, and
-# add an entry to _MODEL_REGISTRY. Nothing else in main.py changes.
+# Maps --model names to classes. Add new models here; nothing else in main.py changes.
 from src.models.Dusk_Crayfish import DuskCrayfish
 # from src.models.Flame_Skimmer import FlameSkimmer    # not yet implemented
 # from src.models.Water_Strider import WaterStrider    # not yet implemented
@@ -29,27 +26,14 @@ _MODEL_REGISTRY = {
 
 def _align_to_trained_features(sequences, targets, current_feature_cols, trained_feature_cols):
     """
-    Reshape freshly-built sequences so their feature axis matches exactly the
-    feature set the model was trained on.
+    Makes the freshly-built sequences match the feature set the model was trained on.
 
-    This is the fix for the size-mismatch crash. The model's input and output
-    layers are sized for len(trained_feature_cols). But the data we just loaded
-    might have a different set of features present — for example training got 6
-    features (sensors + full weather) while a later inference run only got 4
-    because the historical weather fetch failed and only NWS air_temp came
-    through. Without alignment, loading the trained weights into a model sized
-    for the current feature count fails.
+    Fix for size-mismatch crashes at load time. Training might have seen 6 features,
+    but the current run only got 4 because a weather fetch failed. We build a
+    zero-filled array sized to the trained feature set, copy over whatever matches,
+    and drop anything extra. Zeros mean "no signal," same as everywhere else.
 
-    Alignment rule, per feature the model expects:
-      - present in current data  -> copy it into the matching slot
-      - absent from current data -> leave that slot as zeros (the normalized
-                                    mean, the same "no signal" value the
-                                    missing-data policy uses elsewhere)
-    Any feature present in the current data but NOT in the trained set is
-    simply dropped, since the model has no slot for it.
-
-    Returns (aligned_sequences, aligned_targets) shaped to the trained feature
-    count, plus a short report of what was filled or dropped.
+    Returns aligned_sequences, aligned_targets, and a short report of what moved.
     """
     if current_feature_cols == trained_feature_cols:
         return sequences, targets, "exact match (no alignment needed)"
@@ -71,7 +55,7 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
             aligned_tgt[:, :, trained_pos] = targets[:, :, src]
             filled.append(feat)
         else:
-            # Slot stays zero — feature the model expects but this data lacks.
+            # Slot stays zero: feature the model expects but this data doesn't have.
             zero_filled.append(feat)
 
     dropped = [f for f in current_feature_cols if f not in trained_feature_cols]
@@ -88,17 +72,12 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
 
 def _compute_system_scores(errors, feature_cols):
     """
-    Reduce per-(sequence, node, feature) errors to a per-sequence anomaly score.
+    Collapses per-(sequence, node, feature) errors down to one score per timestep.
 
-    "Model All, Alert One" strategy from the SCMG paper: the model predicts
-    every feature to maintain a coherent physical state, but we only score
-    on conductivity error because that's where spills actually show up.
-    Other features' prediction errors are useful for training but just add
-    noise when summed into an anomaly score.
-
-    Scoring on conductivity averaged across nodes means a network-wide
-    deviation (real spill) scores higher than a single-site blip (sensor
-    noise or localized issue).
+    Scores only on conductivity because that's where spills show up. The model
+    predicts all features to stay grounded in physics, but rolling everything into
+    the anomaly score just adds noise. Averaging conductivity across nodes means a
+    network-wide deviation scores higher than a single-site blip.
     """
     if "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
@@ -112,7 +91,7 @@ def _compute_system_scores(errors, feature_cols):
 
 def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize=False):
     """
-    Control logic for the GNN pipeline.
+    Runs the GNN anomaly detection pipeline in train, update, or inference mode.
     """
     model_dir = "models"
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
@@ -126,7 +105,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     print(f"Model:          {model_name}")
     print(f"Device:         {Config.DEVICE}")
 
-    # ─── Data loading ────────────────────────────────────────────────────────
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring
         df_featured, df_original, locations = load_and_preprocess_data(
@@ -157,10 +135,8 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         sys.exit(1)
     ModelClass = _MODEL_REGISTRY[model_name]
 
-    # ─── Resolve final mode FIRST, before sizing the model ───────────────────
-    # Inference falls back to training if no weights exist. We need the resolved
-    # mode to decide whether the model is sized from saved metadata (load path)
-    # or from the freshly-built data (fresh-train path).
+    # Resolve mode before sizing the model: inference falls back to train if no
+    # weights exist, and that affects whether we size from metadata or fresh data.
     have_weights = os.path.exists(model_path)
     have_metadata = os.path.exists(metadata_path)
 
@@ -172,12 +148,8 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             print("         running --mode train first to train on 30 days.")
         resolved_mode = "train"
 
-    # ─── Determine the model's feature set ───────────────────────────────────
-    # If we're loading an existing model (update/inference with weights), the
-    # model MUST be sized to the feature set it was trained on, which lives in
-    # metadata. The current data is then aligned to that set. If we're training
-    # fresh, the model is sized to the current data and that set becomes the
-    # trained feature set.
+    # Loading an existing model: size to the trained feature set from metadata,
+    # then align current data to match. Training fresh: current data defines the set.
     loading_existing = resolved_mode in ["update", "inference"] and have_weights
 
     if loading_existing:
@@ -193,7 +165,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             print("ERROR: metadata has no feature_cols. Retrain with --mode train.")
             sys.exit(1)
 
-        # Align the freshly-built sequences to the model's trained feature set.
         sequences, targets, align_report = _align_to_trained_features(
             sequences, targets, feature_cols, trained_feature_cols
         )
@@ -216,7 +187,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     mode = resolved_mode
 
-    # ─── Split data based on resolved mode ───────────────────────────────────
     if mode == "inference":
         train_seq, train_tgt = None, None
         test_seq, test_tgt = sequences, targets
@@ -227,7 +197,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         train_tgt, test_tgt = targets[:split_idx], targets[split_idx:]
         test_timestamps = timestamps[split_idx:]
 
-    # ─── Train if needed ─────────────────────────────────────────────────────
     trained_threshold = None
     if mode in ["train", "update"]:
         print("Commencing model optimization...")
@@ -255,7 +224,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     else:
         print("Skipping training phase. Entering evaluation mode.")
 
-    # ─── Anomaly scoring ─────────────────────────────────────────────────────
     model.eval()
     errors, predictions = compute_anomaly_scores(
         model,
@@ -267,11 +235,8 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     system_scores = _compute_system_scores(errors, feature_cols)
 
-    # ─── Resolve the spill threshold ─────────────────────────────────────────
-    # Order of preference:
-    #   1. The threshold we just computed this run (train/update modes).
-    #   2. The threshold saved in metadata from a previous training run.
-    #   3. Fallback: P99 of the current run's scores (OLD BUGGY BEHAVIOR).
+    # Priority: this run's computed threshold, then saved metadata, then P99 fallback.
+    # The fallback is the old buggy behavior; retrain to get a stable one.
     base_threshold = trained_threshold
     if base_threshold is None and have_metadata:
         with open(metadata_path, "rb") as f:
@@ -299,7 +264,6 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     spill_count = np.sum(spill_flags)
     print(f"Detection cycle finished. Anomalies identified: {spill_count}")
 
-    # ─── Visualization ───────────────────────────────────────────────────────
     if visualize:
         from src.utils.visualizations import plot_static_dashboard, plot_interactive_plotly
         plot_static_dashboard(
@@ -327,14 +291,12 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
                 threshold_percentile=Config.THRESHOLD_PERCENTILE,
             )
 
-    # ─── Alerting ────────────────────────────────────────────────────────────
     if mode == "inference" and spill_count > 0:
         try:
             from src.utils.notifier import send_spill_alert
-            # spill_flags is 1D (per-timestep system score), so any flagged
-            # timestep means the network as a whole alerted. Per-location
-            # attribution would need per-node scores, which we don't compute
-            # here — so report the system-level alert.
+            # spill_flags is 1D per-timestep, so any flagged timestep means the whole
+            # network alerted. Per-location attribution needs per-node scores, which
+            # we don't compute here.
             send_spill_alert(int(spill_count), locations)
         except Exception as e:
             print(f"Alerting failed: {e}")
@@ -367,4 +329,3 @@ if __name__ == "__main__":
         model_name=args.model,
         visualize=args.visualize,
     )
-    

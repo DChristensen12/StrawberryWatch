@@ -1,15 +1,3 @@
-"""
-Water_Strider -- Temporal GNN with Transformer-based temporal modeling.
-
-Spatial: GCN/GAT per timestep, mean-pool across nodes (same as Dusk_Crayfish).
-Temporal: Transformer encoder with sinusoidal positional encoding.
-
-Use case: when you have more training data than Dusk_Crayfish can comfortably
-exploit (months to years, hundreds of thousands of sequences). Transformers
-have higher capacity and longer effective receptive fields than LSTMs but
-need more data to avoid overfitting. Overkill on a few weeks of creek data.
-"""
-
 import math
 import torch
 import torch.nn as nn
@@ -30,7 +18,7 @@ class PositionalEncoding(nn.Module):
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        # Shape: (1, max_len, d_model) — buffer so it moves with .to(device) but
+        # Shape: (1, max_len, d_model), buffer so it moves with .to(device) but
         # isn't a learned parameter.
         self.register_buffer("pe", pe.unsqueeze(0))
 
@@ -54,7 +42,6 @@ class WaterStrider(nn.Module):
         temporal_layers = Config.TEMPORAL_LAYERS
         dropout = Config.DROPOUT
 
-        # ─── Spatial (GNN) ─────────────────────────────────────────────────
         self.gnn_layers = nn.ModuleList()
         if self.gnn_type == "GCN":
             self.gnn_layers.append(GCNConv(num_node_features, self.hidden_dim))
@@ -73,9 +60,8 @@ class WaterStrider(nn.Module):
             self.hidden_dim * 4 if self.gnn_type == "GAT" else self.hidden_dim
         )
 
-        # ─── Temporal (Transformer) ────────────────────────────────────────
         # nhead must divide transformer_input_dim evenly. Pick the largest
-        # power of 2 that does — this works for hidden_dim in {16, 32, 64, 128}.
+        # power of 2 that does (works for hidden_dim in {16, 32, 64, 128}).
         nhead = max(h for h in [1, 2, 4, 8] if transformer_input_dim % h == 0)
 
         self.positional_encoding = PositionalEncoding(transformer_input_dim)
@@ -90,12 +76,12 @@ class WaterStrider(nn.Module):
             encoder_layer, num_layers=temporal_layers
         )
 
-        # ─── Output ────────────────────────────────────────────────────────
         self.output_layer = nn.Linear(transformer_input_dim, num_node_features)
         self.dropout = nn.Dropout(dropout)
         self.activation = nn.ReLU()
 
     def forward(self, x_sequence, edge_index, batch_size, num_nodes):
+        """Same interface as DuskCrayfish.forward but runs Transformer instead of LSTM."""
         batch_size, seq_len, num_nodes, num_features = x_sequence.shape
 
         # Build batched edge index once (same trick as DuskCrayfish)
@@ -106,7 +92,6 @@ class WaterStrider(nn.Module):
         batch_loader = Batch.from_data_list(data_list).to(x_sequence.device)
         batch_edge_index = batch_loader.edge_index
 
-        # Spatial encoding per timestep
         gnn_outputs = []
         for t in range(seq_len):
             x_t = x_sequence[:, t, :, :]
@@ -120,11 +105,10 @@ class WaterStrider(nn.Module):
             h_graph = h.mean(dim=1)  # (batch, hidden_dim)
             gnn_outputs.append(h_graph)
 
-        # Stack into sequence and apply positional encoding
         temporal_input = torch.stack(gnn_outputs, dim=1)  # (batch, seq_len, hidden_dim)
         temporal_input = self.positional_encoding(temporal_input)
 
-        # Transformer encoder — outputs same shape as input
+        # Transformer encoder, outputs same shape as input.
         temporal_output = self.transformer(temporal_input)
 
         # Use the final timestep's representation (like LSTM's last hidden state)

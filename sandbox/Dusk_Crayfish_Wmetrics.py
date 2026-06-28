@@ -22,18 +22,15 @@ from src.models.Dusk_Crayfish import DuskCrayfish
 from src.anomalies.metrics import classify_event, format_classification
 
 
-# How many hours of data immediately before a flagged event count as the
-# baseline the classifier compares against. The event's parameter means are
-# measured against this window's means to decide which direction each parameter
-# moved. 24h captures a full daily rhythm while staying recent.
+# How many hours before a flagged event to use as the baseline for classification.
+# 24h captures a full daily cycle while staying recent enough to be meaningful.
 _BASELINE_HOURS = 24
 
 
 def _compute_system_scores(errors, feature_cols):
     """
-    Conductivity-only scoring averaged across nodes, identical to main.py. The
-    classifier does not change detection; this is here so the wrapper detects
-    exactly the same anomalies the production path would.
+    Conductivity-only scoring, averaged across nodes, same as main.py.
+    Kept identical so this script detects exactly the same anomalies the production path would.
     """
     if "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
@@ -43,8 +40,8 @@ def _compute_system_scores(errors, feature_cols):
 
 def _find_flagged_runs(spill_flags):
     """
-    Group the per-timestep flags into contiguous runs of True. Returns a list
-    of (start_index, end_index_inclusive) pairs, one per continuous event.
+    Groups per-timestep flags into contiguous runs. Returns a list of
+    (start_idx, end_idx_inclusive) pairs, one per continuous event.
     """
     runs = []
     start = None
@@ -61,9 +58,8 @@ def _find_flagged_runs(spill_flags):
 
 def _affected_site(errors, run, feature_cols, location_to_idx):
     """
-    Pick the site that drove a flagged run, the node with the highest mean
-    conductivity error across the run. That is the location whose data we slice
-    for classification, since it is where the event showed up most strongly.
+    Finds the site that drove a flagged run: the node with the highest mean
+    conductivity error across it. That's the location we slice for classification.
     """
     if "conductivity" not in feature_cols:
         return None
@@ -79,11 +75,10 @@ def _affected_site(errors, run, feature_cols, location_to_idx):
 
 def _slice_windows(df_original, location, event_start_ts, event_end_ts):
     """
-    From the original unnormalized dataframe, pull the event window (between the
-    flagged timestamps for the affected site) and the baseline window (the
-    _BASELINE_HOURS before the event started). Returns (baseline_df, event_df)
-    with the sensor columns the classifier reads, or (None, None) if there is
-    not enough data.
+    Pulls the event window and the pre-event baseline from the unnormalized dataframe.
+
+    Baseline is _BASELINE_HOURS before the event start. Returns (baseline_df, event_df)
+    for the given site, or (None, None) if there's not enough data.
     """
     if "location" in df_original.columns:
         site = df_original[df_original["location"] == location].copy()
@@ -93,8 +88,7 @@ def _slice_windows(df_original, location, event_start_ts, event_end_ts):
     if site.empty:
         return None, None
 
-    # df_original is indexed by datetime in the pipeline. Make sure we can
-    # compare timestamps regardless of whether it is the index or a column.
+    # datetime may be the index or a column depending on how df_original arrived.
     if not isinstance(site.index, pd.DatetimeIndex):
         if "datetime" in site.columns:
             site = site.set_index("datetime")
@@ -112,6 +106,7 @@ def _slice_windows(df_original, location, event_start_ts, event_end_ts):
 
 
 def main(mode, data_source):
+    """Runs detection and classification in the requested mode."""
     model_dir = os.path.join(_REPO_ROOT, "models")
     model_path = os.path.join(model_dir, "dusk_crayfish_weights.pt")
     metadata_path = os.path.join(model_dir, "dusk_crayfish_metadata.pkl")
@@ -151,9 +146,7 @@ def main(mode, data_source):
             saved = pickle.load(f)
         trained_feature_cols = saved.get("feature_cols")
         if feature_cols != trained_feature_cols:
-            # Reuse the same alignment idea main.py uses: size to the trained
-            # set and zero-fill anything absent. Kept simple here since the
-            # sandbox normally runs train fresh.
+            # Size to the trained feature set, same approach as main.py.
             print(f"[INFO] feature sets differ; using trained set {trained_feature_cols}")
         feature_cols = list(trained_feature_cols)
 
@@ -187,7 +180,6 @@ def main(mode, data_source):
                 "threshold_percentile": Config.THRESHOLD_PERCENTILE,
             }, f)
 
-    # ─── Detection, identical to main.py ─────────────────────────────────────
     model.eval()
     errors, _ = compute_anomaly_scores(model, test_seq, test_tgt, edge_index, Config.DEVICE)
     system_scores = _compute_system_scores(errors, feature_cols)
@@ -207,7 +199,6 @@ def main(mode, data_source):
     spill_count = int(np.sum(spill_flags))
     print(f"\nDetection finished. Anomalies: {spill_count}, threshold {base_threshold:.4f}")
 
-    # ─── Classification, the new layer on top ────────────────────────────────
     if spill_count == 0:
         print("No anomalies to classify.")
         return
@@ -244,4 +235,3 @@ if __name__ == "__main__":
     parser.add_argument("--data-source", default="api", choices=["api", "sql"])
     args = parser.parse_args()
     main(mode=args.mode, data_source=args.data_source)
-    

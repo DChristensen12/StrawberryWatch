@@ -1,7 +1,7 @@
 # StrawberryWatch: Strawberry Creek Monitoring Group Anomaly Detection System
 
 <p align="center">
-  <img src="assets/SCMGlogo.jpg" width="650">
+  <img src="assets/SCMGlogo.jpg" width="575">
 </p>
 
 This is an unsupervised anomaly detection for the Strawberry Creek monitoring network. The system learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without ever being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.

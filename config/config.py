@@ -3,40 +3,32 @@ import os
 import torch
 from dotenv import load_dotenv
 
-# Load sensitive environment variables from .env
 load_dotenv()
 
 
 class Config:
-    # ─── SCMG REST API ──────────────────────────────────────────────────────
     API_TOKEN     = os.getenv("SCMG_API_TOKEN")
     API_BASE_URL  = os.getenv(
         "SCMG_API_BASE_URL",
         "https://www.strawberrycreek.org/api/creek-data/",
     )
 
-    # ─── NWS Weather (LBNL station) ─────────────────────────────────────────
-    # No API key needed; only a descriptive User-Agent.
+    # No API key needed, just a descriptive User-Agent.
     # Set USE_NWS_RAIN=false in .env to disable rain-merge entirely.
     NWS_STATION_ID = os.getenv("NWS_STATION_ID", "LBNL1")
     NWS_USER_AGENT = os.getenv("NWS_USER_AGENT", "SCMG-AnDeSys/1.0")
     USE_NWS_RAIN   = os.getenv("USE_NWS_RAIN", "true").lower() == "true"
     USE_NWS_WEATHER = os.getenv("USE_NWS_WEATHER", "true").lower() == "true"
 
-    # ─── MySQL ───────────────────────────────────────
-    # Only needed when running with --data-source sql.
-    # Schema: one table per site (named after site_code, lowercased), columns
-    # are managed dynamically by Night Heron's get_creek_data.py. The sql_client
-    # uses SHOW COLUMNS to discover what's available, so no column overrides are needed.
-    #
-    # Variable names match Night Heron's .env so the same credentials work for both.
+    # Only needed with --data-source sql. Variable names match Night Heron's .env
+    # so the same credentials work for both. Schema is one table per site (lowercased
+    # site_code); sql_client uses SHOW COLUMNS, so no column overrides needed.
     MYSQL_HOST     = os.getenv("MYSQL_HOST")
     MYSQL_USER     = os.getenv("MYSQL_DATABASE_USER")
     MYSQL_PASSWORD = os.getenv("MYSQL_DATABASE_PASSWORD")
     MYSQL_DATABASE = os.getenv("MYSQL_DATABASE_NAME")
     MYSQL_PORT     = int(os.getenv("MYSQL_PORT", "3306"))
 
-    # ─── YAML settings ──────────────────────────────────────────────────────
     _current_dir = os.path.dirname(__file__)
     _yaml_path   = os.path.join(_current_dir, "settings.yaml")
 
@@ -70,7 +62,6 @@ class Config:
     # Preprocessing
     IMPUTATION_LIMIT_HOURS = _s.get("preprocessing", {}).get("imputation_limit_hours", 3)
 
-    # ─── Constants ──────────────────────────────────────────────────────────
     SEQUENCE_LENGTH = 24
     DATA_FILE       = "data/processed_data/full_creek_gnn.csv"
     DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")

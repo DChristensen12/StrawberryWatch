@@ -6,10 +6,8 @@ from config.config import Config
 
 def compute_anomaly_scores(model, sequences, targets, edge_index, device):
     """
-    Compute reconstruction errors (anomaly scores) for sequences.
-    Returns:
-        errors: np.ndarray (absolute prediction error per sensor per feature)
-        predictions: np.ndarray (raw model outputs)
+    Runs the model in eval mode and computes per-(node, feature) absolute reconstruction error.
+    Returns (errors, predictions) as numpy arrays.
     """
     model.eval()
     model = model.to(device)
@@ -26,7 +24,6 @@ def compute_anomaly_scores(model, sequences, targets, edge_index, device):
             num_nodes=sequences.shape[2]
         )
 
-        # Compute absolute reconstruction error (MAE)
         errors = torch.abs(predictions - target_tensor)
 
     return errors.cpu().numpy(), predictions.cpu().numpy()
@@ -44,16 +41,12 @@ def detect_spills_with_rain_adjustment(
     rain_amount_threshold=Config.RAIN_AMOUNT_THRESHOLD
 ):
     """
-    Rain-aware spill detection with adaptive thresholding.
+    Rain-aware spill detection. Applies a base threshold, then scales it up during
+    rain windows to cut false positives from natural runoff.
 
-    Identifies rain-affected periods with a lookback window, applies a base
-    threshold, then scales it up during rain to reduce false positives from
-    natural runoff.
-
-    If base_threshold is provided (from training metadata), it's used directly.
-    Otherwise falls back to computing it from the current run's scores — this
-    is the OLD buggy behavior where ~1% of any window gets flagged by definition.
-    Always prefer passing a threshold computed at training time.
+    base_threshold should come from training metadata. If it's None, this falls back
+    to computing it from the current run's scores (the old buggy behavior where ~1%
+    of any window gets flagged by definition). Always prefer the trained value.
     """
     # Resolve the threshold. The trained value (passed in) is the right answer;
     # recomputing on the current run is a fallback that warns loudly.
@@ -65,9 +58,8 @@ def detect_spills_with_rain_adjustment(
         )
         base_threshold = np.percentile(system_anomaly_scores, threshold_percentile)
 
-    # Decide whether rain adjustment is even possible. We need a rain_mm column
-    # with real values, a location column to pick a weather reference site, and
-    # at least one location to read from.
+    # Rain adjustment needs a populated rain_mm column, a location column,
+    # and at least one known location in the data.
     can_adjust_for_rain = (
         'rain_mm' in df_original.columns
         and not df_original['rain_mm'].isna().all()
@@ -90,11 +82,9 @@ def detect_spills_with_rain_adjustment(
 
         return spill_flags, rain_flags, adjusted_thresholds
 
-    # Use the first location as the weather reference for rain data
     rain_data = df_original[df_original['location'] == locations[0]][['rain_mm']].copy()
 
-    # Flag each timestamp where cumulative rain in the past rain_window_hours
-    # exceeds the amount threshold.
+    # Flag timestamps where recent rain (last rain_window_hours) exceeds the amount threshold.
     rain_flags = np.zeros(len(timestamps), dtype=bool)
     for i, ts in enumerate(timestamps):
         lookback_start = ts - pd.Timedelta(hours=rain_window_hours)
@@ -102,17 +92,14 @@ def detect_spills_with_rain_adjustment(
         if recent_rain['rain_mm'].sum() > rain_amount_threshold:
             rain_flags[i] = True
 
-    # Apply the multiplier only where rain_flags is True
     adjusted_thresholds = np.where(
         rain_flags,
         base_threshold * rain_threshold_multiplier,
         base_threshold
     )
 
-    # Generate spill flags
     spill_flags = system_anomaly_scores > adjusted_thresholds
 
-    # Summary logging
     print(f"--- Detection Summary ---")
     print(f"Total Spills Detected: {spill_flags.sum()}")
     print(f"Rain-Affected Spills: {(spill_flags & rain_flags).sum()}")

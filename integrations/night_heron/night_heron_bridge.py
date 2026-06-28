@@ -1,19 +1,15 @@
 # Reference code to paste into Night Heron's email_alerts.py.
-# NOT runnable inside StrawberryWatch. It assumes the Night Heron environment:
-# Django is set up, base.models.AlertEvent exists, the EMAIL_USER / EMAIL_PASS /
-# FROM_EMAIL credentials and the _send_sms function from email_alerts.py are in
-# scope, and the imports at the top of that file (smtplib, pandas as pd,
-# datetime, EmailMessage, typing, logger) are present.
-#
-# Paste everything below into email_alerts.py, in the alert delivery section.
+# NOT runnable inside StrawberryWatch. Assumes the Night Heron environment:
+# Django, base.models.AlertEvent, EMAIL_USER/EMAIL_PASS/FROM_EMAIL credentials,
+# the _send_sms function, and the standard email_alerts.py imports are all in scope.
+# Paste everything below into the alert delivery section.
 
 
 def _diagnosis_line(classification):
     """
-    Spill type sentence for an anomaly alert from a metrics.classify_event
-    result. Passed in as a plain dict so this file does not import StrawberryWatch
-    code, keeping the two repositories decoupled. Handles all three verdicts so
-    the email never overstates the classifier's certainty.
+    Turns a classify_event result into the spill-type sentence for an alert email.
+    Takes a plain dict to avoid importing StrawberryWatch code (keeps the repos decoupled).
+    Handles all three verdicts so the email never overstates what the classifier knows.
     """
     if classification is None:
         return "Spill type was not classified for this anomaly."
@@ -49,9 +45,8 @@ def _diagnosis_line(classification):
 
 def _send_anomaly_email(rcpts, site, score, threshold, event_time, classification=None):
     """
-    Send one GNN anomaly alert email in the same style as _send_email, using the
-    same Elastic Email SMTP and EMAIL_USER / EMAIL_PASS / FROM_EMAIL credentials.
-    Returns the same status strings _send_email uses.
+    Sends a GNN anomaly alert email using the same Elastic Email SMTP and credentials as _send_email.
+    Returns the same status strings so the caller can handle success/failure the same way.
     """
     if not rcpts:
         logger.info(f"No email recipients for anomaly alert at {site}. Skipping email.")
@@ -89,11 +84,10 @@ def _send_anomaly_email(rcpts, site, score, threshold, event_time, classificatio
 def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phones,
                             classification=None, created_by_user_id=None, group_obj_id=None):
     """
-    Worker task for a GNN anomaly alert, mirroring fire_alerts_task. Sends the
-    email, optionally an SMS, and logs an AlertEvent so anomaly alerts share the
-    same audit trail as threshold alerts. event_time is passed as an ISO string
-    because, like fire_alerts_task, this runs in a spawned worker and arguments
-    must be picklable.
+    Worker task for a GNN anomaly alert, mirroring fire_alerts_task. Sends email,
+    optionally SMS, and logs an AlertEvent so anomaly alerts share the same audit trail
+    as threshold alerts. event_time comes in as an ISO string because spawned worker
+    arguments have to be picklable.
     """
     try:
         django.setup()
@@ -118,9 +112,8 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
         detailed_email_status = "failure_exception_calling"
     db_email_status = "success" if detailed_email_status == "success" else "failure"
 
-    # _send_sms expects a numeric Series; the meaningful number for an anomaly
-    # is the score, so pass a one element Series of it under the conductivity
-    # label since that is what the detector scores on.
+    # _send_sms expects a numeric Series, so wrap the score in one under the
+    # conductivity label since that's what the detector scores on.
     detailed_sms_status = "pending"
     try:
         if phones:
@@ -168,19 +161,15 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
         logger.error(f"CRITICAL: failed to log GNN anomaly AlertEvent for {site}: {e_log}", exc_info=True)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# THE TRIGGER: how a StrawberryWatch anomaly reaches this daemon.
-#
+# How a StrawberryWatch anomaly actually reaches this daemon.
 # Nothing above gets called until something invokes fire_anomaly_alert_task.
-# The daemon's main loop only iterates Django rule objects, so it never reaches
-# the GNN. Two clean ways to wire it, pick one when the systems actually merge:
+# The daemon's main loop only iterates Django rule objects, so it never touches
+# the GNN. Two options for wiring this up when the systems actually merge:
 #
-# Option A, table polling (recommended, fits this daemon's pattern):
-#   StrawberryWatch writes each flagged anomaly as a row into a shared MySQL
-#   table, e.g. gnn_anomalies, with columns for site, score, threshold,
-#   event_time, a JSON classification blob, and a sent flag. Each cycle, this
-#   daemon reads unsent rows and submits them to the pool, the same way it fires
-#   rule alerts:
+# Option A (recommended, fits the daemon's table-polling pattern):
+#   StrawberryWatch writes each flagged anomaly as a row into a shared MySQL table
+#   (gnn_anomalies) with site, score, threshold, event_time, a classification JSON
+#   blob, and a sent flag. Each daemon cycle reads unsent rows and submits them:
 #
 #     for row in unsent_gnn_anomaly_rows():
 #         ALERT_POOL.apply_async(
@@ -194,11 +183,10 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
 #         )
 #         mark_row_sent(row["id"])
 #
-#   This keeps the daemon the single owner of delivery and the AlertEvent log,
-#   and StrawberryWatch never needs Night Heron's credentials.
+#   Keeps the daemon as the single owner of delivery and the AlertEvent log.
+#   StrawberryWatch never needs Night Heron's credentials.
 #
-# Option B, direct call:
-#   StrawberryWatch imports and calls _send_anomaly_email itself with Night
-#   Heron's credentials. Simpler but couples the repos and splits alert
-#   ownership across two systems, so Option A is likely preferred.
-# ─────────────────────────────────────────────────────────────────────────────
+# Option B (simpler, probably not worth it):
+#   StrawberryWatch imports and calls _send_anomaly_email directly with Night
+#   Heron's credentials. Couples the repos and splits alert ownership, so A
+#   is likely the better call.

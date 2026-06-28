@@ -1,22 +1,3 @@
-"""
-sql_client.py
-─────────────────────────────────────────────────────────────
-MySQL data source for Pulse.
-
-Schema (mirrors base/models.py and email_alerts.py.load_creek):
-    - One table per site, named after SensorDetails.site_code lowercased.
-      Special case: 'SCNF010' is stored with preserved capitalization.
-    - Columns are dynamically managed by the ingest daemon. We use
-      SHOW COLUMNS to discover what's available rather than hardcoding.
-    - Every table has a 'timestamp' column.
-
-Public interface mirrors src/ingest/api_client.py so data_loader can
-dispatch between sources with no other changes:
-
-    fetch_creek_data_sql(site, start_time, end_time)        -> DataFrame
-    fetch_network_snapshot_sql(start_time, end_time)        -> DataFrame
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,10 +14,6 @@ from config.config import Config
 
 logger = logging.getLogger(__name__)
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Connection
-# ────────────────────────────────────────────────────────────────────────────
 
 @contextmanager
 def _connect() -> Iterator[mysql.connector.MySQLConnection]:
@@ -72,9 +49,7 @@ def _connect() -> Iterator[mysql.connector.MySQLConnection]:
             pass
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Site → table-name resolution (mirrors creek_data.py line 483-489)
-# ────────────────────────────────────────────────────────────────────────────
+# Site → table-name resolution (mirrors creek_data.py lines 483-489)
 
 # Sites whose production table names preserve capitalization. Extend if
 # more MMW sites come online.
@@ -84,6 +59,7 @@ _SITE_TABLE_OVERRIDES = {
 
 
 def _table_name_for_site(site_code: str) -> str:
+    """Converts a site code to the MySQL table name, handling capitalization edge cases."""
     if not isinstance(site_code, str) or not site_code:
         raise ValueError(f"Invalid site_code: {site_code!r}")
     lowered = site_code.lower()
@@ -93,21 +69,17 @@ def _table_name_for_site(site_code: str) -> str:
 
 
 def _is_safe_identifier(name: str) -> bool:
+    """Returns True if name is a safe MySQL identifier (no injection risk)."""
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Public API
-# ────────────────────────────────────────────────────────────────────────────
-
 def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
     """
-    Pull all sensor columns for one site from MySQL over [start_time, end_time].
+    Pulls all sensor columns for one site from MySQL over [start_time, end_time].
 
     Returns a DataFrame with 'timestamp' plus every sensor column the table
     exposes (raw MMW codes like 'Meter_Hydros21_Cond'). Column renaming to
-    Pulse's internal names happens in data_loader, identically for the API
-    and SQL paths.
+    internal names happens in data_loader, same as the API path.
     """
     table = _table_name_for_site(site)
 
@@ -166,7 +138,7 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
 
 def fetch_network_snapshot_sql(start_time, end_time) -> pd.DataFrame:
     """
-    Pull data for every site in Config.LOCATIONS and concatenate.
+    Pulls data for every site in Config.LOCATIONS and concatenates them.
     Same shape as api_client.fetch_network_snapshot.
     """
     frames = []

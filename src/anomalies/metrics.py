@@ -9,61 +9,41 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 
-# Direction codes used in the signature table and in the observed changes.
-# UP means the parameter rose during the event relative to baseline.
-# DOWN means it fell. FLAT means no significant change.
-# INDET means the table does not assign this parameter a direction for this
-# pollutant, because it genuinely does not discriminate (e.g. rain temperature
-# can go either way). INDET cells are skipped during matching, neither
-# rewarded nor penalized, so a non-diagnostic parameter never drags down the
-# score for the correct pollutant.
+# Direction codes for the signature table and observed changes.
+# UP/DOWN/FLAT are as expected. INDET means the parameter doesn't discriminate for
+# this pollutant, so it's skipped during matching (no reward, no penalty).
 UP = "up"
 DOWN = "down"
 FLAT = "flat"
 INDET = "indeterminate"
 
-# Magnitude tag. Most signature cells are ordinary moves. A few in the table
-# are called out as major (oil and sewage crashing dissolved oxygen, oil
-# tanking floating conductivity). We record the tag so a future version can
-# reward a strong observed move more heavily, but the current matcher only
-# uses direction, treating MAJOR the same as a normal move.
+# Magnitude tag. A few signature cells are marked MAJOR (e.g. oil crashing DO).
+# The current matcher treats MAJOR the same as NORMAL; the tag is there for a
+# future version that weights strong moves more heavily.
 NORMAL = "normal"
 MAJOR = "major"
 
-# The discriminating channels. These are the parameters that actually separate
-# pollutant types in the signature table. Conductivity and temperature alone
-# collapse most types together (rain, tapwater, and oil all drop conductivity;
-# sewage and fertilizer both raise it), so without at least one of these the
-# classifier cannot honestly name a type. Used by the diagnosis gate.
+# The channels that actually separate pollutant types. Conductivity and temp alone
+# collapse most types together (rain/tapwater/oil all drop conductivity; sewage/fertilizer
+# raise it), so without at least one of these the classifier won't name a type.
 _DISCRIMINATING = ("dissolved_oxygen", "ph", "floating_conductivity")
 
-# A best match scoring below this fraction of agreeing parameters is treated as
-# a poor fit, which triggers the possible-new-type verdict. Half means fewer
-# than half the comparable parameters agreed with the closest known signature.
+# If the best pollutant match scores below this fraction of agreeing parameters,
+# it's a poor fit and we call possible_new_type instead of naming a pollutant.
 _NEW_TYPE_SCORE_FLOOR = 0.5
 
-# The diagnosis gate. At least this many discriminating channels must be
-# populated before the classifier will commit to a named pollutant. One is the
-# honest floor; below it, any named type is really a conductivity-and-temperature
-# guess, so the result is reported as undetermined instead.
+# Minimum discriminating channels needed to commit to a named pollutant.
+# Below this it's just a cond+temp guess, so we report undetermined instead.
 _MIN_DISCRIMINATING_FOR_DIAGNOSIS = 1
 
 
-# The signature table, transcribed from the Water Quality team's Table 1a.
-# Each pollutant maps each parameter to (direction, magnitude). This is the
-# one place to edit if the table changes. The classifier reads only from here.
+# Signature table from the Water Quality team's Table 1a.
+# Each pollutant maps each parameter to (direction, magnitude).
+# This is the one place to edit if the table changes.
 #
-# Parameters, in the order the team defined them:
-#   temperature, dissolved_oxygen, ph, conductivity, floating_conductivity
-#
-# Depth is intentionally left out of the per-pollutant signatures. Depth rises
-# with added water volume, so it tracks how a pollutant is delivered (runoff
-# during rain raises it, a concentrated point-source discharge may not) rather
-# than which pollutant it is. It is a useful event confirmation signal but a
-# poor type discriminator, which matches the team's own conclusion that an
-# increase in depth indicates that some spill occurred without saying which.
-# To bring depth in as a runoff-vs-point-source hint later, uncomment the
-# depth entries below and add "depth" to _PARAMETERS.
+# Depth is deliberately left out. It tells you HOW the spill was delivered
+# but not WHICH pollutant. Uncomment depth entries and add "depth" to
+# _PARAMETERS if you want it as a delivery hint.
 _SIGNATURES = {
     "rain": {
         "temperature":           (INDET, NORMAL),   # depends on rain and air temp
@@ -134,15 +114,14 @@ _CHANGE_THRESHOLD_STD = 1.0
 
 def _observed_direction(baseline_vals, event_vals):
     """
-    Decide whether a parameter went UP, DOWN, or FLAT from baseline to event.
+    Determines whether a parameter went UP, DOWN, or FLAT from baseline to event.
 
-    Uses the baseline's own variability as the yardstick. The event mean has to
-    differ from the baseline mean by more than _CHANGE_THRESHOLD_STD baseline
-    standard deviations to count as a move. This makes the threshold adapt to
-    each parameter's natural noise instead of using one fixed number for very
-    different scales like temperature and conductivity.
+    Uses the baseline's own variability as the yardstick: the event mean has to move
+    more than _CHANGE_THRESHOLD_STD standard deviations to count as a real move. This
+    adapts to each parameter's natural noise rather than hardcoding one threshold for
+    wildly different scales like temperature and conductivity.
 
-    Returns one of UP, DOWN, FLAT, or None if there is not enough data to tell.
+    Returns UP, DOWN, FLAT, or None if there's not enough data.
     """
     b = pd.to_numeric(pd.Series(baseline_vals), errors="coerce").dropna()
     e = pd.to_numeric(pd.Series(event_vals), errors="coerce").dropna()
@@ -174,33 +153,17 @@ def _resolve_parameter(column_name):
 
 def classify_event(baseline_df, event_df):
     """
-    Classify a detected anomaly by matching observed parameter changes against
-    the pollutant signature table, and decide on one of three verdicts:
-    a named pollutant, undetermined (not enough discriminating data to name a
-    type), or possible new type (the data is good enough to judge but matches
-    no known signature well).
+    Classifies a detected anomaly by matching observed parameter changes against
+    the pollutant signature table. Returns one of three verdicts:
 
-    baseline_df and event_df cover the period just before the event and the
-    event window itself. Whichever signature parameters are present and
-    populated get used, the rest are skipped, so this runs today on the few
-    populated sensors and sharpens once dissolved oxygen, pH, and floating
-    conductivity report, with no code change.
+    "diagnosed": a named pollutant matched well enough to commit.
+    "undetermined": not enough discriminating sensors (DO, pH, floating conductivity)
+        to separate types. We decline to guess and give a hint instead.
+    "possible_new_type": data is good enough to judge but fits no known signature,
+        or the top score is a tie. Worth surfacing to a human.
 
-    Verdict logic:
-      - If no discriminating channel (DO, pH, floating conductivity) is
-        populated, the result is "undetermined": the system cannot honestly
-        separate pollutant types on conductivity and temperature alone, so it
-        declines to name one rather than guessing. It still reports the leading
-        candidate as a hint, clearly marked as not a diagnosis.
-      - If discriminating data is available but even the best match scores below
-        the floor, or the top score is a tie across several pollutants with no
-        separation, the result is "possible_new_type": the event is real and
-        judgeable but does not look like anything in the table, which is exactly
-        the case worth surfacing for a human.
-      - Otherwise the result is the best-matching named pollutant.
-
-    Returns a dict with the verdict, the named type (or None), the ranked
-    matches, and the diagnostic context.
+    Works with whatever sensor columns are present; gets sharper as more come online.
+    Returns a dict with verdict, named_type, ranked matches, and diagnostic context.
     """
     observed = {}
     for col in event_df.columns:
@@ -250,7 +213,6 @@ def classify_event(baseline_df, event_df):
     top_score = results[0]["score"]
     tied = [r["pollutant"] for r in results if r["score"] == top_score and top_score > 0]
 
-    # ─── Decide the verdict ──────────────────────────────────────────────────
     if len(discriminating_available) < _MIN_DISCRIMINATING_FOR_DIAGNOSIS:
         # Not enough channels to honestly name a type. Decline to diagnose.
         verdict = "undetermined"
@@ -287,7 +249,6 @@ def classify_event(baseline_df, event_df):
             f"{results[0]['agreements']}/{results[0]['comparable']} parameters agreed)."
         )
 
-    # Confidence note about channel coverage, independent of the verdict.
     if len(discriminating_available) == 0:
         confidence = "none (no discriminating channels populated)"
     elif len(discriminating_available) == 1:
@@ -345,8 +306,7 @@ def format_classification(result):
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
 
-    # Case A: only conductivity and temperature, as in real data today. Should
-    # come back UNDETERMINED, because no discriminating channel is present.
+    # Case A: conductivity + temperature only, no discriminating channels. Should be UNDETERMINED.
     print("CASE A: conductivity up, temperature flat, no discriminating channels")
     baseline = pd.DataFrame({
         "conductivity": rng.normal(300, 5, 50),
@@ -359,8 +319,7 @@ if __name__ == "__main__":
     print(format_classification(classify_event(baseline, event)))
     print()
 
-    # Case B: discriminating channels present and a clean sewage signature.
-    # Conductivity up, temperature up, DO crashes. Should DIAGNOSE sewage.
+    # Case B: clean sewage signature with DO present. Should DIAGNOSE sewage.
     print("CASE B: sewage signature with DO present")
     baseline = pd.DataFrame({
         "conductivity":     rng.normal(300, 5, 50),
@@ -375,9 +334,7 @@ if __name__ == "__main__":
     print(format_classification(classify_event(baseline, event)))
     print()
 
-    # Case C: discriminating channel present but the pattern fits nothing.
-    # DO up, conductivity up, temperature up: no single signature matches well.
-    # Should come back POSSIBLE NEW TYPE.
+    # Case C: contradictory pattern with a discriminating channel. Should be POSSIBLE NEW TYPE.
     print("CASE C: contradictory pattern with a discriminating channel")
     baseline = pd.DataFrame({
         "conductivity":     rng.normal(300, 5, 50),
@@ -390,4 +347,3 @@ if __name__ == "__main__":
         "dissolved_oxygen": rng.normal(11, 0.2, 20),  # up, which no up-conductivity type expects
     })
     print(format_classification(classify_event(baseline, event)))
-    

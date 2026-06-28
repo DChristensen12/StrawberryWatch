@@ -1,25 +1,3 @@
-"""
-weather_client.py
-─────────────────────────────────────────────────────────────
-NWS weather data source for Pulse.
-
-Pulls observations from the LBNL1 station (or whatever NWS_STATION_ID is set to)
-and returns a DataFrame of reliable weather features. No API key needed; only a
-descriptive User-Agent in headers.
-
-Important quirk of the NWS observations endpoint: it serves a rolling window of
-roughly the last 7 days at non-airport stations like LBNL1. You CANNOT use this
-for historical backfill; only for live operation. For training history, we use
-Open-Meteo's archive via historical_weather_client.py.
-
-Feature selection: we only return air_temp_c here. The training-time feature
-set (rain_mm, shortwave_radiation, air_temp_c) is set by historical_weather_client.
-NWS LBNL1 doesn't report precipitation, and solar radiation isn't in the standard
-observation feed, so those two columns will be NaN at inference time. The
-transient-absence mechanism in data_processor handles this cleanly — missing
-weather at inference doesn't break anything, the model just sees what it can.
-"""
-
 from __future__ import annotations
 import logging
 from datetime import datetime
@@ -30,9 +8,8 @@ from config.config import Config
 
 logger = logging.getLogger(__name__)
 
-# We only keep the NWS property that matches a training feature.
-# Dewpoint, humidity, wind, and pressure used to be here but were dropped
-# from the training set in favor of rain and solar (which NWS doesn't provide).
+# Only the NWS property that matches a training feature. Dewpoint, humidity,
+# wind, and pressure were dropped from the training set (NWS doesn't have rain or solar).
 _NWS_PROPERTIES = [
     # (nws_name,    out_name,     convert)
     ("temperature", "air_temp_c", lambda v: v),
@@ -45,13 +22,13 @@ def fetch_nws_weather(
     station_id: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Fetch air temperature from the NWS station over [start_time, end_time].
+    Fetches air temperature from the NWS station over [start_time, end_time].
 
-    Returns a DataFrame with a UTC DatetimeIndex and an air_temp_c column.
-    Empty DataFrame on any failure.
+    Returns a DataFrame with a UTC DatetimeIndex and an air_temp_c column, or
+    an empty DataFrame on failure.
 
-    Note: NWS serves only a ~7-day rolling window for personal stations like LBNL1.
-    Requests for longer windows will silently return only what's available.
+    NWS only keeps a ~7-day rolling window for personal stations like LBNL1.
+    Requests for longer windows silently return only what's available.
     """
     station = station_id or Config.NWS_STATION_ID
     base_url = f"https://api.weather.gov/stations/{station}/observations"
@@ -102,7 +79,6 @@ def fetch_nws_weather(
         logger.warning(f"No NWS observations returned for station {station}.")
         return pd.DataFrame()
 
-    # Flatten properties to rows
     records = []
     for feat in all_features:
         props = feat.get("properties", {}) or {}

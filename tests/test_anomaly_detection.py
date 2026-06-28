@@ -1,70 +1,3 @@
-"""
-Anomaly-detection integration tests for the SCMG Temporal GNN.
-
-Each test loads a labeled sensor window from data/anomalies/ (or data/normal/),
-runs it through the trained model, and checks whether the conductivity
-reconstruction error crosses the model's threshold.
-
---- Scoring matches production ---
-main.py uses the "Model All, Alert One" strategy: the model predicts every
-feature but anomaly scoring looks only at the conductivity channel. These
-tests do the same, so a pass here means the same thing a flag means in
-the live pipeline.
-
---- Rain-adjusted threshold (mirrors anomaly_detector) ---
-Production raises the detection threshold during rain. anomaly_detector
-.detect_spills_with_rain_adjustment flags a timestep as rain-affected when the
-SUM of rain_mm over the preceding Config.RAIN_WINDOW_HOURS exceeds
-Config.RAIN_AMOUNT_THRESHOLD, then multiplies the threshold there by
-Config.RAIN_THRESHOLD_MULTIPLIER. These tests replicate that exact logic
-(sum over the window, same constants), so a rain event the production pipeline
-would suppress is suppressed here too.
-
-Most labeled CSVs lack a rain column, so for those the rain adjustment is a
-no-op (no rain data means no suppression, the conservative choice, matching
-production's behaviour when rain_mm is absent). Where a file carries rain, the
-adjustment engages and the per-case output says so.
-
---- Judging against the trained threshold, not an in-file baseline ---
-We judge against the model's trained threshold (stored in metadata), the same
-calibrated number production uses, rather than an in-file baseline ratio. The
-baseline-ratio approach breaks when the anomaly fills the whole window or sits
-at the very start, leaving no clean pre-event period to divide against. Many of
-these labeled files start mid-event, so the absolute threshold is the honest
-test. We require a few consecutive timesteps over threshold so a single noisy
-point does not count as an event.
-
-Every case prints its peak error, count over threshold, and a sparkline of the
-error curve so a pass or fail can be inspected rather than taken on faith.
-
---- Catalog corrections from SCMG ground-truth notes ---
-Two cases were relabeled after cross-checking the SCMG team's field notes:
-  - nov25_rain/nf0 was originally a "clean rain" true negative, but the team's
-    notes describe the North Fork behaving anomalously during the 11/13 storm
-    (an unexpected conductivity drop on nf0, a spike on nf1). It is now a
-    relative-only case, not an absolute true negative.
-  - jan26_actuator_baseline is a January window judged by a model trained on
-    April-May. The whole window reads mildly elevated due to seasonal
-    distribution shift, not an event. It is now a relative-only case: the model
-    has no seasonal context, so an absolute-threshold true-negative test is not
-    meaningful for it. The actuator-vs-baseline relative test still runs.
-
---- How partial-parameter files are handled ---
-The labeled CSVs only contain the Hydros21 sensor columns (conductivity,
-depth, temperature). The trained model may use more. Missing columns are filled
-with 0.0 (the normalised mean), so the model still detects anomalies in the
-channels that ARE present. This is deliberate: in production a sensor may
-report a partial feature set and detection should degrade gracefully.
-
---- Running ---
-    pytest tests/test_anomaly_detection.py -v -s
-
-The -s flag shows the per-case diagnostic output.
-
-Requires a trained model:
-    python main.py --mode train
-"""
-
 import sys
 from pathlib import Path
 
@@ -98,15 +31,9 @@ COLUMN_MAP = {
     "Sensirion_SHT40_Temperature":   "air_temp_c",
 }
 
-# Ground-truth catalog.
 # (filename, station_suffix_or_None, label, event_group)
-#
-# label is one of:
-#   "anomaly"        the model should flag it (sustained error over threshold)
-#   "true_negative"  the model should NOT flag it (absolute threshold test)
-#   "relative_only"  judged only by relative comparison, not absolute threshold
-#                    (used where seasonal shift or a mislabel makes an absolute
-#                    threshold test meaningless; see catalog-corrections note)
+# label: "anomaly" = must flag, "true_negative" = must not flag,
+#        "relative_only" = relative comparison only (seasonal drift or mislabels)
 EVENT_CATALOG = [
     # June 2025 mystery spill, propagating downstream across all south-fork sensors.
     # Confirmed real by SCMG: multi-day deviation, no rain, supervisors unaware of cause.
@@ -164,33 +91,22 @@ def _load_threshold(model_metadata) -> float:
 
 
 def _rain_window_periods() -> int:
-    """
-    Number of 15-minute timesteps in the rain look-back window. Production uses
-    Config.RAIN_WINDOW_HOURS; the creek cadence is 15 minutes, so 4 steps/hour.
-    """
+    """Number of 15-min timesteps in the rain look-back window (4 per hour)."""
     hours = getattr(Config, "RAIN_WINDOW_HOURS", 12)
     return int(hours * 4)
 
 
 def _per_timestep_rain_threshold(errors, rain_series, base_threshold):
     """
-    Build a per-timestep threshold array that lifts the floor during rain,
-    replicating anomaly_detector.detect_spills_with_rain_adjustment exactly.
+    Builds a per-timestep threshold array matching production's rain-adjustment
+    logic in anomaly_detector.detect_spills_with_rain_adjustment.
 
-    For each error timestep i (a one-step-ahead prediction over a
-    SEQUENCE_LENGTH window, so it scores creek timestep i + SEQUENCE_LENGTH),
-    we sum rain_mm over the preceding Config.RAIN_WINDOW_HOURS. If that sum
-    exceeds Config.RAIN_AMOUNT_THRESHOLD, the threshold there is
-    base_threshold * Config.RAIN_THRESHOLD_MULTIPLIER. Otherwise it stays at
-    base_threshold.
+    Sums rain_mm over the preceding RAIN_WINDOW_HOURS for each error timestep.
+    If the sum exceeds RAIN_AMOUNT_THRESHOLD, that timestep's threshold is
+    base_threshold * RAIN_THRESHOLD_MULTIPLIER (same as production).
 
-    This mirrors production's sum-over-window comparison (not a peak check), so
-    light rain spread over the window triggers suppression the same way it would
-    live.
-
-    If rain_series is None or all non-positive (most labeled files have no rain
-    column), returns a flat base_threshold array. That matches production, which
-    runs without rain adjustment when rain_mm is absent.
+    If rain_series is None or all zero (most labeled files have no rain column),
+    returns a flat array at base_threshold, matching production's no-rain behavior.
     """
     multiplier      = getattr(Config, "RAIN_THRESHOLD_MULTIPLIER", 2.0)
     amount_threshold = getattr(Config, "RAIN_AMOUNT_THRESHOLD", 0.1)
@@ -217,13 +133,11 @@ def _per_timestep_rain_threshold(errors, rain_series, base_threshold):
 def _reconstruction_errors(csv_path, station_suffix, model, model_metadata, edge_index,
                            return_rain=False):
     """
-    Load a single-sensor CSV window and return per-timestep conductivity
-    reconstruction errors for the target node. Scores only the conductivity
-    channel, matching main.py.
+    Loads a labeled CSV, runs it through the model, and returns per-timestep
+    conductivity reconstruction errors for the target node.
 
-    If return_rain is True, also returns the raw rain_mm series (aligned to the
-    original CSV rows) so the caller can build a rain-adjusted threshold.
-    Returns errors or (errors, rain_series).
+    Set return_rain=True to also get the raw rain_mm series for building a
+    rain-adjusted threshold. Returns errors or (errors, rain_series).
     """
     feature_cols    = model_metadata["feature_cols"]
     scaler          = model_metadata["scaler"]
@@ -411,9 +325,8 @@ def test_foam_event_nf1_more_anomalous_than_nf0(trained_model, model_metadata, e
 
 def test_rain_storm_nf1_more_anomalous_than_nf0(trained_model, model_metadata, edge_index):
     """
-    Nov 2025 storm: nf1 (anomalous conductivity spike during rain) peak should
-    exceed nf0. Per SCMG notes both forks behaved oddly during this storm, so
-    this is a relative comparison, not an absolute true-negative on nf0.
+    Nov 2025 storm: nf1 (anomalous conductivity spike) peak should exceed nf0.
+    Both forks behaved oddly per SCMG notes, so this is relative, not a true-negative on nf0.
     """
     err_nf1 = _reconstruction_errors(
         ANOMALY_DIR / "anomaly_2025_11_13_rain_nf1.csv",
@@ -463,10 +376,8 @@ def test_spill_propagation_all_south_fork_flagged(trained_model, model_metadata,
 
 def test_botanical_actuator_more_anomalous_than_baseline(trained_model, model_metadata, edge_index):
     """
-    The actuator malfunction window should have a higher peak conductivity error
-    than the same sensor's normal baseline window (January 2026). This relative
-    comparison cancels the seasonal offset that makes an absolute baseline test
-    meaningless. Baseline file lives in data/normal/.
+    Jan 2026 actuator malfunction should score higher than the same sensor's
+    normal baseline window. The relative comparison cancels seasonal offset.
     """
     err_actuator = _reconstruction_errors(
         ANOMALY_DIR / "anomaly_2026_01_botanical_actuator.csv",
@@ -485,14 +396,11 @@ def test_botanical_actuator_more_anomalous_than_baseline(trained_model, model_me
 
 def test_april_rainfall_no_false_positives(trained_model, model_metadata, edge_index):
     """
-    April 2026 rain (confirmed heavy rain 04/01-04/02): no judged sensor should
-    cross the rain-adjusted threshold. Validates that rain-aware thresholding
-    absorbs first-flush conductivity bumps. Sensors too short to judge skipped.
+    April 2026 rain event: no sensor should cross the rain-adjusted threshold.
+    Checks that rain-aware thresholding absorbs first-flush conductivity bumps.
 
-    If the April CSVs carry no rain_mm column the rain adjustment is a no-op and
-    this falls back to the bare threshold; the per-case output shows whether rain
-    adjustment engaged, which tells you whether a flag here is a real model gap
-    or just missing rain data in the test file.
+    If the CSVs have no rain_mm column the adjustment is a no-op; the per-case
+    output shows whether rain engaged, so you can tell if a flag is a real gap.
     """
     base_threshold = _load_threshold(model_metadata)
     files = [
@@ -524,4 +432,3 @@ def test_april_rainfall_no_false_positives(trained_model, model_metadata, edge_i
         f"threshold but should be true negatives. If these files lack a rain_mm "
         f"column the adjustment was a no-op; see per-case output."
     )
-    

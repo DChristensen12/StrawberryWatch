@@ -64,23 +64,20 @@ def _impute_short_gaps(df, feature_cols, limit_hours):
 
 def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=Config.SEQUENCE_LENGTH):
     """
-    Prepare temporal sequences with Z-score normalization, generalized to
-    handle missing data consistently regardless of which sensor or site.
+    Normalizes and slices df_featured into (sequences, targets) for training.
 
-    Three classes of "missing":
-      1. Permanently absent in this window: an (node, feature) cell has zero
-         non-null values anywhere in the loaded data. e.g. footbridge fully
-         offline, or Oxford lacking a sensor that's installed elsewhere.
-      2. Transiently absent: an (node, feature) cell is NaN at some timesteps
-         but valid at others. Includes "came online partway through" sites
-         like south_fork_1, mid-window outages, calibration windows, etc.
-         Anything not filled by the short-gap imputation is here.
-      3. Present: the cell has a real value (or one interpolated over a short
-         gap; we treat short-gap imputation as close enough to real).
+    Missing data comes in three flavors:
+      1. Permanently absent: an (node, feature) cell has no valid values across
+         the whole loaded window. Covers fully-offline sensors and sites that
+         never had a given feature (e.g. footbridge fully down, or oxford
+         lacking a sensor installed elsewhere).
+      2. Transiently absent: cell is NaN at some timesteps but valid at others.
+         Includes sites that came online mid-window, calibration blackouts,
+         and outages longer than the short-gap imputation limit.
+      3. Present: a real value, or one filled in by short-gap imputation.
 
-    All three are zero-filled in the 3D array so the model sees a consistent
-    "no signal" representation, and timesteps are validated only against
-    cells that are actually present.
+    All three are zero-filled before the model sees them. Timestep validity is
+    checked only against cells that are actually present.
     """
     exclude_cols = _NON_FEATURE_COLUMNS | {"location"}
     feature_cols = [
@@ -96,12 +93,9 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
     num_nodes = len(location_to_idx)
     num_features = len(feature_cols)
 
-    # ─── Detect permanently absent (node, feature) pairs ─────────────────────
-    # A cell is permanently absent if it has zero non-null values for that
-    # specific (location, feature) across the entire loaded window. This
-    # includes both "sensor never installed" and "sensor offline for this
-    # entire window" — they're indistinguishable from the data alone and
-    # the model treats them identically anyway.
+    # A cell is permanently absent if it has zero non-null values across the
+    # whole loaded window. "Sensor never installed" and "sensor offline all
+    # window" are indistinguishable from data alone.
     print("--- Detecting Permanently Absent Sensor Channels ---")
     permanent_absent = set()  # {(node_idx, feat_idx), ...}
     for location, node_idx in location_to_idx.items():
@@ -114,9 +108,7 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
         print("  (none)")
     print()
 
-    # ─── Z-score normalization ───────────────────────────────────────────────
-    # Fit only on fully-valid rows so NaN from long outages doesn't corrupt
-    # the scaler's mean/std statistics.
+    # Fit only on fully-valid rows so long outages don't corrupt the scaler stats.
     all_data = []
     for location in location_to_idx.keys():
         loc_data = df_featured[df_featured["location"] == location][feature_cols].values
@@ -137,7 +129,6 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
             df_featured.loc[loc_mask, feature_cols].values
         )
 
-    # ─── Build 3D array (timesteps, nodes, features) ────────────────────────
     print("--- Building 3D Array ---")
     timestamps_all = sorted(df_normalized.index.unique())
     data_3d = np.full((len(timestamps_all), num_nodes, num_features), np.nan)
@@ -150,11 +141,9 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
             node_idx = location_to_idx[row["location"]]
             data_3d[t_idx, node_idx, :] = row[feature_cols].values
 
-    # ─── Compute transient absence mask ──────────────────────────────────────
-    # transient_absent_mask[t, n, f] = True iff (node n, feature f) is NaN at
-    # timestep t AND that cell is NOT permanently absent (which already gets
-    # zeroed below). These are real outages — sensor down for longer than the
-    # imputation limit, but the sensor isn't permanently missing.
+    # transient_absent_mask[t, n, f] = True if (node n, feature f) is NaN at
+    # timestep t and NOT permanently absent. Real outages longer than the
+    # imputation limit but the sensor isn't gone for good.
     nan_mask = np.isnan(data_3d)
     permanent_mask = np.zeros((num_nodes, num_features), dtype=bool)
     for node_idx, feat_idx in permanent_absent:
@@ -168,17 +157,12 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
         f"({100 * n_transient / n_total_cells:.1f}% of all (t, node, feature) cells)\n"
     )
 
-    # ─── Validity check ──────────────────────────────────────────────────────
-    # A timestep is valid if, after zeroing out both permanent and transient
-    # absences, no NaN remains. In practice this means: at least one (node,
-    # feature) cell at this timestep had real data, and all NaN cells are
-    # accounted for as known absences.
+    # A timestep is valid if zeroing out all known absences leaves no NaN.
+    # That means every NaN is accounted for, and at least one cell had real data.
     def is_valid_timestep(t_idx):
         t_data = data_3d[t_idx].copy()
-        # Zero permanently absent cells
         for node_idx, feat_idx in permanent_absent:
             t_data[node_idx, feat_idx] = 0
-        # Zero transiently absent cells at this specific timestep
         t_data[transient_absent_mask[t_idx]] = 0
         return not np.isnan(t_data).any()
 
@@ -196,7 +180,6 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
     print(f"[INFO] Valid timesteps after 'at least one real node' filter: "
           f"{valid_mask.sum():,} / {len(valid_mask):,}")
 
-    # ─── Build sliding-window sequences ──────────────────────────────────────
     print(f"--- Creating Sequences (Length: {sequence_length}) ---")
     sequences = []
     targets = []
@@ -212,11 +195,9 @@ def prepare_sequences_normalized(df_featured, location_to_idx, sequence_length=C
                 seq[:, node_idx, feat_idx] = 0
                 target[node_idx, feat_idx] = 0
 
-            # Zero transient absences at each step in the window
             for step_offset in range(sequence_length):
                 t_idx = i + step_offset
                 seq[step_offset][transient_absent_mask[t_idx]] = 0
-            # Zero transient absences at the target timestep
             target[transient_absent_mask[i + sequence_length]] = 0
 
             sequences.append(seq)
