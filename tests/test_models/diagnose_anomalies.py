@@ -1,13 +1,3 @@
-"""
-Break down where the flagged anomalies actually are in time, so we can
-tell whether the model is seeing real signal in recent data or just
-mis-fitting some part of the training window.
-
-Run after `python main.py --mode inference --data-source api`.
-Reads the cached data, loads the saved model + metadata, recomputes the
-anomaly scores, and prints a temporal breakdown.
-"""
-
 import os
 import pickle
 from collections import Counter
@@ -36,7 +26,6 @@ def main():
         print(f"Missing model artifacts. Run --mode train first.")
         return
 
-    # Load metadata to get the saved threshold
     with open(metadata_path, "rb") as f:
         meta = pickle.load(f)
     threshold = meta["threshold"]
@@ -58,7 +47,6 @@ def main():
         print("No sequences built — cache may be empty.")
         return
 
-    # Load the model
     num_node_features = sequences.shape[3]
     model = DuskCrayfish(num_node_features=num_node_features).to(Config.DEVICE)
     model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE, weights_only=True))
@@ -79,9 +67,7 @@ def main():
     if n_flagged == 0:
         return
 
-    # ─── Temporal breakdown ──────────────────────────────────────────────────
-    # The target timestamp of each sequence is the actual "event time" we're
-    # scoring on. Group flagged sequences by date.
+    # Target timestamp of each sequence = the actual event time being scored.
     timestamps = pd.to_datetime(timestamps, utc=True)
     flagged_times = timestamps[flags]
 
@@ -94,7 +80,6 @@ def main():
         marker = " ←" if count > 0 else ""
         print(f"  {day}  {count:>3}  {bar}{marker}")
 
-    # ─── Anomaly score distribution ──────────────────────────────────────────
     print("\n─── Anomaly score distribution ─────────────────────────────────")
     pcts = [50, 75, 90, 95, 99, 99.5, 99.9, 100]
     for p in pcts:
@@ -109,7 +94,6 @@ def main():
     print(f"  Std error:         {float(system_scores.std()):.6f}")
     print(f"  Max error:         {float(system_scores.max()):.6f}")
 
-    # ─── Top 10 most anomalous timesteps ─────────────────────────────────────
     print("\n─── Top 10 most anomalous timesteps ─────────────────────────────")
     top_idx = np.argsort(system_scores)[-10:][::-1]
     print(f"  {'rank':>4}  {'timestamp':<28}  {'score':>10}  ratio")
@@ -119,10 +103,9 @@ def main():
         ratio = score / threshold
         print(f"  {rank:>4}  {str(ts):<28}  {score:>10.6f}  {ratio:.2f}×")
 
-    # ─── Per-day vs total context ────────────────────────────────────────────
-    print("\n─── Train period vs recent period split ─────────────────────────")
     # Approximate train period as the first 80% of the timestamp range
-    # (matches the chronological 80/20 split main.py uses)
+    # (matches the chronological 80/20 split main.py uses).
+    print("\n─── Train period vs recent period split ─────────────────────────")
     n_train = int(len(timestamps) * 0.8)
     if n_train < len(timestamps):
         train_end = timestamps[n_train - 1]

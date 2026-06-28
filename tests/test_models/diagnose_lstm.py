@@ -1,8 +1,3 @@
-"""
-Use actual torch_geometric GCNConv to reproduce the model's GNN output,
-then stack and feed into LSTM. This is the closest possible mock of the
-real forward pass.
-"""
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv
@@ -10,7 +5,6 @@ from torch_geometric.data import Data, Batch
 
 print(f"PyTorch: {torch.__version__}")
 
-# Match model defaults
 batch_size = 8
 seq_len = 24
 num_nodes = 5
@@ -39,10 +33,9 @@ data_list = [
 batch_edge_index = Batch.from_data_list(data_list).edge_index
 print(f"batch_edge_index shape: {batch_edge_index.shape}")
 
-# Build input — random sequence data
+# Build input with random sequence data
 x_sequence = torch.randn(batch_size, seq_len, num_nodes, num_features)
 
-# Mirror the model's forward exactly
 gnn_outputs = []
 for t in range(seq_len):
     x_t = x_sequence[:, t, :, :]
