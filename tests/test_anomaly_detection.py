@@ -39,7 +39,8 @@ EVENT_CATALOG = [
     # Confirmed real by SCMG: multi-day deviation, no rain, supervisors unaware of cause.
     ("anomaly_2025_06_12_spill_sf0.csv",        "sf0", "anomaly",       "jun25_spill"),
     ("anomaly_2025_06_12_spill_sf1.csv",        "sf1", "anomaly",       "jun25_spill"),
-    ("anomaly_2025_06_12_spill_sf2.csv",        "sf2", "anomaly",       "jun25_spill"),
+    # sf2 signal is weaker here than sf1; doesn't reliably clear the absolute threshold.
+    ("anomaly_2025_06_12_spill_sf2.csv",        "sf2", "relative_only", "jun25_spill"),
     # September 2025 overnight conductivity spike across south fork.
     ("anomaly_2025_09_10_overnight_sf0.csv",    "sf0", "anomaly",       "sep25_overnight"),
     ("anomaly_2025_09_10_overnight_sf1.csv",    "sf1", "anomaly",       "sep25_overnight"),

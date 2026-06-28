@@ -2,6 +2,7 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 import pandas as pd
+import numpy as np
 from config.config import Config
 from src.ingest.api_client import fetch_network_snapshot
 
@@ -125,6 +126,20 @@ def load_and_preprocess_data(
         sys.exit(1)
 
     df_featured = df[["location"] + feature_cols].copy()
+
+    # Sin/cos pairs for hour and day-of-year. Raw numbers make 11pm and midnight
+    # look far apart; circular encoding keeps the wrap smooth. Never NaN since
+    # they come from the index, not sensors.
+    idx = df_featured.index
+    hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
+    doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0
+    df_featured["hour_sin"] = np.sin(hour_angle)
+    df_featured["hour_cos"] = np.cos(hour_angle)
+    df_featured["dayofyear_sin"] = np.sin(doy_angle)
+    df_featured["dayofyear_cos"] = np.cos(doy_angle)
+
+    time_feature_cols = ["hour_sin", "hour_cos", "dayofyear_sin", "dayofyear_cos"]
+    feature_cols = feature_cols + time_feature_cols
 
     print(f"Active features ({len(feature_cols)}): {', '.join(feature_cols)}")
     print(f"---------------------------\n")

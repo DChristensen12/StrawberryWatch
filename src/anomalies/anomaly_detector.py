@@ -38,7 +38,8 @@ def detect_spills_with_rain_adjustment(
     threshold_percentile=Config.THRESHOLD_PERCENTILE,
     rain_window_hours=Config.RAIN_WINDOW_HOURS,
     rain_threshold_multiplier=Config.RAIN_THRESHOLD_MULTIPLIER,
-    rain_amount_threshold=Config.RAIN_AMOUNT_THRESHOLD
+    rain_amount_threshold=Config.RAIN_AMOUNT_THRESHOLD,
+    post_rain_decay_hours=Config.POST_RAIN_DECAY_HOURS,
 ):
     """
     Rain-aware spill detection. Applies a base threshold, then scales it up during
@@ -84,19 +85,33 @@ def detect_spills_with_rain_adjustment(
 
     rain_data = df_original[df_original['location'] == locations[0]][['rain_mm']].copy()
 
-    # Flag timestamps where recent rain (last rain_window_hours) exceeds the amount threshold.
+    # Full multiplier during active rain, then tapers over post_rain_decay_hours
+    # so delayed first-flush runoff doesn't slip through the snap-back.
     rain_flags = np.zeros(len(timestamps), dtype=bool)
+    rain_multipliers = np.ones(len(timestamps), dtype=float)
+
     for i, ts in enumerate(timestamps):
         lookback_start = ts - pd.Timedelta(hours=rain_window_hours)
         recent_rain = rain_data[(rain_data.index >= lookback_start) & (rain_data.index <= ts)]
+
         if recent_rain['rain_mm'].sum() > rain_amount_threshold:
             rain_flags[i] = True
+            rain_multipliers[i] = rain_threshold_multiplier
+            continue
 
-    adjusted_thresholds = np.where(
-        rain_flags,
-        base_threshold * rain_threshold_multiplier,
-        base_threshold
-    )
+        decay_start = ts - pd.Timedelta(hours=rain_window_hours + post_rain_decay_hours)
+        prior_rain = rain_data[(rain_data.index >= decay_start) & (rain_data.index < lookback_start)]
+        wet_times = prior_rain.index[prior_rain['rain_mm'] > rain_amount_threshold]
+
+        if len(wet_times) > 0:
+            most_recent_wet = wet_times.max()
+            hours_since = (ts - most_recent_wet).total_seconds() / 3600.0 - rain_window_hours
+            fraction = min(max(hours_since / post_rain_decay_hours, 0.0), 1.0)
+            rain_multipliers[i] = 1.0 + (rain_threshold_multiplier - 1.0) * (1.0 - fraction)
+            if rain_multipliers[i] > 1.0:
+                rain_flags[i] = True
+
+    adjusted_thresholds = base_threshold * rain_multipliers
 
     spill_flags = system_anomaly_scores > adjusted_thresholds
 

@@ -58,6 +58,7 @@ class Config:
     RAIN_WINDOW_HOURS         = _s.get("detection", {}).get("rain_window_hours", 12)
     RAIN_THRESHOLD_MULTIPLIER = _s.get("detection", {}).get("rain_multiplier", 2.0)
     RAIN_AMOUNT_THRESHOLD     = _s.get("detection", {}).get("rain_amount_threshold", 0.1)
+    POST_RAIN_DECAY_HOURS     = _s.get("detection", {}).get("post_rain_decay_hours", 36)
 
     # Preprocessing
     IMPUTATION_LIMIT_HOURS = _s.get("preprocessing", {}).get("imputation_limit_hours", 3)
