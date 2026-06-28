@@ -295,6 +295,27 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
 
 **The other models.** `Flame_Skimmer.py` and `Water_Strider.py` are works in progress and not yet wired into the model registry, so they cannot yet be selected with the `--model` flag. `Flame_Skimmer` uses the same spatial backbone as `DuskCrayfish` but adds Monte Carlo Dropout for uncertainty estimation: at inference time, dropout stays active and predictions are sampled thirty times, producing a mean and a standard deviation. The anomaly detector can then ask how far an observation falls from the predicted distribution rather than just from a point prediction. `Water_Strider` replaces the LSTM with a Transformer encoder and sinusoidal positional encoding. It is designed for scenarios with months to years of training data, where Transformers can exploit longer-range temporal dependencies that an LSTM would miss. Both are intended to slot into the registry in `main.py` once finished, selectable with the `--model` flag exactly like the current model, with nothing else in the pipeline changing.
 
+## What each Model will be
+
+<table align="center">
+  <tr>
+    <td align="center"><b>Dusk Crayfish</b></td>
+    <td align="center"><b>Water Strider</b></td>
+    <td align="center"><b>Flame Skimmer</b></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">The deployed model. A graph convolutional network learns the relationships between sensor sites across the creek, and a long short-term memory network learns how each site's readings change over time. Together they predict what normal looks like, and large prediction errors are flagged as anomalies.</td>
+    <td align="center" width="33%">A transformer-based model that uses attention to weigh how different points in time relate to each other. Still in development, not yet deployed.</td>
+    <td align="center" width="33%">A model that estimates how confident it is by running predictions many times with random parts of the network switched off, then measuring how much the answers vary. Still in development, not yet deployed.</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/Crayfish.jpeg" width="200"></td>
+    <td align="center"><img src="assets/Aquarius_remigis.jpeg" width="200"></td>
+    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="200"></td>
+  </tr>
+</table>
+
+
 ## Testing and validation
 
 The model is validated against a catalog of real documented events in the tests directory, including south fork spills, overnight south fork events, foam events, a fire hydrant spill, a botanical garden actuator malfunction, sprinkler events, and several rainfall events that should not be flagged. Each test runs a labeled window through the model and checks whether the conductivity error crosses the trained threshold, using the same rain-aware logic the live pipeline uses. Cases too short to build valid sequences are skipped rather than failed. The suite is the main guard against a change quietly breaking detection.
