@@ -313,6 +313,21 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
     <td align="center"><img src="assets/WaterStrider.jpeg" width="351"></td>
     <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="351"></td>
   </tr>
+   <tr>
+    <td align="center"><b>BerryDelight</b></td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">TBD</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
+    <td></td>
+    <td></td>
+  </tr>
 </table>
 
 
