@@ -310,7 +310,7 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
   </tr>
   <tr>
     <td align="center"><img src="assets/Crayfish.jpeg" width="200"></td>
-    <td align="center"><img src="assets/Aquarius_remigis.jpeg" width="200"></td>
+    <td align="center"><img src="assets/WaterStrider.jpeg" width="200"></td>
     <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="200"></td>
   </tr>
 </table>
