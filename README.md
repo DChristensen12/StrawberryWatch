@@ -309,9 +309,9 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
     <td align="center" width="33%">A model that estimates how confident it is by running predictions many times with random parts of the network switched off, then measuring how much the answers vary. Still in development, not yet deployed.</td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/Crayfish.jpeg" width="200"></td>
-    <td align="center"><img src="assets/WaterStrider.jpeg" width="200"></td>
-    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="200"></td>
+    <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
+    <td align="center"><img src="assets/WaterStrider.jpeg" width="351"></td>
+    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="351"></td>
   </tr>
 </table>
 
