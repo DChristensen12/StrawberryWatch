@@ -4,11 +4,48 @@
   <img src="assets/SCMGlogo.jpg" width="575">
 </p>
 
-This is an unsupervised anomaly detection for the Strawberry Creek monitoring network. The system learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without ever being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
+This is a Modular anomaly detection system for the Strawberry Creek urban watershed.
+
+The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
 
 This repository is the research and development counterpart to the production monitoring platform. It is where models are built, tested against historical events, and validated before anything is trusted for live alerting.
 
-## What it does
+## Models
+
+<table align="center">
+  <tr>
+    <td align="center"><b>Dusk Crayfish</b></td>
+    <td align="center"><b>Water Strider</b></td>
+    <td align="center"><b>Flame Skimmer</b></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">The deployed model. A graph convolutional network learns the relationships between sensor sites across the creek, and a long short-term memory network learns how each site's readings change over time. Together they predict what normal looks like, and large prediction errors are flagged as anomalies.</td>
+    <td align="center" width="33%">A transformer-based model that uses attention to weigh how different points in time relate to each other. Still in development, not yet deployed.</td>
+    <td align="center" width="33%">A model that estimates how confident it is by running predictions many times with random parts of the network switched off, then measuring how much the answers vary. Still in development, not yet deployed.</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
+    <td align="center"><img src="assets/WaterStrider.jpeg" width="351"></td>
+    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="351"></td>
+  </tr>
+   <tr>
+    <td align="center"><b>Berry Delight</b></td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">TBD</td>
+    <td></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
+
+## What the deployed Model does
 
 The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point and deliberately left out of the flow graph.
 
@@ -111,7 +148,7 @@ The system pulls sensor readings, merges in weather, learns what normal looks li
 
 The model is unsupervised. It is trained only to predict the next reading from recent history. Anything it cannot predict well is, by definition, something it has not seen before, which is what an anomaly is.
 
-## Repository layout
+## Contents
 
 ```
 SCMG_AnDeSys/
@@ -224,7 +261,7 @@ The MySQL variables are only needed if you run with `--data-source sql`. Weather
 
 One network note. The Open-Meteo historical archive must be reachable for long-window weather fetches. If your machine restricts outbound traffic, the host `archive-api.open-meteo.com` needs to be allowed, or the pipeline will fall back to running without weather features.
 
-## How to use it
+## How to use Dusk Crayfish
 
 The main entry point is `main.py`. It has three modes.
 
@@ -294,41 +331,6 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
 **Spill-type classification.** `metrics.py` is a rule-based classifier that runs after detection and changes nothing about the model or the existing detection path. For each flagged event, it compares how water parameters moved during the event against a signature table of five known pollutant types: rain, tapwater, oil, sewage, and fertilizer. Movement direction for each parameter is measured against the twenty-four-hour baseline immediately before the event, and each pollutant type is scored by how many of its signature directions agree with what was observed. The classifier returns one of three verdicts: a named type when the evidence clearly separates candidates, undetermined when there is not enough discriminating data to name one honestly, or possible new type when the event is judgeable but matches no known signature well. Committing to a named type requires at least one discriminating channel to be populated: dissolved oxygen, pH, or floating conductivity. Conductivity and temperature alone collapse most types together, so the classifier declines to diagnose on those channels rather than guess. The Atlas sensors that carry those discriminating measurements are not yet reporting, so the classifier currently returns undetermined on all real events and will sharpen automatically once they come online.
 
 **The other models.** `Flame_Skimmer.py` and `Water_Strider.py` are works in progress and not yet wired into the model registry, so they cannot yet be selected with the `--model` flag. `Flame_Skimmer` uses the same spatial backbone as `DuskCrayfish` but adds Monte Carlo Dropout for uncertainty estimation: at inference time, dropout stays active and predictions are sampled thirty times, producing a mean and a standard deviation. The anomaly detector can then ask how far an observation falls from the predicted distribution rather than just from a point prediction. `Water_Strider` replaces the LSTM with a Transformer encoder and sinusoidal positional encoding. It is designed for scenarios with months to years of training data, where Transformers can exploit longer-range temporal dependencies that an LSTM would miss. Both are intended to slot into the registry in `main.py` once finished, selectable with the `--model` flag exactly like the current model, with nothing else in the pipeline changing.
-
-## What each Model will be
-
-<table align="center">
-  <tr>
-    <td align="center"><b>Dusk Crayfish</b></td>
-    <td align="center"><b>Water Strider</b></td>
-    <td align="center"><b>Flame Skimmer</b></td>
-  </tr>
-  <tr>
-    <td align="center" width="33%">The deployed model. A graph convolutional network learns the relationships between sensor sites across the creek, and a long short-term memory network learns how each site's readings change over time. Together they predict what normal looks like, and large prediction errors are flagged as anomalies.</td>
-    <td align="center" width="33%">A transformer-based model that uses attention to weigh how different points in time relate to each other. Still in development, not yet deployed.</td>
-    <td align="center" width="33%">A model that estimates how confident it is by running predictions many times with random parts of the network switched off, then measuring how much the answers vary. Still in development, not yet deployed.</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
-    <td align="center"><img src="assets/WaterStrider.jpeg" width="351"></td>
-    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="351"></td>
-  </tr>
-   <tr>
-    <td align="center"><b>Berry Delight</b></td>
-    <td></td>
-    <td></td>
-  </tr>
-  <tr>
-    <td align="center" width="33%">TBD</td>
-    <td></td>
-    <td></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
-    <td></td>
-    <td></td>
-  </tr>
-</table>
 
 
 ## Testing and validation
