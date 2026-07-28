@@ -7,7 +7,7 @@ df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
 
 print(f"Total rows: {len(df):,}")
 print(f"Sites: {sorted(df['location'].unique())}")
-print(f"Range: {df['datetime'].min()} → {df['datetime'].max()}\n")
+print(f"Range: {df['datetime'].min()} to {df['datetime'].max()}\n")
 
 feature_cols = [c for c in df.columns if c not in ("datetime", "location")]
 

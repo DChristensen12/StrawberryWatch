@@ -58,15 +58,31 @@ class Config:
     RAIN_WINDOW_HOURS         = _s.get("detection", {}).get("rain_window_hours", 12)
     RAIN_THRESHOLD_MULTIPLIER = _s.get("detection", {}).get("rain_multiplier", 2.0)
     RAIN_AMOUNT_THRESHOLD     = _s.get("detection", {}).get("rain_amount_threshold", 0.1)
+    RAIN_SATURATION_MM        = _s.get("detection", {}).get("rain_saturation_mm", 6.0)
     POST_RAIN_DECAY_HOURS     = _s.get("detection", {}).get("post_rain_decay_hours", 36)
 
     # Preprocessing
     IMPUTATION_LIMIT_HOURS = _s.get("preprocessing", {}).get("imputation_limit_hours", 3)
 
+    # Model still takes all 10 features as input and predicts all 10 (output
+    # layer shape unchanged), but the loss only scores these. Weather (rain_mm,
+    # air_temp_c, shortwave_radiation) and the 4 cyclical time encodings are
+    # context, not something a creek sensor model should be forecasting -- rain
+    # 15 minutes out isn't learnable from conductivity/depth/temp, and scoring
+    # it just adds irreducible error that's worst exactly during storms, which
+    # is when conductivity gradients (the thing we actually alert on) matter most.
+    SCORED_TARGET_FEATURES = ["conductivity", "depth", "temperature"]
+
     SEQUENCE_LENGTH = 24
     DATA_FILE       = "data/processed_data/full_creek_gnn.csv"
     DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    LOCATIONS       = ["footbridge", "north_fork_0", "south_fork_2", "south_fork_1", "oxford"]
+    # Footbridge is off the roster. The API never served it (0 rows in the live
+    # cache) while the corpus had it present at 100% of steps via imputation, so
+    # the model trained on a footbridge that production never provides. It fed
+    # oxford a synthetic upstream signal, which is why oxford's skill was -7 to
+    # -8 while every other node sat near persistence parity. Four nodes means the
+    # model trains on the same set it serves.
+    LOCATIONS       = ["north_fork_0", "south_fork_2", "south_fork_1", "oxford"]
     LOCATION_TO_IDX = {loc: idx for idx, loc in enumerate(LOCATIONS)}
     # How many days of recent data to retain in the local CSV cache.
     # Fetches are merged into this rolling window; older rows are trimmed.

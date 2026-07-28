@@ -2,12 +2,18 @@ import time
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
+
+# Resolved from this file rather than the cwd, so the loop works no matter what
+# directory it gets launched from (systemd, cron, or scripts/ itself).
+_MAIN = Path(__file__).parent.parent / "main.py"
+
 
 def run_monitor():
     """
     Infinite loop that triggers the GNN inference every 15 minutes.
     """
-    print("--- SCMG Live Monitoring Service Started ---")
+    print("SCMG Live Monitoring Service started")
 
     while True:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -15,7 +21,7 @@ def run_monitor():
 
         try:
             # Subprocess so each run gets a clean memory state
-            subprocess.run([sys.executable, "main.py", "--mode", "inference"], check=True)
+            subprocess.run([sys.executable, str(_MAIN), "--mode", "inference"], check=True)
 
         except subprocess.CalledProcessError as e:
             print(f"[{now}] Error during detection cycle: {e}")

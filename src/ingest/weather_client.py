@@ -114,7 +114,7 @@ def fetch_nws_weather(
 
     logger.info(
         f"NWS: fetched {len(df):,} observations from {station} "
-        f"({df.index.min()} → {df.index.max()}) "
+        f"({df.index.min()} to {df.index.max()}) "
         f"with features: {list(df.columns)}"
     )
     return df

@@ -1,3 +1,9 @@
+# Rule-based spill-type classification: given a flagged event and the baseline
+# before it, guess which pollutant it looks like. Nothing calls this on the live
+# path. main.py detects and alerts without ever building a classification, and
+# notifier.send_spill_alert takes one only as an optional argument it is never
+# passed. Kept because the signature table is the hard part and it will be wired
+# in once the Atlas sensors report the channels it needs.
 import os
 import sys
 
@@ -272,7 +278,7 @@ def classify_event(baseline_df, event_df):
 def format_classification(result):
     """Turn a classify_event result into a readable report."""
     lines = []
-    lines.append("--- Spill Type Classification ---")
+    lines.append("spill type classification:")
     lines.append(f"Verdict: {result['verdict'].upper().replace('_', ' ')}")
     if result["named_type"]:
         lines.append(f"Diagnosed type: {result['named_type']}")

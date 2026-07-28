@@ -3,24 +3,19 @@ import numpy as np
 import os
 import sys
 import pickle
+import inspect
 
 from config.config import Config
 from src.ingest.data_loader import load_and_preprocess_data
 from src.utils.graph_utils import create_graph_topology
 from src.preprocessing.data_processor import prepare_sequences_normalized
 from src.training.trainer import train_temporal_gnn
-from src.anomalies.anomaly_detector import compute_anomaly_scores, detect_spills_with_rain_adjustment
-
+from src.anomalies.anomaly_detector import detect_anomalies
+from src.models.Dusk_Crayfish import DuskCrayfish
 
 # Maps --model names to classes. Add new models here; nothing else in main.py changes.
-from src.models.Dusk_Crayfish import DuskCrayfish
-# from src.models.Flame_Skimmer import FlameSkimmer    # not yet implemented
-# from src.models.Water_Strider import WaterStrider    # not yet implemented
-
 _MODEL_REGISTRY = {
-    "dusk_crayfish":  DuskCrayfish,
-    # "flame_skimmer": FlameSkimmer,
-    # "water_strider": WaterStrider,
+    "dusk_crayfish": DuskCrayfish,
 }
 
 
@@ -70,26 +65,7 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
     return aligned_seq, aligned_tgt, report
 
 
-def _compute_system_scores(errors, feature_cols):
-    """
-    Collapses per-(sequence, node, feature) errors down to one score per timestep.
-
-    Scores only on conductivity because that's where spills show up. The model
-    predicts all features to stay grounded in physics, but rolling everything into
-    the anomaly score just adds noise. Averaging conductivity across nodes means a
-    network-wide deviation scores higher than a single-site blip.
-    """
-    if "conductivity" in feature_cols:
-        cond_idx = feature_cols.index("conductivity")
-        print(f"[INFO] Scoring on conductivity error (feature index {cond_idx}), averaged across nodes")
-        return np.mean(errors[:, :, cond_idx], axis=1)
-    else:
-        # Fallback for backward compat or unusual feature sets.
-        print("[WARN] 'conductivity' not in feature_cols — falling back to mean across all features.")
-        return np.mean(errors, axis=(1, 2))
-
-
-def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize=False):
+def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize=False, data_file=None):
     """
     Runs the GNN anomaly detection pipeline in train, update, or inference mode.
     """
@@ -100,35 +76,26 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
-    print("--- SCMG Anomaly Detection System ---")
+    file_path = data_file or Config.DATA_FILE
+
+    print("SCMG Anomaly Detection System")
     print(f"Execution Mode: {mode.upper()}")
     print(f"Model:          {model_name}")
     print(f"Device:         {Config.DEVICE}")
+    print(f"Data file:      {file_path}")
 
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring
         df_featured, df_original, locations = load_and_preprocess_data(
-            force_download=True, days=2, data_source=data_source
+            file_path=file_path, force_download=True, days=2, data_source=data_source
         )
     else:
         # Pull 30 days for training/updating
         df_featured, df_original, locations = load_and_preprocess_data(
-            force_download=True, days=30, data_source=data_source
+            file_path=file_path, force_download=True, days=30, data_source=data_source
         )
 
     edge_index, _, location_to_idx = create_graph_topology()
-
-    sequences, targets, timestamps, scaler, feature_cols = prepare_sequences_normalized(
-        df_featured,
-        location_to_idx,
-        Config.SEQUENCE_LENGTH,
-    )
-
-    if len(sequences) == 0:
-        print("ERROR: No valid sequences could be built from this data window.")
-        print("       Try a longer time window (use --mode train for 30 days)")
-        print("       or check sensor health.")
-        sys.exit(1)
 
     if model_name not in _MODEL_REGISTRY:
         print(f"ERROR: Unknown model '{model_name}'. Available: {list(_MODEL_REGISTRY)}")
@@ -152,6 +119,12 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     # then align current data to match. Training fresh: current data defines the set.
     loading_existing = resolved_mode in ["update", "inference"] and have_weights
 
+    # Metadata has to be read BEFORE sequences get built, because the scaler in
+    # it is what normalization needs to use. Fitting a fresh one on the live
+    # window instead puts the model's inputs in a different space than it
+    # trained on.
+    saved_metadata = None
+    trained_feature_cols = None
     if loading_existing:
         if not have_metadata:
             print(f"ERROR: weights exist at {model_path} but metadata is missing at "
@@ -165,10 +138,26 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             print("ERROR: metadata has no feature_cols. Retrain with --mode train.")
             sys.exit(1)
 
+    sequences, targets, timestamps, scaler, feature_cols, node_mask_seq, target_mask = prepare_sequences_normalized(
+        df_featured,
+        location_to_idx,
+        Config.SEQUENCE_LENGTH,
+        return_node_mask=True,
+        scaler=saved_metadata["scaler"] if loading_existing else None,
+        scaler_feature_cols=trained_feature_cols if loading_existing else None,
+    )
+
+    if len(sequences) == 0:
+        print("ERROR: No valid sequences could be built from this data window.")
+        print("       Try a longer time window (use --mode train for 30 days)")
+        print("       or check sensor health.")
+        sys.exit(1)
+
+    if loading_existing:
         sequences, targets, align_report = _align_to_trained_features(
             sequences, targets, feature_cols, trained_feature_cols
         )
-        print(f"[INFO] Feature alignment: current {feature_cols} -> "
+        print(f"feature alignment: current {feature_cols} -> "
               f"trained {trained_feature_cols} ({align_report})")
         # From here on, the active feature set IS the trained one.
         feature_cols = list(trained_feature_cols)
@@ -177,7 +166,13 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         trained_feature_cols = list(feature_cols)
 
     num_node_features = len(feature_cols)
-    model = ModelClass(num_node_features=num_node_features).to(Config.DEVICE)
+
+    # Only pass num_nodes to models that ask for it in their __init__ signature,
+    # so a model that sizes itself purely from the feature count still loads.
+    model_kwargs = {"num_node_features": num_node_features}
+    if "num_nodes" in inspect.signature(ModelClass.__init__).parameters:
+        model_kwargs["num_nodes"] = len(location_to_idx)
+    model = ModelClass(**model_kwargs).to(Config.DEVICE)
 
     if loading_existing:
         print(f"Loading weights from {model_path}")
@@ -187,20 +182,30 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     mode = resolved_mode
 
+    train_node_mask = val_node_mask = None
+    train_target_mask = val_target_mask = None
+
     if mode == "inference":
         train_seq, train_tgt = None, None
         test_seq, test_tgt = sequences, targets
         test_timestamps = timestamps
+        # inference doesn't split, so the whole mask applies to the whole test set.
+        # this was missing before the rewrite, which is why node_mask never made
+        # it into a live forward pass -- there was nothing here to pass.
+        test_node_mask = node_mask_seq
     else:
         split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
         train_seq, test_seq = sequences[:split_idx], sequences[split_idx:]
         train_tgt, test_tgt = targets[:split_idx], targets[split_idx:]
         test_timestamps = timestamps[split_idx:]
+        train_node_mask, val_node_mask = node_mask_seq[:split_idx], node_mask_seq[split_idx:]
+        train_target_mask, val_target_mask = target_mask[:split_idx], target_mask[split_idx:]
+        test_node_mask = val_node_mask
 
     trained_threshold = None
     if mode in ["train", "update"]:
         print("Commencing model optimization...")
-        _, _, trained_threshold = train_temporal_gnn(
+        _, _, trained_threshold, node_error_stats = train_temporal_gnn(
             model,
             train_seq,
             train_tgt,
@@ -208,96 +213,106 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             val_sequences=test_seq,
             val_targets=test_tgt,
             feature_cols=feature_cols,
+            train_node_mask=train_node_mask,
+            val_node_mask=val_node_mask,
+            train_target_mask=train_target_mask,
+            val_target_mask=val_target_mask,
         )
         torch.save(model.state_dict(), model_path)
         print(f"Optimization complete. Weights saved to {model_path}")
+
+        # trainer only knows node index, not site name, so translate here where
+        # location_to_idx is available
+        idx_to_location = {idx: loc for loc, idx in location_to_idx.items()}
+        if node_error_stats:
+            error_median = {idx_to_location[i]: s["median"] for i, s in node_error_stats.items()}
+            error_iqr = {idx_to_location[i]: s["iqr"] for i, s in node_error_stats.items()}
+            node_thresholds = {idx_to_location[i]: s["threshold"] for i, s in node_error_stats.items()}
+            # normal conductivity LEVEL per node, not error -- the anchor the
+            # level-shift rule needs, see trainer.py's node_error_stats docstring
+            cond_median = {idx_to_location[i]: s["cond_median"] for i, s in node_error_stats.items()}
+            cond_iqr = {idx_to_location[i]: s["cond_iqr"] for i, s in node_error_stats.items()}
+        else:
+            error_median, error_iqr, node_thresholds = {}, {}, {}
+            cond_median, cond_iqr = {}, {}
 
         with open(metadata_path, "wb") as f:
             pickle.dump({
                 "scaler": scaler,
                 "feature_cols": feature_cols,
                 "location_to_idx": location_to_idx,
+                # old scalar threshold, kept so nothing depending on it hard
+                # crashes, but detection should use node_thresholds now
                 "threshold": trained_threshold,
                 "threshold_percentile": Config.THRESHOLD_PERCENTILE,
+                "error_median": error_median,
+                "error_iqr": error_iqr,
+                "node_thresholds": node_thresholds,
+                "cond_median": cond_median,
+                "cond_iqr": cond_iqr,
             }, f)
         print(f"Model metadata saved to {metadata_path}")
+        detection_metadata = {
+            "feature_cols": feature_cols,
+            "location_to_idx": location_to_idx,
+            "error_median": error_median,
+            "error_iqr": error_iqr,
+            "node_thresholds": node_thresholds,
+            "cond_median": cond_median,
+            "cond_iqr": cond_iqr,
+        }
     else:
         print("Skipping training phase. Entering evaluation mode.")
+        # saved_metadata was already loaded above for feature alignment, and
+        # loading_existing being true (the only way to reach this branch) means
+        # it has everything detect_anomalies needs -- no need to read it twice.
+        detection_metadata = saved_metadata
 
     model.eval()
-    errors, predictions = compute_anomaly_scores(
+    node_results, rain_flags = detect_anomalies(
         model,
         test_seq,
         test_tgt,
+        test_timestamps,
+        test_node_mask,
         edge_index,
-        Config.DEVICE,
-    )
-
-    system_scores = _compute_system_scores(errors, feature_cols)
-
-    # Priority: this run's computed threshold, then saved metadata, then P99 fallback.
-    # The fallback is the old buggy behavior; retrain to get a stable one.
-    base_threshold = trained_threshold
-    if base_threshold is None and have_metadata:
-        with open(metadata_path, "rb") as f:
-            saved_metadata = pickle.load(f)
-        base_threshold = saved_metadata.get("threshold")
-
-    if base_threshold is None:
-        print(
-            "[WARN] No trained threshold available — falling back to "
-            f"P{Config.THRESHOLD_PERCENTILE} of current run's scores. "
-            "This is the OLD buggy behavior; retrain to get a stable threshold."
-        )
-        base_threshold = np.percentile(system_scores, Config.THRESHOLD_PERCENTILE)
-    else:
-        print(f"[INFO] Using trained threshold: {base_threshold:.6f}")
-
-    spill_flags, rain_flags, adjusted_thresholds = detect_spills_with_rain_adjustment(
-        system_anomaly_scores=system_scores,
-        timestamps=test_timestamps,
+        detection_metadata,
         df_original=df_original,
         locations=locations,
-        base_threshold=base_threshold,
+        device=Config.DEVICE,
     )
 
-    spill_count = np.sum(spill_flags)
-    print(f"Detection cycle finished. Anomalies identified: {spill_count}")
-
-    if visualize:
-        from src.utils.visualizations import plot_static_dashboard, plot_interactive_plotly
-        plot_static_dashboard(
-            timestamps=test_timestamps,
-            system_anomaly_scores=system_scores,
-            normalized_anomaly_scores=errors,
-            adjusted_thresholds=adjusted_thresholds,
-            base_threshold=base_threshold,
-            spill_flags=spill_flags,
-            rain_flags=rain_flags,
-            df_original=df_original,
-            locations=locations,
-            threshold_percentile=Config.THRESHOLD_PERCENTILE,
-        )
-        if mode != "inference":
-            plot_interactive_plotly(
-                timestamps=test_timestamps,
-                system_anomaly_scores=system_scores,
-                adjusted_thresholds=adjusted_thresholds,
-                base_threshold=base_threshold,
-                spill_flags=spill_flags,
-                rain_flags=rain_flags,
-                rain_threshold_multiplier=Config.RAIN_THRESHOLD_MULTIPLIER,
-                rain_window_hours=Config.RAIN_WINDOW_HOURS,
-                threshold_percentile=Config.THRESHOLD_PERCENTILE,
+    judged_sites = [site for site, r in node_results.items() if r["judged"]]
+    unjudged_sites = [site for site, r in node_results.items() if not r["judged"]]
+    flagged_sites = [site for site in judged_sites if node_results[site]["flagged"]]
+    print(
+        f"Detection cycle finished. Nodes judged: {len(judged_sites)}/{len(node_results)}. "
+        f"Nodes flagged: {len(flagged_sites)}."
+    )
+    for site in unjudged_sites:
+        r = node_results[site]
+        print(f"  {site}: not judged, {r['reason']} (n_real={r['n_real']})")
+    for site in flagged_sites:
+        r = node_results[site]
+        for rule_name in r["rules_fired"]:
+            rule = r["rule1"] if rule_name == "forecast_residual" else r["rule2"]
+            print(
+                f"  {site}: {rule_name}, peak_deviation={rule['peak_deviation']:.2f}, "
+                f"duration={rule['longest_run']} timesteps ({rule['n_over_threshold']} total over threshold)"
             )
 
-    if mode == "inference" and spill_count > 0:
+    if visualize:
+        print(
+            "--visualize is not yet ported to the per-node detection rewrite -- "
+            "plot_static_dashboard/plot_interactive_plotly still expect the old "
+            "collapsed-scalar shape (system_anomaly_scores, spill_flags, etc). "
+            "Skipping plots this run."
+        )
+
+    if mode == "inference" and flagged_sites:
         try:
             from src.utils.notifier import send_spill_alert
-            # spill_flags is 1D per-timestep, so any flagged timestep means the whole
-            # network alerted. Per-location attribution needs per-node scores, which
-            # we don't compute here.
-            send_spill_alert(int(spill_count), locations)
+            send_spill_alert(len(flagged_sites), flagged_sites)
         except Exception as e:
             print(f"Alerting failed: {e}")
 
@@ -322,10 +337,18 @@ if __name__ == "__main__":
         "--visualize", action="store_true",
         help="Generate static and interactive plots after detection",
     )
+    parser.add_argument(
+        "--data-file", type=str, default=None,
+        help="Path to the data CSV, overriding Config.DATA_FILE. Accepts either "
+             "the long-format rolling cache or a wide training-corpus CSV (see "
+             "scripts/build_training_corpus.py; auto-detected by *_valid columns). "
+             "Omit to use Config.DATA_FILE, unchanged.",
+    )
     args = parser.parse_args()
     main(
         mode=args.mode,
         data_source=args.data_source,
         model_name=args.model,
         visualize=args.visualize,
+        data_file=args.data_file,
     )

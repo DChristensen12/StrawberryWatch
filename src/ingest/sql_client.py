@@ -49,7 +49,7 @@ def _connect() -> Iterator[mysql.connector.MySQLConnection]:
             pass
 
 
-# Site → table-name resolution (mirrors creek_data.py lines 483-489)
+# Site-to-table-name resolution (mirrors creek_data.py lines 483-489)
 
 # Sites whose production table names preserve capitalization. Extend if
 # more MMW sites come online.

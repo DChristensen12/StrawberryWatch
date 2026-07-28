@@ -1,3 +1,10 @@
+# These are connectivity smoke checks, not assertions about correctness. Every
+# one of them hits a live endpoint, so a pass means the network and credentials
+# worked today and a failure may be an outage rather than a regression. Four of
+# them (test_api, test_nws, test_sql, test_integration) return a bool instead of
+# asserting, which pytest reports as PytestReturnNotNoneWarning and, more to the
+# point, means they pass whatever the endpoint returns. Do not read a green run
+# here as the clients being verified.
 import argparse
 import sys
 import traceback
@@ -6,9 +13,9 @@ from datetime import datetime, timedelta, timezone
 
 def banner(title):
     print()
-    print("─" * 72)
+    print("-" * 72)
     print(f"  {title}")
-    print("─" * 72)
+    print("-" * 72)
 
 
 def show_df(df, label):
@@ -24,22 +31,22 @@ def show_df(df, label):
         None,
     )
     if time_col:
-        print(f"  range: {df[time_col].min()} → {df[time_col].max()}")
+        print(f"  range: {df[time_col].min()} to {df[time_col].max()}")
     elif df.index.name in ("timestamp", "datetime"):
-        print(f"  range: {df.index.min()} → {df.index.max()}")
+        print(f"  range: {df.index.min()} to {df.index.max()}")
     print(f"  head:\n{df.head(2).to_string()}")
 
 
 def test_imports():
     banner("Layer 0: imports")
     from config.config import Config  # noqa: F401
-    print("  config.config       ✓")
+    print("  config.config       :)")
     from src.ingest import api_client  # noqa: F401
-    print("  src.ingest.api_client    ✓")
+    print("  src.ingest.api_client    :)")
     from src.ingest import sql_client  # noqa: F401
-    print("  src.ingest.sql_client    ✓")
+    print("  src.ingest.sql_client    :)")
     from src.ingest import weather_client  # noqa: F401
-    print("  src.ingest.weather_client ✓")
+    print("  src.ingest.weather_client :)")
 
 
 def test_config():
@@ -49,7 +56,7 @@ def test_config():
     print(f"  API_BASE_URL    = {Config.API_BASE_URL}")
     print(f"  API_TOKEN set?  = {bool(Config.API_TOKEN)}")
 
-    # MySQL — show keys but mask the password
+    # MySQL: show keys but mask the password
     print(f"  MYSQL_HOST      = {Config.MYSQL_HOST or '(unset)'}")
     print(f"  MYSQL_USER      = {Config.MYSQL_USER or '(unset)'}")
     print(f"  MYSQL_PASSWORD  = {'(set)' if Config.MYSQL_PASSWORD else '(unset)'}")
@@ -81,7 +88,7 @@ def test_api():
     show_df(df_net, "network")
 
     if df_net.empty:
-        print("\n  ⚠ network snapshot empty — API may be rejecting requests")
+        print("\n  network snapshot was empty, API may be rejecting requests")
         return False
 
     sites_seen = sorted(df_net["station_id"].unique()) if "station_id" in df_net.columns else []
@@ -89,7 +96,7 @@ def test_api():
     expected = set(Config.LOCATIONS)
     missing  = expected - set(sites_seen)
     if missing:
-        print(f"  ⚠ missing sites: {sorted(missing)}")
+        print(f"  missing sites: {sorted(missing)}")
     return True
 
 
@@ -104,15 +111,15 @@ def test_nws():
     show_df(df, "nws")
 
     if df.empty:
-        print("\n  ⚠ NWS returned empty — station may be offline")
+        print("\n  NWS returned empty, station may be offline")
         return False
 
     # Sanity-check: temperature should exist and look like Celsius
     if "air_temp_c" in df.columns:
         tmin, tmax = df["air_temp_c"].min(), df["air_temp_c"].max()
-        print(f"  air_temp_c range: {tmin:.1f} → {tmax:.1f} °C")
+        print(f"  air_temp_c range: {tmin:.1f} to {tmax:.1f} °C")
         if tmin < -20 or tmax > 50:
-            print("  ⚠ temperature range looks suspicious for Berkeley")
+            print("  temperature range looks suspicious for Berkeley")
     return True
 
 
@@ -122,7 +129,7 @@ def test_sql():
     from config.config import Config
 
     if not all([Config.MYSQL_HOST, Config.MYSQL_USER, Config.MYSQL_PASSWORD, Config.MYSQL_DATABASE]):
-        print("  ⚠ MYSQL_* env vars not all set — skipping SQL test")
+        print("  MYSQL_* env vars not all set, skipping SQL test")
         return False
 
     end   = datetime.now(timezone.utc)
@@ -137,7 +144,7 @@ def test_sql():
     show_df(df_net, "network")
 
     if df_net.empty:
-        print("\n  ⚠ SQL returned empty for all sites")
+        print("\n  SQL returned empty for all sites")
         return False
 
     sites_seen = sorted(df_net["station_id"].unique()) if "station_id" in df_net.columns else []
@@ -158,10 +165,10 @@ def test_integration():
     df_nws   = fetch_nws_weather(start, end)
 
     if df_creek.empty:
-        print("  ⚠ creek data empty — can't test merge")
+        print("  creek data was empty, can't test merge")
         return False
     if df_nws.empty:
-        print("  ⚠ NWS data empty — can't test merge")
+        print("  NWS data was empty, can't test merge")
         return False
 
     creek_times = df_creek["timestamp"].dt.floor("h").unique()
@@ -173,9 +180,9 @@ def test_integration():
     print(f"  overlap: {len(overlap)}")
 
     if len(overlap) == 0:
-        print("  ⚠ no overlapping timestamps — merge would produce nothing")
+        print("  no overlapping timestamps, merge would produce nothing")
         return False
-    print("  ✓ timestamps overlap; merge would have rows to join")
+    print("  :) timestamps overlap; merge would have rows to join")
     return True
 
 
@@ -209,7 +216,7 @@ def main():
             if result is False:
                 failures.append(name)
         except Exception as e:
-            print(f"\n  ✗ {name} FAILED: {e}")
+            print(f"\n  :( {name} FAILED: {e}")
             traceback.print_exc()
             failures.append(name)
 

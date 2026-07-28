@@ -55,7 +55,7 @@ The map below shows these sensors on the actual creek, with each fork tracing th
   <img src="assets/Strawberry_Creek_Physical_Graph_Topology.png" width="80%">
 </p>
 
-<p align="center"><i>Sensor locations along Strawberry Creek, overlaid on the creek's real flow. Both forks converge at the Oxford Street confluence.</i></p>
+<p align="center"><i>The physical sensor network along Strawberry Creek, overlaid on the creek's real flow. Both forks converge at the Oxford Street confluence. This is the full field deployment, not the modeled graph: four of these sites are modeled, north_fork_0, south_fork_1, south_fork_2, and Oxford.</i></p>
 
 To see the entire creek in more detail, you can view the map on the Strawberry Creek website. The same network, expressed as the directed flow graph the system reasons over, looks like this.
 
@@ -112,7 +112,7 @@ graph LR
 ```
 <p align="center"><i>Full Graph Topology: Complete physical watershed sensor footprint of the Strawberry Creek monitoring network.</i></p>
 
-The model has so far been trained and validated on a five-node core of this network, the main flow path where conductivity data is reliable. That active subgraph is shown below, with the remaining sites slated to be brought in as their data ingestion is completed.
+The model is trained and validated on a four-node core of this network, the main flow path where conductivity data is reliable. That active subgraph is shown below, with the remaining sites slated to be brought in as their data ingestion is completed. The north path runs straight from north_fork_0 to Oxford because the footbridge node between them was retired; the water still flows that way, there is just no sensor reporting in between.
 
 ```mermaid
 graph LR
@@ -121,12 +121,12 @@ graph LR
         %% Active South Fork Path
         SF1([South Fork 1]) --> SF2([South Fork 2])
         
-        %% Active North Fork Path
-        NF0([North Fork 0]) --> NF1([North Fork 1])
+        %% Active North Fork Path, contracted through the retired footbridge node
+        NF0([North Fork 0])
         
         %% Convergence Sink
         SF2 --> OX{Oxford Street}
-        NF1 --> OX
+        NF0 --> OX
         
         %% Isolated Node kept inline horizontally to the right of the sink
         CC[[Codornices Creek]]
@@ -138,83 +138,15 @@ graph LR
     classDef targetStyle fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
     classDef controlStyle fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#cbd5e1,stroke-dasharray: 5 5;
     
-    class SF1,SF2,NF0,NF1 nodeStyle;
+    class SF1,SF2,NF0 nodeStyle;
     class OX targetStyle;
     class CC controlStyle;
 ```
-<p align="center"><i>DuskCrayfish Active Graph Topology: 5-node subnetwork deployment currently utilized within the unsupervised flow prediction model.</i></p>
+<p align="center"><i>Dusk Crayfish Active Graph Topology: the 4-node subnetwork the model actually trains and serves on.</i></p>
 
 The system pulls sensor readings, merges in weather, learns what normal looks like across the whole network, and then scores new data by how badly the model fails to predict it. A large, sustained prediction error on conductivity that shows up across connected sites is the signature of a real event.
 
 The model is unsupervised. It is trained only to predict the next reading from recent history. Anything it cannot predict well is, by definition, something it has not seen before, which is what an anomaly is.
-
-## Contents
-
-```
-SCMG_AnDeSys/
-  config/
-    config.py              loads settings, defines locations and graph nodes
-    settings.yaml          model architecture and training hyperparameters
-  src/
-    ingest/
-      api_client.py        pulls sensor data from the public REST API
-      sql_client.py        pulls richer data from the production database
-      weather_client.py    near-term weather from NWS
-      historical_weather_client.py   long-range weather from Open-Meteo
-      data_loader.py       orchestrates loading, weather merge, rolling cache
-    preprocessing/
-      data_processor.py    missing-data handling, normalization, sequencing
-    models/
-      Dusk_Crayfish.py     the GCN plus LSTM model (the validated model)
-      Flame_Skimmer.py     MC Dropout uncertainty model (work in progress)
-      Water_Strider.py     Transformer temporal model (work in progress)
-    training/
-      trainer.py           training loop and threshold computation
-    anomalies/
-      anomaly_detector.py  scoring and rain-aware detection
-      metrics.py           rule-based spill-type classifier, runs after detection
-    utils/
-      graph_utils.py       builds the creek flow graph
-      visualizations.py    dashboards and plots
-      notifier.py          alert delivery
-  tests/
-    test_anomaly_detection.py   validation against labeled historical events
-    conftest.py                 shared test fixtures
-    test_models/                diagnostic scripts
-    test_ingest/                API and client diagnostic scripts
-  sandbox/
-    simple_crayfish.py          three-feature pipeline, no weather, for experiments
-    backfill_rain.py            one-time tool to add rain to labeled test CSVs
-    Dusk_Crayfish_Wmetrics.py   sandbox wrapper that runs detection and then classifies each flagged event
-  scripts/
-    clear_cache.py         utility to wipe the local data cache
-  notebooks/
-    Pulse.ipynb            exploratory analysis notebook
-  assets/
-    SCMGlogo.jpg
-    SCMGBacklogo.png
-    Strawberry_Creek_Physical_Graph_Topology.png   physical sensor map overlaid on creek flow
-  data/
-    anomalies/             labeled anomaly windows
-    normal/                labeled normal baselines
-    raw_data/              per-site historical exports
-    processed_data/        rolling cache (gitignored)
-    rain_cache/            cached weather fetches
-    train/                 train split staging (gitignored)
-    test/                  test split staging (gitignored)
-  documents/
-    Math_and_Design_of_DuskCrayfish.tex   design document describing the model mathematics
-    Math_and_Design_of_DuskCrayfish.pdf   compiled version of the same DuskCrayfish document
-  integrations/
-    night_heron/
-      night_heron_bridge.py      reference code to paste into Night Heron's email_alerts.py to wire anomaly alerts into its delivery system
-      README_Integration.md      integration notes and trigger options for connecting the two systems
-  models/                  saved model weights and metadata
-  main.py                  entry point for training and detection
-  run_live.py              continuous monitoring loop (runs inference every 15 minutes)
-  .env.example             template for environment variables
-  requirements.txt
-```
 
 ## Setup
 
@@ -291,23 +223,16 @@ python main.py --mode train --data-source sql --model dusk_crayfish
 
 Adding `--visualize` after any run produces a static dashboard and an interactive plot of the scores, thresholds, and flagged events.
 
-To start the continuous monitoring loop, run `run_live.py` directly. It blocks indefinitely, calling `main.py --mode inference` via subprocess every 15 minutes, and exits cleanly on Ctrl-C.
+To start the continuous monitoring loop, run `scripts/run_live.py` directly. It blocks indefinitely, calling `main.py --mode inference` via subprocess every 15 minutes, and exits cleanly on Ctrl-C. It resolves `main.py` relative to its own location, so it can be launched from any directory.
 
 ```bash
-python run_live.py
+python scripts/run_live.py
 ```
 
 To validate the model against the labeled historical events, run the test suite. The `-s` flag shows the per-case diagnostic output, which is worth reading because each case prints its error curve and how many timesteps crossed the threshold.
 
 ```bash
 pytest tests/test_anomaly_detection.py -v -s
-```
-
-The sandbox holds two standalone tools. `simple_crayfish.py` runs the whole pipeline on only the three always-present sensor features with no weather, useful for quick experiments or when weather is unavailable. `backfill_rain.py` is a one-time utility that fetches historical rain and writes it into the labeled test CSVs so the rain-aware threshold can be exercised in testing.
-
-```bash
-python sandbox/simple_crayfish.py --raw-dir data/raw_data --days 30 --mode train
-python sandbox/backfill_rain.py --dirs data/anomalies data/normal
 ```
 
 ## How each part works
@@ -320,15 +245,17 @@ python sandbox/backfill_rain.py --dirs data/anomalies data/normal
 
 **Normalization and sequencing.** The data is z-score normalized using statistics fit only on complete rows, then reshaped into a three-dimensional array of time by node by feature. A sliding window cuts this into sequences of twenty-four timesteps, six hours of history, each paired with the single next timestep as the prediction target. Only windows where every timestep is valid become training examples.
 
-**The graph.** `graph_utils.py` builds the creek as a directed graph from the locations and edges defined in config. Config currently defines five nodes: `north_fork_0`, `footbridge`, `south_fork_1`, `south_fork_2`, and `oxford`. The `footbridge` node is the Wickson Footbridge, the north fork 1 site, kept under its common name in the config. The edges follow water flow downhill. On the north path, `north_fork_0` flows into `footbridge`, which flows into `oxford`. On the south path, `south_fork_1` flows into `south_fork_2`, which flows into `oxford`. Oxford is the confluence of both paths. Codornices is registered as a physical monitoring site in the field but has no node in this graph, because it is a separate watershed and connecting it would create spatial relationships that do not physically exist.
+**The graph.** `graph_utils.py` builds the creek as a directed graph from the locations and edges defined in config. Config currently defines four nodes: `north_fork_0`, `south_fork_1`, `south_fork_2`, and `oxford`. The edges follow water flow downhill. On the north path, `north_fork_0` flows directly into `oxford`. On the south path, `south_fork_1` flows into `south_fork_2`, which flows into `oxford`. Oxford is the confluence of both paths. The north path used to run through a `footbridge` node, the Wickson Footbridge at the north fork 1 site; that node was removed because the API never served it, and its edge was contracted rather than cut, since the water still flows that way and only the sensor is missing. See Known limitations. Codornices is registered as a physical monitoring site in the field but has no node in this graph, because it is a separate watershed and connecting it would create spatial relationships that do not physically exist.
 
 **The model.** `Dusk_Crayfish.py` defines `DuskCrayfish`, which reads its whole architecture from config. For each timestep in the window, a graph convolution lets each site's representation absorb information from its upstream and downstream neighbors, then the sites are averaged into a single creek-state summary for that moment. The twenty-four summaries form a sequence that an LSTM reads to capture the recent temporal trend. That trend is expanded back to every node and a linear layer predicts the next timestep for every feature at every site. The graph handles space, the LSTM handles time, and the prediction uses both.
+
+The model also takes an optional `node_mask` marking which sites actually reported at each timestep, and two things change when it is passed. Feature propagation fills an offline node's features by diffusing its neighbors' real values across the graph before the convolution sees them, so a dark site between two reporting sites gets an estimate that sits between them rather than a zero. Masked pooling then averages only the nodes that have data, instead of dividing by the full node count and letting a placeholder zero drag the creek-state summary down. Without the mask the model behaves as though every node is present, which is what lets it train through the existing pipeline unchanged.
 
 **Training.** `trainer.py` runs the training loop, minimizing mean squared error between predicted and actual next timesteps. On CPU it uses plain precision because mixed precision breaks the LSTM there. After training it computes the detection threshold as a high percentile of the validation conductivity errors, so the definition of anomalous is fixed at training time rather than recomputed on whatever is seen later. The feature list the model trained on is saved with the weights, which lets later runs reshape incoming data to match the model rather than rebuilding the model to match the data.
 
 **Detection.** `anomaly_detector.py` scores each timestep and applies the threshold. Scoring follows a model-all, alert-one approach. The model predicts every feature, but only conductivity error counts toward the anomaly score, because conductivity is what actually responds to spills while other features add noise. The conductivity error is averaged across sites, so a deviation seen at several connected sensors scores higher than a single-site blip. On top of the base threshold, a rain-aware adjustment raises the bar during wet periods. For each timestep it sums rain over the preceding twelve hours, and if that exceeds a small amount it doubles the threshold there, so ordinary rain-driven conductivity changes do not trigger false alarms.
 
-**Spill-type classification.** `metrics.py` is a rule-based classifier that runs after detection and changes nothing about the model or the existing detection path. For each flagged event, it compares how water parameters moved during the event against a signature table of five known pollutant types: rain, tapwater, oil, sewage, and fertilizer. Movement direction for each parameter is measured against the twenty-four-hour baseline immediately before the event, and each pollutant type is scored by how many of its signature directions agree with what was observed. The classifier returns one of three verdicts: a named type when the evidence clearly separates candidates, undetermined when there is not enough discriminating data to name one honestly, or possible new type when the event is judgeable but matches no known signature well. Committing to a named type requires at least one discriminating channel to be populated: dissolved oxygen, pH, or floating conductivity. Conductivity and temperature alone collapse most types together, so the classifier declines to diagnose on those channels rather than guess. The Atlas sensors that carry those discriminating measurements are not yet reporting, so the classifier currently returns undetermined on all real events and will sharpen automatically once they come online.
+**Spill-type classification.** `metrics.py` is a rule-based classifier that is written and tested but not yet wired into the live path. A production run detects and alerts without calling it, and `notifier.send_spill_alert` accepts a classification only as an optional argument that `main.py` never passes. What follows describes what it does when called directly, which is how it is currently exercised. For each flagged event, it compares how water parameters moved during the event against a signature table of five known pollutant types: rain, tapwater, oil, sewage, and fertilizer. Movement direction for each parameter is measured against the twenty-four-hour baseline immediately before the event, and each pollutant type is scored by how many of its signature directions agree with what was observed. The classifier returns one of three verdicts: a named type when the evidence clearly separates candidates, undetermined when there is not enough discriminating data to name one honestly, or possible new type when the event is judgeable but matches no known signature well. Committing to a named type requires at least one discriminating channel to be populated: dissolved oxygen, pH, or floating conductivity. Conductivity and temperature alone collapse most types together, so the classifier declines to diagnose on those channels rather than guess. The Atlas sensors that carry those discriminating measurements are not yet reporting, so the classifier returns undetermined on every real event it has been run against. Wiring it into the alert path is waiting on those sensors, since until then it would add nothing to an alert.
 
 **The other models.** `Flame_Skimmer.py` and `Water_Strider.py` are works in progress and not yet wired into the model registry, so they cannot yet be selected with the `--model` flag. `Flame_Skimmer` uses the same spatial backbone as `DuskCrayfish` but adds Monte Carlo Dropout for uncertainty estimation: at inference time, dropout stays active and predictions are sampled thirty times, producing a mean and a standard deviation. The anomaly detector can then ask how far an observation falls from the predicted distribution rather than just from a point prediction. `Water_Strider` replaces the LSTM with a Transformer encoder and sinusoidal positional encoding. It is designed for scenarios with months to years of training data, where Transformers can exploit longer-range temporal dependencies that an LSTM would miss. Both are intended to slot into the registry in `main.py` once finished, selectable with the `--model` flag exactly like the current model, with nothing else in the pipeline changing.
 
@@ -339,7 +266,29 @@ The model is validated against a catalog of real documented events in the tests 
 
 ## Known limitations
 
-The validated model covers five nodes on the main flow path and is being extended across the full network. It has no seasonal awareness yet, so data from an out-of-season period reads as mildly anomalous everywhere. By design it only scores on conductivity, so anomalies confined to other features are not flagged. And the rain adjustment only raises the threshold while rain is recent, so a delayed first-flush conductivity pulse arriving after the rain stops can still be flagged, which may be correct behavior depending on what you want the system to catch. Spill-type classification exists but currently returns undetermined on all real events, because the Atlas sensors that carry dissolved oxygen, pH, and floating conductivity are not yet reporting. Classification will sharpen automatically once those sensors come online.
+**Four nodes, not five.** The model covers north_fork_0, south_fork_1, south_fork_2, and oxford. Footbridge used to be a fifth graph node and was removed. The reason is worth stating plainly: the REST API never served footbridge, so it was absent from every live inference run, while the training corpus carried it as present at 100% of timesteps because gap imputation filled 96% of it in. The model therefore trained on a footbridge signal that production never provides, and fed that signal into oxford, its downstream neighbor. Footbridge alone accounted for 80,973 of the corpus's 97,329 imputed values. Dropping it and retraining cut the forecast error at the three remaining upstream nodes on the live path by up to 45%. If footbridge comes back online as a real reporting sensor, it can be re-added, but it has to be re-added as data rather than as interpolation.
+
+**Oxford does not beat persistence, and this is structural.** Oxford scores -23.9 skill vs persistence on the held-out split and -105 on the live cache, and the four-node retrain made both worse rather than better. It is not deployable. The cause is not the graph or the roster: oxford is simply the most stable node on the network, moving 0.42 µS/cm between consecutive 15-minute readings against 1.6 to 3.2 for every other node, with a third of their overall variance. Persistence is close to unbeatable at a site that quiet, and skill vs persistence divides by that near-zero baseline error, so a prediction that is good in absolute terms still scores badly. Oxford was previously suspected of being poisoned by footbridge; the retrain tested that and disproved it. Skill vs persistence is close to the wrong instrument for this node, and an appropriate metric for it has not been chosen yet.
+
+**Rule 1 is weak in the dry season.** Thresholds are calibrated on a held-out window that sits in the late wet season, and are then applied to a live cache that is 90% dry-season data past the end of the corpus. Persistence is five to six times more accurate in July than in January on the same sensor, so the dry season is a harder regime, not an easier one, and every node posts negative live skill there. A threshold tuned to wet-season residual spread is loose against a quiet summer series, which suppresses genuine small events. The live and offline numbers in this project are not directly comparable for this reason, and any comparison has to be run on a common window.
+
+**No seasonal awareness.** Data from an out-of-season period reads as mildly anomalous everywhere. The corpus starts June 2025, so the held-out spring window is the only spring the model has ever seen, in either split, and a single chronological split cannot separate overfitting from never-having-seen-this-season.
+
+**Detection is capped by rule structure, not by forecast quality.** Flagging requires at least 3 timesteps over threshold in a window. A step or spike injection produces only 1 to 2 elevated timesteps regardless of magnitude, because the model predicts one step ahead and absorbs the new level as soon as it enters its own input history. Confirmed up to 2000 µS/cm, four times the entire conductivity scale. Clean instantaneous jumps therefore mostly go undetected; sustained ramps are caught. False positive rates on clean windows run 17% to 31% per node.
+
+**Scoring on conductivity only.** By design, so anomalies confined to other features are not flagged.
+
+**Rain adjustment under-compensates.** The threshold is only raised while rain is recent, so a delayed first-flush conductivity pulse arriving after the rain stops can still be flagged, which may be correct behavior depending on what you want the system to catch. Separately, flag rates during rain windows still run at or near 100% for three of four nodes, so the current multiplier is not fully absorbing rain response.
+
+### Still open
+
+- **Per-node `LEVEL_SHIFT_K`.** Rule 2 uses one global K for every node. Given that oxford's variance is a third of the other nodes', a single K cannot be right everywhere.
+- **Rule 2 has no seasonal baseline.** `cond_median` and `cond_iqr` are calibrated once on the wet-season held-out window and applied year-round, so the level baseline sits above the dry-season level.
+- **Rain under-compensation**, above.
+- **node_mask semantics still differ between paths.** Training marks oxford invalid at 28.2% of steps from the university_house duplication check; live masks it only when a reading is genuinely absent, 0.3% of steps. The footbridge case that made this severe is resolved, this residual is not.
+- **Two failing detection tests** (suite is 2 failed, 5 passed, 0 skipped). One is new, one is not, and both were checked against the old five-node checkpoint to tell them apart before that checkpoint was removed from the repo. **New:** the March 2026 hydrant event at north_fork_0 no longer flags. It fails narrowly and for the structural reason above, peak deviation 33.5 against a threshold of 12.09, nearly 3x over, but only 2 timesteps clear it where 3 are required. It passed on the old five-node checkpoint, so the roster change caused it. **Pre-existing:** the April 2026 rainfall window at north_fork_0 is flagged when it should not be, which is the rain under-compensation above. It fails on both checkpoints and the four-node model is marginally better on it, 5 timesteps over threshold against 6. Both need threshold calibration, which has not been done.
+
+**Spill-type classification is not connected to the alert path.** `metrics.py` is complete and callable, but no production code path invokes it, so alerts carry no spill type today. It also returns undetermined on every real event it has been run against, because the Atlas sensors that carry dissolved oxygen, pH, and floating conductivity are not yet reporting. Both need to be true before it is worth wiring in: the sensors have to report, and `main.py` has to actually call it.
 
 ---
 

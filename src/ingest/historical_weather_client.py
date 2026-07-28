@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 _BERKELEY_LAT = 37.873
 _BERKELEY_LON = -122.260
 
-_OPEN_METEO_URL = "https://archive-api.open-meteo.com/v1/archive"
+# Historical Forecast API, not the archive/ERA5 endpoint. ERA5 is 0.25 degree
+# (~25km) reanalysis, too coarse for a watershed that fits inside one cell and
+# sits in coastal/mountainous terrain Open-Meteo's own docs warn ERA5 misses.
+# This one is ~1km resolution with native 15-minutely data for North America.
+_OPEN_METEO_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 
 # Maps Open-Meteo parameter names to our internal column names.
 # Units: precipitation in mm/hour, shortwave in W/m², temperature in °C.
@@ -34,11 +38,14 @@ def fetch_open_meteo_weather(
     longitude: Optional[float] = None,
 ) -> pd.DataFrame:
     """
-    Fetches historical hourly weather from Open-Meteo's archive for the given date range.
+    Fetches native 15-minute weather from Open-Meteo's Historical Forecast API
+    for the given date range.
 
     Returns a DataFrame with a UTC DatetimeIndex and the same columns as
     fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation), so data_loader
-    can swap sources without knowing which one ran.
+    can swap sources without knowing which one ran. rain_mm is the actual mm
+    that fell in that 15-min window, not an hourly accumulation -- no
+    disaggregation needed downstream.
 
     start_time/end_time can be datetime objects or ISO-8601 strings.
     Latitude/longitude default to central Berkeley if not given.
@@ -57,12 +64,12 @@ def fetch_open_meteo_weather(
         end_date = str(end_time)[:10]
 
     params = {
-        "latitude":   lat,
-        "longitude":  lon,
-        "start_date": start_date,
-        "end_date":   end_date,
-        "hourly":     ",".join(om_name for om_name, _ in _OPEN_METEO_VARIABLES),
-        "timezone":   "UTC",
+        "latitude":     lat,
+        "longitude":    lon,
+        "start_date":   start_date,
+        "end_date":     end_date,
+        "minutely_15":  ",".join(om_name for om_name, _ in _OPEN_METEO_VARIABLES),
+        "timezone":     "UTC",
     }
 
     try:
@@ -78,8 +85,8 @@ def fetch_open_meteo_weather(
         return pd.DataFrame()
 
     data = resp.json()
-    hourly = data.get("hourly", {})
-    times = hourly.get("time", [])
+    quarter_hourly = data.get("minutely_15", {})
+    times = quarter_hourly.get("time", [])
     if not times:
         logger.warning(
             f"Open-Meteo returned no observations for "
@@ -90,7 +97,7 @@ def fetch_open_meteo_weather(
     # Each variable is a parallel array indexed by 'time'.
     rows = {"datetime": times}
     for om_name, our_name in _OPEN_METEO_VARIABLES:
-        rows[our_name] = hourly.get(om_name, [None] * len(times))
+        rows[our_name] = quarter_hourly.get(om_name, [None] * len(times))
 
     df = pd.DataFrame(rows)
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
@@ -106,8 +113,8 @@ def fetch_open_meteo_weather(
         df = df.drop(columns=null_cols)
 
     logger.info(
-        f"Open-Meteo: fetched {len(df):,} hourly observations "
-        f"({df.index.min()} → {df.index.max()}) "
+        f"Open-Meteo: fetched {len(df):,} 15-min observations "
+        f"({df.index.min()} to {df.index.max()}) "
         f"for ({lat}, {lon}) "
         f"with features: {list(df.columns)}"
     )

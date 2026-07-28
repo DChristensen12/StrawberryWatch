@@ -16,19 +16,17 @@ def create_graph_topology():
     locations = Config.LOCATIONS
     location_to_idx = Config.LOCATION_TO_IDX
 
+    # north_fork_0 used to reach oxford through footbridge. With footbridge off
+    # the roster (see Config.LOCATIONS) that edge is contracted rather than cut,
+    # since the water still flows that way, we just have no sensor in between.
     edges = [
-        ('north_fork_0', 'footbridge'),
-        ('footbridge', 'oxford'),
+        ('north_fork_0', 'oxford'),
         ('south_fork_1', 'south_fork_2'),
         ('south_fork_2', 'oxford'),
     ]
 
     edge_index = _create_edge_index(edges, location_to_idx).to(Config.DEVICE)
 
-    print(f"--- Graph Topology Report ---")
-    print(f"Nodes: {len(locations)} sensors")
-    print(f"Edges: {len(edges)} flow connections")
-    print(f"Device: {edge_index.device}")
-    print(f"-----------------------------\n")
+    print(f"graph topology: {len(locations)} nodes, {len(edges)} edges, device={edge_index.device}\n")
 
     return edge_index, locations, location_to_idx

@@ -15,7 +15,7 @@ def main():
         os.remove(path)
         print(f"Cleared {path} ({size_kb:.1f} KB)")
     else:
-        print(f"No cache file at {path} — nothing to clear.")
+        print(f"No cache file at {path}, nothing to clear.")
 
 
 if __name__ == "__main__":
