@@ -150,15 +150,43 @@ The model is unsupervised. It is trained only to predict the next reading from r
 
 ## Setup
 
-Clone the repository and create a virtual environment using Python 3.12, then install dependencies.
+Clone the repository and create a virtual environment using Python 3.12, then install the package in editable mode.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
+The editable install is not optional. Everything imports from the `strawberrywatch` package, so without it a fresh clone will fail on the first import. It also means the scripts and tests work from any directory rather than only from the repository root.
+
 The system needs environment variables for data and weather access. Copy `.env.example` to `.env` in the repository root and fill in what applies to your setup.
+
+### Layout and imports
+
+All library code lives in one package, `strawberrywatch/`. Everything else stays at the repository root and is not part of the installable package.
+
+```
+strawberrywatch/        the importable package
+  config.py             settings, loaded from settings.yaml next to it
+  paths.py              locates data/ and checkpoints/ relative to the project root
+  ingest/  preprocessing/  models/  training/  anomalies/  utils/
+main.py                 pipeline entry point
+scripts/                operational and verification scripts
+tests/  data/  checkpoints/  assets/  integrations/  notebooks/
+```
+
+Imports use the package path:
+
+```python
+from strawberrywatch.config import Config
+from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
+```
+
+Trained weights and metadata live in `checkpoints/` at the repository root, renamed from `models/` so it no longer collides with `strawberrywatch.models`, which is code. Data and checkpoints deliberately sit outside the package so they are never bundled into a wheel.
+
+`paths.py` finds them by checking `STRAWBERRYWATCH_ROOT` first, then walking up from the package looking for `pyproject.toml` or `.git`. If there is no project root it returns `None` and the function that needed a file raises an error naming both the environment variable and the explicit argument, rather than guessing at the current directory. Nothing resolves a path or creates a directory at import time, so `import strawberrywatch` works with no data present.
 
 ```
 # Public API (the token field is optional; the API currently requires no auth)
@@ -197,7 +225,9 @@ One network note. The Open-Meteo historical archive must be reachable for long-w
 
 The main entry point is `main.py`. It has three modes.
 
-**Train** builds a fresh model on thirty days of data, computes a detection threshold from a validation split, and saves the weights and metadata.
+Once the package is installed with `pip install -e .`, these commands work from any directory, not just the repository root. Paths are resolved from the project root rather than the working directory.
+
+**Train** builds a fresh model on thirty days of data, computes a detection threshold from a validation split, and saves the weights and metadata into `checkpoints/` at the repository root.
 
 ```bash
 python main.py --mode train --data-source api

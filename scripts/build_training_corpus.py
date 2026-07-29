@@ -17,21 +17,18 @@ import sys
 import numpy as np
 import pandas as pd
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
-from config.config import Config
-from src.ingest.raw_data_loader import load_all_raw_sites, RAW_DATA_DIR
-from src.ingest.quality_control import (
+from strawberrywatch.config import Config
+from strawberrywatch import paths
+from strawberrywatch.ingest.raw_data_loader import load_all_raw_sites
+from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
     sentinel_check,
     repeated_streak_check,
 )
-from src.ingest.historical_weather_client import fetch_open_meteo_weather
+from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 
 ANOMALIES_DIR = os.path.join("data", "anomalies")
-RAIN_CACHE_DIR = os.path.join("data", "rain_cache")
+RAIN_CACHE_DIR = paths.rain_cache_dir()
 OUTPUT_PATH = os.path.join("data", "processed_data", "training_corpus.csv")
 
 GRID_FREQ = "15min"
@@ -174,8 +171,9 @@ def main():
     node_names = list(Config.LOCATION_TO_IDX.keys())
     print(f"graph nodes: {node_names}\n")
 
-    print(f"loading raw data from {RAW_DATA_DIR}...")
-    all_raw = load_all_raw_sites(RAW_DATA_DIR)
+    raw_data_dir = paths.raw_data_dir()
+    print(f"loading raw data from {raw_data_dir}...")
+    all_raw = load_all_raw_sites(raw_data_dir)
     missing = [n for n in node_names if n not in all_raw]
     if missing:
         raise RuntimeError(f"no raw_data file found for graph node(s): {missing}")

@@ -39,19 +39,19 @@ def show_df(df, label):
 
 def test_imports():
     banner("Layer 0: imports")
-    from config.config import Config  # noqa: F401
-    print("  config.config       :)")
-    from src.ingest import api_client  # noqa: F401
-    print("  src.ingest.api_client    :)")
-    from src.ingest import sql_client  # noqa: F401
-    print("  src.ingest.sql_client    :)")
-    from src.ingest import weather_client  # noqa: F401
-    print("  src.ingest.weather_client :)")
+    from strawberrywatch.config import Config  # noqa: F401
+    print("  strawberrywatch.config        :)")
+    from strawberrywatch.ingest import api_client  # noqa: F401
+    print("  strawberrywatch.ingest.api_client     :)")
+    from strawberrywatch.ingest import sql_client  # noqa: F401
+    print("  strawberrywatch.ingest.sql_client     :)")
+    from strawberrywatch.ingest import weather_client  # noqa: F401
+    print("  strawberrywatch.ingest.weather_client  :)")
 
 
 def test_config():
     banner("Layer 1: Config loads")
-    from config.config import Config
+    from strawberrywatch.config import Config
 
     print(f"  API_BASE_URL    = {Config.API_BASE_URL}")
     print(f"  API_TOKEN set?  = {bool(Config.API_TOKEN)}")
@@ -73,8 +73,8 @@ def test_config():
 
 def test_api():
     banner("Layer 2a: API client")
-    from src.ingest.api_client import fetch_creek_data, fetch_network_snapshot
-    from config.config import Config
+    from strawberrywatch.ingest.api_client import fetch_creek_data, fetch_network_snapshot
+    from strawberrywatch.config import Config
 
     end   = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
@@ -102,7 +102,7 @@ def test_api():
 
 def test_nws():
     banner("Layer 2b: NWS weather client")
-    from src.ingest.weather_client import fetch_nws_weather
+    from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
     end   = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
@@ -125,8 +125,8 @@ def test_nws():
 
 def test_sql():
     banner("Layer 2c: SQL client")
-    from src.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
-    from config.config import Config
+    from strawberrywatch.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
+    from strawberrywatch.config import Config
 
     if not all([Config.MYSQL_HOST, Config.MYSQL_USER, Config.MYSQL_PASSWORD, Config.MYSQL_DATABASE]):
         print("  MYSQL_* env vars not all set, skipping SQL test")
@@ -154,8 +154,8 @@ def test_sql():
 
 def test_integration():
     banner("Layer 3: timestamp alignment between sources")
-    from src.ingest.api_client import fetch_network_snapshot
-    from src.ingest.weather_client import fetch_nws_weather
+    from strawberrywatch.ingest.api_client import fetch_network_snapshot
+    from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
     end   = datetime.now(timezone.utc)
     start = end - timedelta(days=2)

@@ -1,5 +1,5 @@
 import requests
-from config.config import Config
+from strawberrywatch.config import Config
 from datetime import datetime, timedelta, timezone
 
 end = datetime.now(timezone.utc)

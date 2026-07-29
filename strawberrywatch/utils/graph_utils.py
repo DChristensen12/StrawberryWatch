@@ -1,5 +1,5 @@
 import torch
-from config.config import Config
+from strawberrywatch.config import Config
 
 def _create_edge_index(edges, location_to_idx):
     """Converts an edge list to PyTorch Geometric format (shape [2, num_edges])."""

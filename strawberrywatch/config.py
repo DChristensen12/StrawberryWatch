@@ -3,6 +3,8 @@ import os
 import torch
 from dotenv import load_dotenv
 
+from strawberrywatch import paths
+
 load_dotenv()
 
 
@@ -74,7 +76,6 @@ class Config:
     SCORED_TARGET_FEATURES = ["conductivity", "depth", "temperature"]
 
     SEQUENCE_LENGTH = 24
-    DATA_FILE       = "data/processed_data/full_creek_gnn.csv"
     DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Footbridge is off the roster. The API never served it (0 rows in the live
     # cache) while the corpus had it present at 100% of steps via imputation, so
@@ -91,3 +92,12 @@ class Config:
     # NUM_FEATURES is not used anywhere; the model reads sequences.shape[3]
     # at runtime, which is the right thing. Leaving the line out intentionally;
     # if anything tries to import it, that's a stale reference to clean up.
+
+    @classmethod
+    def data_file(cls):
+        """
+        The rolling inference cache. A method rather than a constant because it
+        needs a project root, and resolving that at class-body time would mean
+        importing Config fails for anyone without a checkout.
+        """
+        return paths.data_file()

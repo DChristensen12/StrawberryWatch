@@ -11,7 +11,6 @@ downstream is interpretable.
 Read-only. Doesn't touch the model, the corpus, or anything else in the repo.
 """
 import pickle
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -19,25 +18,25 @@ import pandas as pd
 import torch
 
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT))
 
-from config.config import Config
-from src.utils.graph_utils import create_graph_topology
-from src.ingest.data_loader import load_and_preprocess_data
-from src.preprocessing.data_processor import prepare_sequences_normalized
-from src.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch import paths
+from strawberrywatch.config import Config
+from strawberrywatch.utils.graph_utils import create_graph_topology
+from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
+from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 
 MODEL_NAME = "dusk_crayfish"
 USE_MASK = True  # matches conftest.py's (dusk_crayfish, True) pairing
-CORPUS_PATH = "data/processed_data/training_corpus.csv"
+CORPUS_PATH = paths.training_corpus()
 MIN_EVALUABLE = 200
 LAG_15MIN = pd.Timedelta(minutes=15)
 LAG_24H = pd.Timedelta(hours=24)
 
 
 def load_model_and_metadata():
-    meta_path = ROOT / "models" / f"{MODEL_NAME}_metadata.pkl"
-    weights_path = ROOT / "models" / f"{MODEL_NAME}_weights.pt"
+    meta_path = paths.checkpoints_dir() / f"{MODEL_NAME}_metadata.pkl"
+    weights_path = paths.checkpoints_dir() / f"{MODEL_NAME}_weights.pt"
     with open(meta_path, "rb") as f:
         metadata = pickle.load(f)
 
@@ -120,7 +119,7 @@ def build_real_observation_lookups(node_names):
     time), so reading the corpus directly IS the reconstruction the task
     asked for, not a shortcut around it.
     """
-    corpus = pd.read_csv(ROOT / CORPUS_PATH)
+    corpus = pd.read_csv(CORPUS_PATH)
     corpus["datetime"] = pd.to_datetime(corpus["datetime"], utc=True)
     corpus = corpus.set_index("datetime")
 

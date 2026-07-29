@@ -4,8 +4,10 @@ from pathlib import Path
 import pytest
 import torch
 
+from strawberrywatch import paths
+
 ROOT = Path(__file__).parent.parent
-MODEL_DIR = ROOT / "models"
+MODEL_DIR = paths.checkpoints_dir()
 
 
 def _load_metadata(model_name):
@@ -20,9 +22,7 @@ def _load_metadata(model_name):
 
 
 def _build_model(model_name, metadata):
-    import sys
-    sys.path.insert(0, str(ROOT))
-    from config.config import Config
+    from strawberrywatch.config import Config
 
     weights_path = MODEL_DIR / f"{model_name}_weights.pt"
     if not weights_path.exists():
@@ -30,7 +30,7 @@ def _build_model(model_name, metadata):
 
     num_features = len(metadata["feature_cols"])
     if model_name == "dusk_crayfish":
-        from src.models.Dusk_Crayfish import DuskCrayfish
+        from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
         num_nodes = len(metadata["location_to_idx"])
         model = DuskCrayfish(num_node_features=num_features, num_nodes=num_nodes).to(Config.DEVICE)
     else:
@@ -61,8 +61,6 @@ def model_bundle(request):
 
 @pytest.fixture(scope="session")
 def edge_index():
-    import sys
-    sys.path.insert(0, str(ROOT))
-    from src.utils.graph_utils import create_graph_topology
+    from strawberrywatch.utils.graph_utils import create_graph_topology
     ei, _, _ = create_graph_topology()
     return ei

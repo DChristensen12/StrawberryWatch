@@ -5,13 +5,14 @@ import sys
 import pickle
 import inspect
 
-from config.config import Config
-from src.ingest.data_loader import load_and_preprocess_data
-from src.utils.graph_utils import create_graph_topology
-from src.preprocessing.data_processor import prepare_sequences_normalized
-from src.training.trainer import train_temporal_gnn
-from src.anomalies.anomaly_detector import detect_anomalies
-from src.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch import paths
+from strawberrywatch.config import Config
+from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.utils.graph_utils import create_graph_topology
+from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
+from strawberrywatch.training.trainer import train_temporal_gnn
+from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
+from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 
 # Maps --model names to classes. Add new models here; nothing else in main.py changes.
 _MODEL_REGISTRY = {
@@ -69,14 +70,11 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     """
     Runs the GNN anomaly detection pipeline in train, update, or inference mode.
     """
-    model_dir = "models"
+    model_dir = paths.checkpoints_dir()
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
     metadata_path = os.path.join(model_dir, f"{model_name}_metadata.pkl")
 
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-
-    file_path = data_file or Config.DATA_FILE
+    file_path = data_file or Config.data_file()
 
     print("SCMG Anomaly Detection System")
     print(f"Execution Mode: {mode.upper()}")
@@ -218,6 +216,7 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             train_target_mask=train_target_mask,
             val_target_mask=val_target_mask,
         )
+        os.makedirs(model_dir, exist_ok=True)
         torch.save(model.state_dict(), model_path)
         print(f"Optimization complete. Weights saved to {model_path}")
 
@@ -311,7 +310,7 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     if mode == "inference" and flagged_sites:
         try:
-            from src.utils.notifier import send_spill_alert
+            from strawberrywatch.utils.notifier import send_spill_alert
             send_spill_alert(len(flagged_sites), flagged_sites)
         except Exception as e:
             print(f"Alerting failed: {e}")
@@ -339,10 +338,10 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--data-file", type=str, default=None,
-        help="Path to the data CSV, overriding Config.DATA_FILE. Accepts either "
+        help="Path to the data CSV, overriding the default cache. Accepts either "
              "the long-format rolling cache or a wide training-corpus CSV (see "
              "scripts/build_training_corpus.py; auto-detected by *_valid columns). "
-             "Omit to use Config.DATA_FILE, unchanged.",
+             "Omit to use the default cache, unchanged.",
     )
     args = parser.parse_args()
     main(

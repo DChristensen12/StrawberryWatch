@@ -7,7 +7,7 @@ from typing import Optional
 import pandas as pd
 import requests
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 logger = logging.getLogger(__name__)
 

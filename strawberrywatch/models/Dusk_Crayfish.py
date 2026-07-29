@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.data import Data, Batch
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 
 # Spatial GCN plus temporal LSTM backbone. The version this replaced treated an

@@ -8,6 +8,8 @@ import numpy as np
 import os
 from datetime import datetime
 
+from strawberrywatch import paths
+
 def plot_static_dashboard(
     timestamps,
     system_anomaly_scores,
@@ -68,9 +70,10 @@ def plot_static_dashboard(
 
     plt.suptitle('SCMG System Results', fontsize=16, fontweight='bold', y=0.995)
 
-    report_dir = "reports"
-    if not os.path.exists(report_dir):
-        os.makedirs(report_dir)
+    # Created here rather than at import, so bringing in this module never
+    # writes to whatever directory the caller happened to be in.
+    report_dir = paths.reports_dir()
+    os.makedirs(report_dir, exist_ok=True)
 
     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -118,8 +121,7 @@ def plot_interactive_plotly(
         height=600
     )
 
-    report_dir = "reports"
-    if not os.path.exists(report_dir):
-        os.makedirs(report_dir)
+    report_dir = paths.reports_dir()
+    os.makedirs(report_dir, exist_ok=True)
 
     fig_plotly.write_html(os.path.join(report_dir, "interactive_dashboard.html"))

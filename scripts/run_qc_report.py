@@ -8,12 +8,9 @@ import sys
 
 import pandas as pd
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
-from src.ingest.raw_data_loader import load_raw_long, RAW_DATA_DIR
-from src.ingest.quality_control import (
+from strawberrywatch import paths
+from strawberrywatch.ingest.raw_data_loader import load_raw_long
+from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
     sentinel_check,
     repeated_streak_check,
@@ -103,7 +100,7 @@ def report_streaks(df, max_streak=96):
 
 
 def main():
-    print(f"loading raw data from {RAW_DATA_DIR}...\n")
+    print(f"loading raw data from {paths.raw_data_dir()}...\n")
     df = load_raw_long()
     sites = sorted(df["location"].unique())
     print(f"sites found ({len(sites)}): {sites}")

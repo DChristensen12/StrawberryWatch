@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.amp import autocast, GradScaler
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 
 def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):

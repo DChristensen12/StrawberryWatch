@@ -10,7 +10,7 @@ import pandas as pd
 import mysql.connector
 from mysql.connector import Error as MySQLError
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 logger = logging.getLogger(__name__)
 

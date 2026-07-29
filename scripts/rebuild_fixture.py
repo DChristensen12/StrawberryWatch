@@ -19,16 +19,13 @@ Usage:
 import argparse
 import glob
 import os
-import sys
 
 import pandas as pd
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+from strawberrywatch import paths
 
-RAW_DATA_DIR = os.path.join(_REPO_ROOT, "data", "raw_data")
-RAIN_CACHE_DIR = os.path.join(_REPO_ROOT, "data", "rain_cache")
+RAW_DATA_DIR = paths.raw_data_dir()
+RAIN_CACHE_DIR = paths.rain_cache_dir()
 
 FIXTURE_COLUMNS = [
     "DateTimeUTC", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth", "Meter_Hydros21_Temp",
@@ -158,7 +155,7 @@ def _get_weather_hourly(start, end):
     come straight from Open-Meteo. If rain wasn't cached, this fetch supplies
     it too and gets written to rain_cache under the usual rain_{start}_{end}.csv name.
     """
-    from src.ingest.historical_weather_client import fetch_open_meteo_weather
+    from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 
     cached_rain = _find_covering_rain_cache(start, end)
 

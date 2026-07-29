@@ -3,8 +3,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
-from config.config import Config
-from src.ingest.api_client import fetch_network_snapshot
+from strawberrywatch.config import Config
+from strawberrywatch.ingest.api_client import fetch_network_snapshot
 
 
 # Numeric columns that are not creek measurements and should never be model features.
@@ -73,7 +73,7 @@ def _load_wide_corpus_as_long(file_path):
 
 
 def load_and_preprocess_data(
-    file_path=Config.DATA_FILE,
+    file_path=None,
     force_download=False,
     days=30,
     data_source="api",
@@ -93,7 +93,13 @@ def load_and_preprocess_data(
     scripts/build_training_corpus.py), this skips the fetch/merge/cache path
     entirely and loads it directly -- it's a static, already-QC'd file, not a
     rolling cache to refresh. force_download is ignored in that case.
+
+    file_path defaults to the rolling cache, resolved here rather than in the
+    signature so importing this module never needs a project root.
     """
+    if file_path is None:
+        file_path = Config.data_file()
+
     if _is_wide_training_corpus(file_path):
         print(f"'{file_path}' is a wide training corpus (has *_valid columns); "
               f"loading directly, skipping fetch/merge.")
@@ -110,7 +116,7 @@ def load_and_preprocess_data(
             start_date = end_date - timedelta(days=days)
 
             if data_source == "sql":
-                from src.ingest.sql_client import fetch_network_snapshot_sql
+                from strawberrywatch.ingest.sql_client import fetch_network_snapshot_sql
                 df_raw = fetch_network_snapshot_sql(
                     start_time=start_date.isoformat(),
                     end_time=end_date.isoformat(),
@@ -267,7 +273,7 @@ def _merge_weather(df_raw, start_date, end_date, days):
     here is only to collapse duplicate timestamps if a source ever reports
     more than once per window, not to disaggregate anything.
     """
-    from src.ingest.historical_weather_client import fetch_open_meteo_weather
+    from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
     print(f"Fetching Open-Meteo weather (window: {days}d, source: Historical Forecast API, 15-min native)...")
     df_weather = fetch_open_meteo_weather(start_date, end_date)
 

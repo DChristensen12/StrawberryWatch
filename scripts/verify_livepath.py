@@ -22,9 +22,9 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from config.config import Config
-from src.utils.graph_utils import create_graph_topology
-import src.anomalies.anomaly_detector as ad
+from strawberrywatch.config import Config
+from strawberrywatch.utils.graph_utils import create_graph_topology
+import strawberrywatch.anomalies.anomaly_detector as ad
 import tests.test_anomaly_detection as tad  # noqa: E402  (only _normalize + MIN_TIMESTEPS_TO_JUDGE, infra not detection logic)
 
 from forecast_skill_baseline import load_model_and_metadata, build_real_observation_lookups

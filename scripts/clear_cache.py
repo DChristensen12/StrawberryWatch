@@ -1,15 +1,11 @@
 import os
-import sys
 
-# Lets this run as `python -m scripts.clear_cache` from the project root.
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from config.config import Config
+from strawberrywatch.config import Config
 
 
 def main():
     """Deletes the local data cache CSV if it exists."""
-    path = Config.DATA_FILE
+    path = Config.data_file()
     if os.path.exists(path):
         size_kb = os.path.getsize(path) / 1024
         os.remove(path)

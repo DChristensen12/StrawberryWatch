@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strawberrywatch"
+version = "0.1.0"
+description = "Anomaly detection for the Strawberry Creek urban watershed"
+requires-python = ">=3.12"
+dependencies = [
+    "torch",
+    "torch-geometric",
+    "pandas",
+    "numpy",
+    "scikit-learn",
+    "requests",
+    "pyyaml",
+    "python-dotenv",
+    "matplotlib",
+    "plotly",
+    "tqdm",
+    "mysql-connector-python",
+]
+
+[tool.setuptools.packages.find]
+include = ["strawberrywatch*"]
+
+# settings.yaml has to be declared or it does not make it into a wheel, and
+# Config silently falls back to its hardcoded defaults with only a warning.
+[tool.setuptools.package-data]
+strawberrywatch = ["settings.yaml"]

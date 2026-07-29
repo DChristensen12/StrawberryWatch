@@ -1,8 +1,8 @@
 import pandas as pd
 
-from config.config import Config
+from strawberrywatch.config import Config
 
-df = pd.read_csv(Config.DATA_FILE)
+df = pd.read_csv(Config.data_file())
 df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
 
 print(f"Total rows: {len(df):,}")

@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
-from config.config import Config
-from src.ingest.data_loader import _NON_FEATURE_COLUMNS
+from strawberrywatch.config import Config
+from strawberrywatch.ingest.data_loader import _NON_FEATURE_COLUMNS
 
 
 def _impute_short_gaps(df, feature_cols, limit_hours):

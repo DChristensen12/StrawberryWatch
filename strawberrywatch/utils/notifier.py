@@ -23,7 +23,7 @@ def send_spill_alert(spill_count, locations_affected):
     The SCMG Anomaly Detection System has identified potential spills.
     Count: {spill_count}
     Affected Locations: {', '.join(locations_affected)}
-    Timestamp: {os.popen('date').read()}
+    Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
     Please check the latest dashboard visualization for details.
     """
 

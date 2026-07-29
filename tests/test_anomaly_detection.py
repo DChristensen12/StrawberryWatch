@@ -7,9 +7,8 @@ import pytest
 import torch
 
 ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(ROOT))
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 ANOMALY_DIR = ROOT / "data" / "anomalies"
 

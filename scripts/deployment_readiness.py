@@ -24,10 +24,10 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from config.config import Config
-from src.utils.graph_utils import create_graph_topology
-from src.ingest.data_loader import load_and_preprocess_data
-from src.preprocessing.data_processor import prepare_sequences_normalized
+from strawberrywatch.config import Config
+from strawberrywatch.utils.graph_utils import create_graph_topology
+from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 
 from forecast_skill_baseline import (
     load_model_and_metadata,

@@ -8,7 +8,7 @@ import os
 
 import pandas as pd
 
-RAW_DATA_DIR = os.path.join("data", "raw_data")
+from strawberrywatch import paths
 
 # scnf010 is the Wickson Footbridge site under its old MMW code (see README);
 # university_house's filename carries a device id suffix. Every other site
@@ -72,8 +72,9 @@ def load_raw_site(path):
     return df[sensor_cols]
 
 
-def load_all_raw_sites(raw_dir=RAW_DATA_DIR):
+def load_all_raw_sites(raw_dir=None):
     """Returns {site_name: DataFrame} for every CSV in raw_dir."""
+    raw_dir = raw_dir or paths.raw_data_dir()
     sites = {}
     for path in sorted(glob.glob(os.path.join(raw_dir, "*.csv"))):
         site = _site_name_for_file(path)
@@ -81,7 +82,7 @@ def load_all_raw_sites(raw_dir=RAW_DATA_DIR):
     return sites
 
 
-def load_raw_long(raw_dir=RAW_DATA_DIR):
+def load_raw_long(raw_dir=None):
     """
     Returns one concatenated long-format frame: datetime index, 'location'
     column, plus whatever sensor columns each site's file had (missing ones

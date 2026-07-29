@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from config.config import Config
+from strawberrywatch.config import Config
 
 # Same sustained-crossing bar tests/test_anomaly_detection.py uses, ported so
 # a lone noisy point doesn't flag but a real event does. Applies to both rules
