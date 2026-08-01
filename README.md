@@ -341,8 +341,8 @@ The January 2026 botanical garden actuator malfunction was previously in this ca
 
 ## Thank you to our contributors
 
-<a href="https://github.com/OWNER/REPO/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=OWNER/REPO" width="60%" alt="Contributors" />
+<a href="https://github.com/DChristensen12/StrawberryWatch/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=DChristensen12/StrawberryWatch" width="65" alt="Contributors" />
 </a>
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md) for everyone who has helped, including
