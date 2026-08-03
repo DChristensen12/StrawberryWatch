@@ -2,7 +2,7 @@ import inspect
 
 import numpy as np
 import torch
-from torch.amp import autocast, GradScaler
+from torch.amp import GradScaler, autocast
 
 from strawberrywatch.config import Config
 

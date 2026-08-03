@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from functools import reduce
-from typing import List, Optional
 
 import pandas as pd
 import requests
@@ -80,7 +79,7 @@ def fetch_creek_data(
     site: str,
     start_time,
     end_time,
-    variables: Optional[List[str]] = None,
+    variables: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Queries the Strawberry Creek API for one site over [start_time, end_time].

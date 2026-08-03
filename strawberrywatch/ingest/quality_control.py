@@ -10,7 +10,6 @@ Expects a long-format frame: a 'location' column plus sensor columns
 
 import itertools
 
-import numpy as np
 import pandas as pd
 
 _DEFAULT_SENSOR_COLS = ("conductivity", "depth", "temperature")
@@ -143,7 +142,7 @@ def repeated_streak_check(df, sensor_cols=None, max_streak=96):
     if "location" not in df.columns:
         return mask
 
-    for location, group in df.groupby("location"):
+    for _location, group in df.groupby("location"):
         group = group.sort_index()
         for col in cols:
             vals = group[col]

@@ -23,26 +23,26 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from strawberrywatch.config import Config
-from strawberrywatch.utils.graph_utils import create_graph_topology
-import strawberrywatch.anomalies.anomaly_detector as ad
-import tests.test_anomaly_detection as tad  # noqa: E402  (only _normalize + MIN_TIMESTEPS_TO_JUDGE, infra not detection logic)
-
-from forecast_skill_baseline import load_model_and_metadata, build_real_observation_lookups
 from deployment_readiness import (
-    load_corpus,
-    held_out_range,
+    CONFIRM_MAGNITUDE,
+    INJECTION_SHAPES,
+    N_SECTION3_WINDOWS,
+    SECTION4_MAGNITUDES,
+    SECTION4_NODES,
+    apply_injection,
     build_clean_windows,
     build_window_arrays,
-    run_window_model,
-    apply_injection,
+    held_out_range,
+    load_corpus,
     node_fully_real,
-    CONFIRM_MAGNITUDE,
-    N_SECTION3_WINDOWS,
-    INJECTION_SHAPES,
-    SECTION4_NODES,
-    SECTION4_MAGNITUDES,
+    run_window_model,
 )
+from forecast_skill_baseline import build_real_observation_lookups, load_model_and_metadata
+
+import strawberrywatch.anomalies.anomaly_detector as ad
+import tests.test_anomaly_detection as tad  # noqa: E402  (only _normalize + MIN_TIMESTEPS_TO_JUDGE, infra not detection logic)
+from strawberrywatch.config import Config
+from strawberrywatch.utils.graph_utils import create_graph_topology
 
 # prior numbers from the test-path deployment battery, for the before/after tables
 PRIOR_FP_RATE = {

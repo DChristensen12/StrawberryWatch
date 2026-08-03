@@ -13,20 +13,19 @@ cache.
 
 import glob
 import os
-import sys
 
 import numpy as np
 import pandas as pd
 
-from strawberrywatch.config import Config
 from strawberrywatch import paths
-from strawberrywatch.ingest.raw_data_loader import load_all_raw_sites
+from strawberrywatch.config import Config
+from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
-    sentinel_check,
     repeated_streak_check,
+    sentinel_check,
 )
-from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
+from strawberrywatch.ingest.raw_data_loader import load_all_raw_sites
 
 ANOMALIES_DIR = os.path.join("data", "anomalies")
 RAIN_CACHE_DIR = paths.rain_cache_dir()
@@ -307,7 +306,7 @@ def _print_summary(corpus, node_names):
     is_raining = corpus["rain_mm"] > 0
     run_id = (is_raining != is_raining.shift()).cumsum()
     events = []
-    for rid, group in corpus.groupby(run_id):
+    for _rid, group in corpus.groupby(run_id):
         if not is_raining.loc[group.index[0]]:
             continue
         accum = group["rain_mm"].sum()

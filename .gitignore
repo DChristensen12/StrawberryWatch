@@ -1,19 +1,4 @@
-# Python Environments
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-env/
-venv/
-.env
-
-# Packaging artifacts, should not be committed
-*.egg-info/
-build/
-dist/
-
-# Data/Large Files 
-#data/processed/*.csv
+# Data/Large Files
 data/targets/*.csv
 data/processed_data/
 *.csv
@@ -23,6 +8,20 @@ data/processed_data/
 !data/normal/*.csv
 *.ipynb_checkpoints
 
+# Python Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Packaging artifacts (really should not be committed)
+*.egg-info/
+build/
+dist/
+
 # Model Weights/Logs
 *.pt
 *.pth
@@ -30,7 +29,10 @@ data/processed_data/
 logs/
 *.log
 
-# IDE/System 
+# IDE/System
 .vscode/
 .idea/
 .DS_Store
+
+# Scratch prototype, never committed.
+TEMP.py

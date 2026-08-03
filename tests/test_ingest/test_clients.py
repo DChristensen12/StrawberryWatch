@@ -8,7 +8,7 @@
 import argparse
 import sys
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def banner(title):
@@ -77,17 +77,17 @@ def test_config():
 
 def test_api():
     banner("Layer 2a: API client")
-    from strawberrywatch.ingest.api_client import fetch_creek_data, fetch_network_snapshot
     from strawberrywatch.config import Config
+    from strawberrywatch.ingest.api_client import fetch_creek_data, fetch_network_snapshot
 
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=2)
 
-    print(f"\n  fetch_creek_data('oxford', last 2 days)")
+    print("\n  fetch_creek_data('oxford', last 2 days)")
     df = fetch_creek_data("oxford", start, end)
     show_df(df, "single-site")
 
-    print(f"\n  fetch_network_snapshot(last 2 days)")
+    print("\n  fetch_network_snapshot(last 2 days)")
     df_net = fetch_network_snapshot(start, end)
     show_df(df_net, "network")
 
@@ -108,7 +108,7 @@ def test_nws():
     banner("Layer 2b: NWS weather client")
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=2)
 
     df = fetch_nws_weather(start, end)
@@ -129,8 +129,8 @@ def test_nws():
 
 def test_sql():
     banner("Layer 2c: SQL client")
-    from strawberrywatch.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
     from strawberrywatch.config import Config
+    from strawberrywatch.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
 
     if not all(
         [Config.MYSQL_HOST, Config.MYSQL_USER, Config.MYSQL_PASSWORD, Config.MYSQL_DATABASE]
@@ -138,14 +138,14 @@ def test_sql():
         print("  MYSQL_* env vars not all set, skipping SQL test")
         return False
 
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=2)
 
-    print(f"\n  fetch_creek_data_sql('oxford', last 2 days)")
+    print("\n  fetch_creek_data_sql('oxford', last 2 days)")
     df = fetch_creek_data_sql("oxford", start, end)
     show_df(df, "single-site")
 
-    print(f"\n  fetch_network_snapshot_sql(last 2 days)")
+    print("\n  fetch_network_snapshot_sql(last 2 days)")
     df_net = fetch_network_snapshot_sql(start, end)
     show_df(df_net, "network")
 
@@ -163,7 +163,7 @@ def test_integration():
     from strawberrywatch.ingest.api_client import fetch_network_snapshot
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=2)
 
     print("  pulling creek (API) + weather (NWS) for the same 2-day window...")

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "strawberrywatch"
 version = "0.1.0"
-description = "Anomaly detection for the Strawberry Creek urban watershed"
+description = "A Modular anomaly detection system for the Strawberry Creek urban watershed"
 requires-python = ">=3.12"
 dependencies = [
     "torch",
@@ -28,16 +28,14 @@ dev = ["ruff", "pre-commit", "pytest"]
 [tool.setuptools.packages.find]
 include = ["strawberrywatch*"]
 
-# settings.yaml has to be declared or it does not make it into a wheel, and
-# Config silently falls back to its hardcoded defaults with only a warning.
 [tool.setuptools.package-data]
 strawberrywatch = ["settings.yaml"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# TEMP.py is a scratch prototype that never gets committed.
-extend-exclude = ["TEMP.py", "notebooks"]
+# TEMP.py is a scratch prototype that will never be committed
+extend-exclude = ["TEMP.py", "notebooks", "data", "assets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ARG"]
@@ -45,6 +43,20 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG"]
+# night_heron is a stub, not wired to anything yet. Re-lint it before it ships.
+"integrations/night_heron/*" = ["F821"]
+# These three insert the repo root on sys.path so they run from any directory,
+# which every later import depends on.
+"scripts/deployment_readiness.py" = ["E402"]
+"scripts/forecast_skill_baseline.py" = ["E402"]
+"scripts/verify_livepath.py" = ["E402"]
+# _rain_adjust_level_k takes rain_series and ignores it on purpose. It is an
+# explicit no-op hook for Rule 2, kept so wiring rain in later is a body change
+# rather than a signature change at every call site.
+"strawberrywatch/anomalies/anomaly_detector.py" = ["ARG001"]
+# Stranded until --visualize is ported to the per-node shape, see main.py. The
+# unused arguments are the old collapsed-scalar signature.
+"strawberrywatch/utils/visualizations.py" = ["ARG001"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["strawberrywatch"]

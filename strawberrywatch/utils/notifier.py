@@ -1,8 +1,9 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
-from datetime import datetime, timezone
+import smtplib
+from datetime import UTC, datetime
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,7 +24,7 @@ def send_spill_alert(spill_count, locations_affected):
     The SCMG Anomaly Detection System has identified potential spills.
     Count: {spill_count}
     Affected Locations: {", ".join(locations_affected)}
-    Timestamp: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
+    Timestamp: {datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")}
     Please check the latest dashboard visualization for details.
     """
 
@@ -152,7 +153,7 @@ def fire_anomaly_alerts(events):
             location=ev.get("location", "unknown"),
             score=ev.get("score", float("nan")),
             threshold=ev.get("threshold", float("nan")),
-            event_time=ev.get("event_time", datetime.now(timezone.utc)),
+            event_time=ev.get("event_time", datetime.now(UTC)),
             classification=ev.get("classification"),
         )
 

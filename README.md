@@ -4,13 +4,15 @@
 
 <p>A modular anomaly detection system for the Strawberry Creek urban watershed</p>
 
-
-
-</div>
-
 <p align="center">
   <img src="assets/SCMGlogo.jpg" width="575">
 </p>
+
+<p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="Lint"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a></p>
+
+<p><img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" alt="Python 3.12+"> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a></p>
+
+</div>
 
 
 The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
@@ -41,7 +43,7 @@ This repository is the research and development counterpart to the production mo
     <td></td>
   </tr>
   <tr>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">TBD</td>
     <td></td>
     <td></td>
@@ -77,16 +79,16 @@ graph LR
         SF0 --> SF1([South Fork 1])
         SF1 --> SF2([South Fork 2])
         SF2 --> SF3([South Fork 3])
-        
+
         %% North Fork Path
         KH([Kingman Garden]) --> UH([University House])
         UH --> NF0([North Fork 0])
         NF0 --> NF1([North Fork 1])
-        
+
         %% Convergence Sink
         SF3 --> OX{Oxford Street}
         NF1 --> OX
-        
+
         %% Isolated Node kept inline horizontally
         CC[[Codornices Creek]]
     end
@@ -94,7 +96,7 @@ graph LR
     %% Invisible anchor point to snap legend cleanly underneath without lines
     link_spacer[ ]
     style link_spacer fill:none,stroke:none;
-    
+
     SF2 ~~~ link_spacer
     link_spacer ~~~ Legend
 
@@ -113,7 +115,7 @@ graph LR
     classDef targetStyle fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
     classDef controlStyle fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#cbd5e1,stroke-dasharray: 5 5;
     classDef legendStyle fill:none,stroke:#64748b,stroke-width:1px;
-    
+
     class BG,SF0,SF1,SF2,SF3,KH,UH,NF0,NF1,L1 nodeStyle;
     class OX,L2 targetStyle;
     class CC,L3 controlStyle;
@@ -129,14 +131,14 @@ graph LR
     subgraph ST_Backbone [DuskCrayfish&nbsp;Network&nbsp;Topology]
         %% Active South Fork Path
         SF1([South Fork 1]) --> SF2([South Fork 2])
-        
+
         %% Active North Fork Path, contracted through the retired footbridge node
         NF0([North Fork 0])
-        
+
         %% Convergence Sink
         SF2 --> OX{Oxford Street}
         NF0 --> OX
-        
+
         %% Isolated Node kept inline horizontally to the right of the sink
         CC[[Codornices Creek]]
         OX ~~~ CC
@@ -146,7 +148,7 @@ graph LR
     classDef nodeStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
     classDef targetStyle fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
     classDef controlStyle fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#cbd5e1,stroke-dasharray: 5 5;
-    
+
     class SF1,SF2,NF0 nodeStyle;
     class OX targetStyle;
     class CC controlStyle;

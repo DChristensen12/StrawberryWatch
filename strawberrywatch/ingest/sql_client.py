@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Iterator
 
-import pandas as pd
 import mysql.connector
+import pandas as pd
 from mysql.connector import Error as MySQLError
 
 from strawberrywatch.config import Config

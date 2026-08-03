@@ -1,8 +1,10 @@
-import requests
-from strawberrywatch.config import Config
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-end = datetime.now(timezone.utc)
+import requests
+
+from strawberrywatch.config import Config
+
+end = datetime.now(UTC)
 start = end - timedelta(days=1)
 base_params = [
     ("site", "oxford"),

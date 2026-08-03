@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from torch_geometric.nn import GCNConv, GATConv
-from torch_geometric.data import Data, Batch
-from strawberrywatch.config import Config
+from torch_geometric.data import Batch, Data
+from torch_geometric.nn import GATConv, GCNConv
 
+from strawberrywatch.config import Config
 
 # Spatial GCN plus temporal LSTM backbone. The version this replaced treated an
 # offline sensor as if it were reading the average value. Two changes fix that:

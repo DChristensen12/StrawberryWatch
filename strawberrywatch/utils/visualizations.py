@@ -2,12 +2,13 @@ import matplotlib
 
 # MUST be called before importing pyplot to run without a display
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-import pandas as pd
-import numpy as np
 import os
 from datetime import datetime
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 
 from strawberrywatch import paths
 
@@ -56,7 +57,7 @@ def plot_static_dashboard(
         label=f"Base ({threshold_percentile}th %ile)",
     )
 
-    for i, (ts, is_rain) in enumerate(zip(timestamps, rain_flags)):
+    for ts, is_rain in zip(timestamps, rain_flags, strict=True):
         if is_rain:
             ax1.axvspan(ts, ts + pd.Timedelta(minutes=15), alpha=0.1, color="cyan")
 
@@ -163,7 +164,6 @@ def plot_interactive_plotly(
     )
 
     spills_during_rain = spill_flags & rain_flags
-    spills_no_rain = spill_flags & ~rain_flags
 
     fig_plotly.add_trace(
         go.Scatter(

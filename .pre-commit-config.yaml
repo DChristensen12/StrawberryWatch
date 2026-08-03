@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.1
+    hooks:
+      - id: ruff-check
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(data|assets)/
+      - id: end-of-file-fixer
+        exclude: ^(data|assets)/
+      - id: mixed-line-ending
+        exclude: ^(data|assets)/
+      - id: check-yaml
+      - id: check-toml
+      # The raw data exports in data/raw_data/ runs to 4 MB.
+      - id: check-added-large-files
+        args: [--maxkb=4500]
+      - id: check-merge-conflict

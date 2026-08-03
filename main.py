@@ -1,17 +1,19 @@
-import torch
-import numpy as np
-import os
-import sys
-import pickle
 import inspect
+import os
+import pickle
+import sys
+
+import numpy as np
+import torch
+
 from strawberrywatch import paths
+from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
-from strawberrywatch.utils.graph_utils import create_graph_topology
+from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.training.trainer import train_temporal_gnn
-from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
-from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch.utils.graph_utils import create_graph_topology
 
 # Maps --model names to classes. Add new models here; nothing else in main.py changes.
 _MODEL_REGISTRY = {

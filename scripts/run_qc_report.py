@@ -4,18 +4,15 @@ summary: duplicate site pairs and their date ranges, sentinel counts per
 site/column, and streak counts per site/column.
 """
 
-import os
-import sys
-
 import pandas as pd
 
 from strawberrywatch import paths
-from strawberrywatch.ingest.raw_data_loader import load_raw_long
 from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
-    sentinel_check,
     repeated_streak_check,
+    sentinel_check,
 )
+from strawberrywatch.ingest.raw_data_loader import load_raw_long
 
 SENSOR_COLS = ["conductivity", "depth", "temperature"]
 

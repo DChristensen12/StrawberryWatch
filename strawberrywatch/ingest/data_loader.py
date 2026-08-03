@@ -1,11 +1,12 @@
 import os
 import sys
-from datetime import datetime, timedelta, timezone
-import pandas as pd
+from datetime import UTC, datetime, timedelta
+
 import numpy as np
+import pandas as pd
+
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.api_client import fetch_network_snapshot
-
 
 # Numeric columns that are not creek measurements and should never be model features.
 # EnviroDIY_Mayfly_Batt is sensor health telemetry; 'valid' is the QC mask (becomes
@@ -115,7 +116,7 @@ def load_and_preprocess_data(
             else:
                 print(f"Local file '{file_path}' not found. Pulling from {source_label}...")
 
-            end_date = datetime.now(timezone.utc)
+            end_date = datetime.now(UTC)
             start_date = end_date - timedelta(days=days)
 
             if data_source == "sql":
@@ -165,7 +166,7 @@ def load_and_preprocess_data(
         df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df = df.set_index("datetime").sort_index()
 
-    print(f"data loaded:")
+    print("data loaded:")
     print(f"Rows: {df.shape[0]:,}")
     print(f"Range: {df.index.min()} to {df.index.max()}")
 
@@ -208,7 +209,7 @@ def load_and_preprocess_data(
     feature_cols = feature_cols + time_feature_cols
 
     print(f"Active features ({len(feature_cols)}): {', '.join(feature_cols)}")
-    print(f"---------------------------\n")
+    print("---------------------------\n")
 
     return df_featured, df, Config.LOCATIONS
 

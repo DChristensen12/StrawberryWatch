@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 import requests
-
-from strawberrywatch.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +31,8 @@ _OPEN_METEO_VARIABLES = [
 def fetch_open_meteo_weather(
     start_time,
     end_time,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> pd.DataFrame:
     """
     Fetches native 15-minute weather from Open-Meteo's Historical Forecast API

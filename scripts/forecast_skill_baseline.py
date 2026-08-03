@@ -22,10 +22,10 @@ ROOT = Path(__file__).parent.parent
 
 from strawberrywatch import paths
 from strawberrywatch.config import Config
-from strawberrywatch.utils.graph_utils import create_graph_topology
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
-from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
+from strawberrywatch.utils.graph_utils import create_graph_topology
 
 MODEL_NAME = "dusk_crayfish"
 USE_MASK = True  # matches conftest.py's (dusk_crayfish, True) pairing
@@ -82,12 +82,12 @@ def step1_split_and_correspondence(metadata):
     )
     if mean_match and scale_match:
         print(f"  MATCH. This checkpoint was fit on {CORPUS_PATH} as it exists right now,")
-        print(f"  so its held-out split is exactly the one computed below.")
+        print("  so its held-out split is exactly the one computed below.")
     else:
         print(f"  MISMATCH. models/{MODEL_NAME}_weights.pt does NOT correspond to the current")
-        print(f"  corpus/pipeline. Everything below is being computed on a split that does not")
-        print(f"  match what this checkpoint actually held out during its own training -- retrain")
-        print(f"  first (see command at the end) before trusting these numbers.")
+        print("  corpus/pipeline. Everything below is being computed on a split that does not")
+        print("  match what this checkpoint actually held out during its own training -- retrain")
+        print("  first (see command at the end) before trusting these numbers.")
     print()
 
     split_idx = int(len(sequences) * Config.TRAIN_SPLIT)

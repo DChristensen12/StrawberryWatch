@@ -7,7 +7,6 @@
 import numpy as np
 import pandas as pd
 
-
 # Direction codes for the signature table and observed changes.
 # UP/DOWN/FLAT are as expected. INDET means the parameter doesn't discriminate for
 # this pollutant, so it's skipped during matching (no reward, no penalty).

@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -6,10 +5,9 @@ import pandas as pd
 import pytest
 import torch
 
-ROOT = Path(__file__).parent.parent
-
 from strawberrywatch.config import Config
 
+ROOT = Path(__file__).parent.parent
 ANOMALY_DIR = ROOT / "data" / "anomalies"
 
 # Raw sensor column names to the internal feature names the model trained on.
@@ -151,7 +149,7 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
 
     # Read each core site we have a node for, renamed to internal columns.
     per_site = {}
-    for site, node_idx in location_to_idx.items():
+    for site in location_to_idx:
         csv = folder / f"{site}.csv"
         if not csv.exists():
             continue
@@ -170,7 +168,7 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
     # "regular" if its median gap is 15 min. Footbridge fails this and does not
     # define the grid, though it can still align onto it where it happens to land.
     grid_sources = []
-    for site, df in per_site.items():
+    for df in per_site.values():
         if len(df) < 2:
             continue
         gap = pd.Series(df.index).diff().median()
@@ -324,7 +322,6 @@ def _reconstruction_errors(
     scaler = model_metadata["scaler"]
     location_to_idx = model_metadata["location_to_idx"]
     num_nodes = len(location_to_idx)
-    num_features = len(feature_cols)
 
     if "conductivity" not in feature_cols:
         pytest.skip("conductivity not in feature_cols.")

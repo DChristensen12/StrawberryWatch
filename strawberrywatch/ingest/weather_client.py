@@ -1,9 +1,11 @@
 from __future__ import annotations
+
 import logging
 from datetime import datetime
-from typing import Optional
+
 import pandas as pd
 import requests
+
 from strawberrywatch.config import Config
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,7 @@ _NWS_PROPERTIES = [
 def fetch_nws_weather(
     start_time,
     end_time,
-    station_id: Optional[str] = None,
+    station_id: str | None = None,
 ) -> pd.DataFrame:
     """
     Fetches air temperature from the NWS station over [start_time, end_time].

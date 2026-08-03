@@ -1,6 +1,7 @@
-import yaml
 import os
+
 import torch
+import yaml
 from dotenv import load_dotenv
 
 from strawberrywatch import paths
@@ -35,7 +36,7 @@ class Config:
     _yaml_path = os.path.join(_current_dir, "settings.yaml")
 
     try:
-        with open(_yaml_path, "r") as f:
+        with open(_yaml_path) as f:
             _s = yaml.safe_load(f)
     except FileNotFoundError:
         print(f"Warning: settings.yaml not found at {_yaml_path}. Using hardcoded defaults.")

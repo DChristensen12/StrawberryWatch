@@ -100,8 +100,8 @@ def fire_anomaly_alert_task(
     """
     try:
         django.setup()
-        from django.contrib.auth.models import User, Group
         from base.models import AlertEvent
+        from django.contrib.auth.models import Group, User
     except RuntimeError as e:
         logger.debug(f"Django already set up in worker process: {e}")
     except Exception as e:
