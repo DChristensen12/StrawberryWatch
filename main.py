@@ -4,7 +4,6 @@ import os
 import sys
 import pickle
 import inspect
-
 from strawberrywatch import paths
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
@@ -66,7 +65,9 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
     return aligned_seq, aligned_tgt, report
 
 
-def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize=False, data_file=None):
+def main(
+    mode="update", data_source="api", model_name="dusk_crayfish", visualize=False, data_file=None
+):
     """
     Runs the GNN anomaly detection pipeline in train, update, or inference mode.
     """
@@ -125,9 +126,11 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     trained_feature_cols = None
     if loading_existing:
         if not have_metadata:
-            print(f"ERROR: weights exist at {model_path} but metadata is missing at "
-                  f"{metadata_path}. Cannot determine the trained feature set. "
-                  f"Retrain with --mode train.")
+            print(
+                f"ERROR: weights exist at {model_path} but metadata is missing at "
+                f"{metadata_path}. Cannot determine the trained feature set. "
+                f"Retrain with --mode train."
+            )
             sys.exit(1)
         with open(metadata_path, "rb") as f:
             saved_metadata = pickle.load(f)
@@ -136,13 +139,15 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
             print("ERROR: metadata has no feature_cols. Retrain with --mode train.")
             sys.exit(1)
 
-    sequences, targets, timestamps, scaler, feature_cols, node_mask_seq, target_mask = prepare_sequences_normalized(
-        df_featured,
-        location_to_idx,
-        Config.SEQUENCE_LENGTH,
-        return_node_mask=True,
-        scaler=saved_metadata["scaler"] if loading_existing else None,
-        scaler_feature_cols=trained_feature_cols if loading_existing else None,
+    sequences, targets, timestamps, scaler, feature_cols, node_mask_seq, target_mask = (
+        prepare_sequences_normalized(
+            df_featured,
+            location_to_idx,
+            Config.SEQUENCE_LENGTH,
+            return_node_mask=True,
+            scaler=saved_metadata["scaler"] if loading_existing else None,
+            scaler_feature_cols=trained_feature_cols if loading_existing else None,
+        )
     )
 
     if len(sequences) == 0:
@@ -155,8 +160,10 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         sequences, targets, align_report = _align_to_trained_features(
             sequences, targets, feature_cols, trained_feature_cols
         )
-        print(f"feature alignment: current {feature_cols} -> "
-              f"trained {trained_feature_cols} ({align_report})")
+        print(
+            f"feature alignment: current {feature_cols} -> "
+            f"trained {trained_feature_cols} ({align_report})"
+        )
         # From here on, the active feature set IS the trained one.
         feature_cols = list(trained_feature_cols)
     else:
@@ -174,9 +181,7 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
     if loading_existing:
         print(f"Loading weights from {model_path}")
-        model.load_state_dict(
-            torch.load(model_path, map_location=Config.DEVICE, weights_only=True)
-        )
+        model.load_state_dict(torch.load(model_path, map_location=Config.DEVICE, weights_only=True))
 
     mode = resolved_mode
 
@@ -226,30 +231,37 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
         if node_error_stats:
             error_median = {idx_to_location[i]: s["median"] for i, s in node_error_stats.items()}
             error_iqr = {idx_to_location[i]: s["iqr"] for i, s in node_error_stats.items()}
-            node_thresholds = {idx_to_location[i]: s["threshold"] for i, s in node_error_stats.items()}
+            node_thresholds = {
+                idx_to_location[i]: s["threshold"] for i, s in node_error_stats.items()
+            }
             # normal conductivity LEVEL per node, not error -- the anchor the
             # level-shift rule needs, see trainer.py's node_error_stats docstring
-            cond_median = {idx_to_location[i]: s["cond_median"] for i, s in node_error_stats.items()}
+            cond_median = {
+                idx_to_location[i]: s["cond_median"] for i, s in node_error_stats.items()
+            }
             cond_iqr = {idx_to_location[i]: s["cond_iqr"] for i, s in node_error_stats.items()}
         else:
             error_median, error_iqr, node_thresholds = {}, {}, {}
             cond_median, cond_iqr = {}, {}
 
         with open(metadata_path, "wb") as f:
-            pickle.dump({
-                "scaler": scaler,
-                "feature_cols": feature_cols,
-                "location_to_idx": location_to_idx,
-                # old scalar threshold, kept so nothing depending on it hard
-                # crashes, but detection should use node_thresholds now
-                "threshold": trained_threshold,
-                "threshold_percentile": Config.THRESHOLD_PERCENTILE,
-                "error_median": error_median,
-                "error_iqr": error_iqr,
-                "node_thresholds": node_thresholds,
-                "cond_median": cond_median,
-                "cond_iqr": cond_iqr,
-            }, f)
+            pickle.dump(
+                {
+                    "scaler": scaler,
+                    "feature_cols": feature_cols,
+                    "location_to_idx": location_to_idx,
+                    # old scalar threshold, kept so nothing depending on it hard
+                    # crashes, but detection should use node_thresholds now
+                    "threshold": trained_threshold,
+                    "threshold_percentile": Config.THRESHOLD_PERCENTILE,
+                    "error_median": error_median,
+                    "error_iqr": error_iqr,
+                    "node_thresholds": node_thresholds,
+                    "cond_median": cond_median,
+                    "cond_iqr": cond_iqr,
+                },
+                f,
+            )
         print(f"Model metadata saved to {metadata_path}")
         detection_metadata = {
             "feature_cols": feature_cols,
@@ -311,6 +323,7 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
     if mode == "inference" and flagged_sites:
         try:
             from strawberrywatch.utils.notifier import send_spill_alert
+
             send_spill_alert(len(flagged_sites), flagged_sites)
         except Exception as e:
             print(f"Alerting failed: {e}")
@@ -318,30 +331,41 @@ def main(mode="update", data_source="api", model_name="dusk_crayfish", visualize
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(description="SCMG GNN Pipeline")
     parser.add_argument(
-        "--mode", type=str, default="update",
+        "--mode",
+        type=str,
+        default="update",
         choices=["train", "update", "inference"],
     )
     parser.add_argument(
-        "--data-source", type=str, default="api", choices=["api", "sql"],
+        "--data-source",
+        type=str,
+        default="api",
+        choices=["api", "sql"],
         help="Where to pull data from: REST API (default) or SQL database",
     )
     parser.add_argument(
-        "--model", type=str, default="dusk_crayfish",
+        "--model",
+        type=str,
+        default="dusk_crayfish",
         choices=list(_MODEL_REGISTRY.keys()),
         help="Which model architecture to use",
     )
     parser.add_argument(
-        "--visualize", action="store_true",
+        "--visualize",
+        action="store_true",
         help="Generate static and interactive plots after detection",
     )
     parser.add_argument(
-        "--data-file", type=str, default=None,
+        "--data-file",
+        type=str,
+        default=None,
         help="Path to the data CSV, overriding the default cache. Accepts either "
-             "the long-format rolling cache or a wide training-corpus CSV (see "
-             "scripts/build_training_corpus.py; auto-detected by *_valid columns). "
-             "Omit to use the default cache, unchanged.",
+        "the long-format rolling cache or a wide training-corpus CSV (see "
+        "scripts/build_training_corpus.py; auto-detected by *_valid columns). "
+        "Omit to use the default cache, unchanged.",
     )
     args = parser.parse_args()
     main(

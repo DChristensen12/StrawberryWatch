@@ -10,6 +10,7 @@ node_mask.
 Does not touch full_creek_gnn.csv, which stays the rolling 90-day inference
 cache.
 """
+
 import glob
 import os
 import sys
@@ -43,6 +44,7 @@ SENSOR_COLS = ["conductivity", "depth", "temperature"]
 
 # Anomaly windows
 
+
 def _anomaly_windows():
     """
     One (folder_name, start, end) per subfolder in data/anomalies/, padded
@@ -60,7 +62,9 @@ def _anomaly_windows():
         starts, ends = [], []
         for f in glob.glob(os.path.join(folder, "*.csv")):
             df = pd.read_csv(f, usecols=lambda c: c in ("DateTimeUTC", "timestamp", "datetime"))
-            tcol = next((c for c in ["DateTimeUTC", "timestamp", "datetime"] if c in df.columns), None)
+            tcol = next(
+                (c for c in ["DateTimeUTC", "timestamp", "datetime"] if c in df.columns), None
+            )
             if tcol is None:
                 continue
             ts = pd.to_datetime(df[tcol], utc=True, errors="coerce").dropna()
@@ -79,6 +83,7 @@ def _anomaly_windows():
 
 
 # Grid + per-site resampling
+
 
 def _build_grid(raw_sites, node_names):
     """
@@ -102,7 +107,9 @@ def _raw_invalid_mask(site_df, site_name):
     tagged = site_df.copy()
     tagged["location"] = site_name
     cols = [c for c in SENSOR_COLS if c in tagged.columns]
-    return sentinel_check(tagged, sensor_cols=cols) | repeated_streak_check(tagged, sensor_cols=cols)
+    return sentinel_check(tagged, sensor_cols=cols) | repeated_streak_check(
+        tagged, sensor_cols=cols
+    )
 
 
 def _resample_site(site_df, site_name, grid):
@@ -124,6 +131,7 @@ def _resample_site(site_df, site_name, grid):
 
 
 # Weather
+
 
 def _load_rain_cache():
     """Concatenates every data/rain_cache/*.csv into one 15-min rain_mm series."""
@@ -156,7 +164,9 @@ def _merge_weather(grid):
         overlap = weather.index.intersection(cached_rain.index)
         n_from_cache = len(overlap)
         weather.loc[overlap, "rain_mm"] = cached_rain.loc[overlap]
-    print(f"  rain_mm: {n_from_cache:,}/{len(weather):,} 15-min steps from rain_cache, rest from Open-Meteo")
+    print(
+        f"  rain_mm: {n_from_cache:,}/{len(weather):,} 15-min steps from rain_cache, rest from Open-Meteo"
+    )
 
     quarter_key = pd.Series(grid, index=grid).dt.floor("15min")
     merged = pd.DataFrame(index=grid)
@@ -166,6 +176,7 @@ def _merge_weather(grid):
 
 
 # Main build
+
 
 def main():
     node_names = list(Config.LOCATION_TO_IDX.keys())
@@ -180,10 +191,12 @@ def main():
 
     # --- oxford/university_house duplication range, from Part 1's checker ---
     if "university_house" in all_raw:
-        dup_df = pd.concat([
-            all_raw["oxford"].assign(location="oxford"),
-            all_raw["university_house"].assign(location="university_house"),
-        ])
+        dup_df = pd.concat(
+            [
+                all_raw["oxford"].assign(location="oxford"),
+                all_raw["university_house"].assign(location="university_house"),
+            ]
+        )
         dup_pairs = inter_site_duplicate_check(dup_df, sensor_col="conductivity", return_all=True)
         oxford_dup_ranges = []
         for pair in dup_pairs:

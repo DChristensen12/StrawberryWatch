@@ -3,6 +3,7 @@ Runs the three quality_control checks across data/raw_data/ and prints a
 summary: duplicate site pairs and their date ranges, sentinel counts per
 site/column, and streak counts per site/column.
 """
+
 import os
 import sys
 
@@ -94,7 +95,10 @@ def report_streaks(df, max_streak=96):
                 n_runs = int(gaps.sum()) + 1
                 counts[col] = (n_rows, n_runs)
         if counts:
-            parts = ", ".join(f"{col}={n_rows} rows across {n_runs} runs" for col, (n_rows, n_runs) in counts.items())
+            parts = ", ".join(
+                f"{col}={n_rows} rows across {n_runs} runs"
+                for col, (n_rows, n_runs) in counts.items()
+            )
             print(f"  {site}: {parts}")
     print()
 

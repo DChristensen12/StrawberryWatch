@@ -45,9 +45,7 @@ def _fetch_single_var(
         ("vars", var_name),
     ]
     try:
-        response = requests.get(
-            Config.API_BASE_URL, headers=headers, params=params, timeout=60
-        )
+        response = requests.get(Config.API_BASE_URL, headers=headers, params=params, timeout=60)
     except requests.exceptions.Timeout:
         logger.error(f"[{site}/{var_name}] API request timed out after 60s")
         return pd.DataFrame()
@@ -57,8 +55,7 @@ def _fetch_single_var(
 
     if response.status_code != 200:
         logger.error(
-            f"[{site}/{var_name}] API returned {response.status_code}: "
-            f"{response.text[:200]}"
+            f"[{site}/{var_name}] API returned {response.status_code}: {response.text[:200]}"
         )
         return pd.DataFrame()
 
@@ -98,11 +95,11 @@ def fetch_creek_data(
 
     start_str = (
         start_time.strftime("%Y-%m-%dT%H:%M:%S")
-        if isinstance(start_time, datetime) else str(start_time)
+        if isinstance(start_time, datetime)
+        else str(start_time)
     )
     end_str = (
-        end_time.strftime("%Y-%m-%dT%H:%M:%S")
-        if isinstance(end_time, datetime) else str(end_time)
+        end_time.strftime("%Y-%m-%dT%H:%M:%S") if isinstance(end_time, datetime) else str(end_time)
     )
 
     vars_to_request = variables if variables else _DEFAULT_VARS
@@ -123,16 +120,10 @@ def fetch_creek_data(
     )
 
     merged["timestamp"] = pd.to_datetime(merged["timestamp"], utc=True, errors="coerce")
-    merged = (
-        merged.dropna(subset=["timestamp"])
-              .sort_values("timestamp")
-              .reset_index(drop=True)
-    )
+    merged = merged.dropna(subset=["timestamp"]).sort_values("timestamp").reset_index(drop=True)
     merged["station_id"] = site
 
-    logger.info(
-        f"[{site}] fetched {len(merged):,} rows × {len(merged.columns) - 2} sensors"
-    )
+    logger.info(f"[{site}] fetched {len(merged):,} rows × {len(merged.columns) - 2} sensors")
     return merged
 
 

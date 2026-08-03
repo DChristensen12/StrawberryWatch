@@ -16,6 +16,7 @@ sorted, but that's a side effect, not a rule.
 Usage:
     python scripts/rebuild_fixture.py --folder data/anomalies/anomaly_2026_01_botanical_actuator --site oxford --output /tmp/oxford_rebuilt.csv
 """
+
 import argparse
 import glob
 import os
@@ -28,8 +29,13 @@ RAW_DATA_DIR = paths.raw_data_dir()
 RAIN_CACHE_DIR = paths.rain_cache_dir()
 
 FIXTURE_COLUMNS = [
-    "DateTimeUTC", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth", "Meter_Hydros21_Temp",
-    "air_temp_c", "rain_mm", "shortwave_radiation",
+    "DateTimeUTC",
+    "Meter_Hydros21_Cond",
+    "Meter_Hydros21_Depth",
+    "Meter_Hydros21_Temp",
+    "air_temp_c",
+    "rain_mm",
+    "shortwave_radiation",
 ]
 
 # site name -> raw_data filename, only listed where it doesn't match "{site}.csv"
@@ -103,7 +109,8 @@ def _event_window(folder, exclude_sites):
         exclude_sites = set(exclude_sites)
 
     candidates = [
-        f for f in glob.glob(os.path.join(folder, "*.csv"))
+        f
+        for f in glob.glob(os.path.join(folder, "*.csv"))
         if os.path.splitext(os.path.basename(f))[0] not in exclude_sites
     ]
     if not candidates:
@@ -169,8 +176,12 @@ def _get_weather_hourly(start, end):
     else:
         os.makedirs(RAIN_CACHE_DIR, exist_ok=True)
         cpath = _rain_cache_path(start, end)
-        weather[["rain_mm"]].reset_index().rename(columns={"index": "datetime"}).to_csv(cpath, index=False)
-        print(f"  no cache covered this range, fetched rain fresh and cached to {os.path.basename(cpath)}")
+        weather[["rain_mm"]].reset_index().rename(columns={"index": "datetime"}).to_csv(
+            cpath, index=False
+        )
+        print(
+            f"  no cache covered this range, fetched rain fresh and cached to {os.path.basename(cpath)}"
+        )
 
     return weather[["air_temp_c", "rain_mm", "shortwave_radiation"]]
 
@@ -183,7 +194,9 @@ def rebuild(site, folder, output_path, exclude_from_window=None):
 
     raw = _load_raw_site(site)
     in_window = raw[(raw["DateTimeUTC"] >= start) & (raw["DateTimeUTC"] <= end)].copy()
-    print(f"  {len(in_window)}/{len(raw)} raw rows fall in the event window, kept in raw_data's native order")
+    print(
+        f"  {len(in_window)}/{len(raw)} raw rows fall in the event window, kept in raw_data's native order"
+    )
 
     weather_hourly = _get_weather_hourly(start, end).copy()
     # accumulated rain gets split evenly across the sub-hourly rows it covers,
@@ -208,13 +221,23 @@ def rebuild(site, folder, output_path, exclude_from_window=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Rebuild one site's fixture CSV from data/raw_data/")
-    parser.add_argument("--folder", required=True, help="event folder, e.g. data/anomalies/anomaly_2026_01_botanical_actuator")
+    parser = argparse.ArgumentParser(
+        description="Rebuild one site's fixture CSV from data/raw_data/"
+    )
+    parser.add_argument(
+        "--folder",
+        required=True,
+        help="event folder, e.g. data/anomalies/anomaly_2026_01_botanical_actuator",
+    )
     parser.add_argument("--site", required=True, help="site name, e.g. oxford")
     parser.add_argument("--output", required=True, help="path to write the rebuilt CSV")
-    parser.add_argument("--exclude-from-window", nargs="*", default=None,
-                         help="extra site names to exclude from event-window derivation, "
-                              "beyond --site itself (e.g. another suspect file in the same folder)")
+    parser.add_argument(
+        "--exclude-from-window",
+        nargs="*",
+        default=None,
+        help="extra site names to exclude from event-window derivation, "
+        "beyond --site itself (e.g. another suspect file in the same folder)",
+    )
     args = parser.parse_args()
     rebuild(args.site, args.folder, args.output, exclude_from_window=args.exclude_from_window)
 

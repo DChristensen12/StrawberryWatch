@@ -13,6 +13,7 @@ from tests/test_anomaly_detection.py rather than re-deriving either.
 
 conductivity only, per node (never averaged), real observations only.
 """
+
 import sys
 from pathlib import Path
 
@@ -46,18 +47,30 @@ WINDOW_STEPS = 192  # 2 days at 15-min cadence, the Section 2/3 window size
 MIN_WINDOW_STEPS = Config.SEQUENCE_LENGTH + tad.MIN_TIMESTEPS_TO_JUDGE
 
 INJECTION_SHAPES = ("step", "ramp", "spike")
-RAMP_STEPS = 8    # 2 hours at 15-min cadence
-SPIKE_STEPS = 2   # 30 minutes at 15-min cadence
+RAMP_STEPS = 8  # 2 hours at 15-min cadence
+SPIKE_STEPS = 2  # 30 minutes at 15-min cadence
 CONFIRM_MAGNITUDE = 150.0  # uS/cm, Section 3's "does the mechanism work at all" magnitude
-N_SECTION3_WINDOWS = 10    # a spread subset of the clean windows, not all 30 -- compute tractability
+N_SECTION3_WINDOWS = 10  # a spread subset of the clean windows, not all 30 -- compute tractability
 
-SECTION4_NODES = ("north_fork_0", "south_fork_2")  # the two nodes with enough real data to sweep meaningfully
-SECTION4_MAGNITUDES = (25.0, 50.0, 75.0, 100.0, 150.0, 200.0, 500.0, 2000.0)  # 500/2000 exist to settle
+SECTION4_NODES = (
+    "north_fork_0",
+    "south_fork_2",
+)  # the two nodes with enough real data to sweep meaningfully
+SECTION4_MAGNITUDES = (
+    25.0,
+    50.0,
+    75.0,
+    100.0,
+    150.0,
+    200.0,
+    500.0,
+    2000.0,
+)  # 500/2000 exist to settle
 # whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one -- see 4b
 RELIABLE_DETECTION_RATE = 0.5  # "reliably detected" = flagged in most windows, per the spec
 
-FP_RATE_CAVEAT = 0.2       # false positive rate above this gets flagged in the verdict
-DETECT_RATE_CAVEAT = 0.5   # detection rate below this (at CONFIRM_MAGNITUDE) gets flagged
+FP_RATE_CAVEAT = 0.2  # false positive rate above this gets flagged in the verdict
+DETECT_RATE_CAVEAT = 0.5  # detection rate below this (at CONFIRM_MAGNITUDE) gets flagged
 LOCALIZE_RATE_CAVEAT = 0.2  # neighbor false-flag rate above this gets flagged
 
 
@@ -100,7 +113,9 @@ def all_anomaly_windows(pad=ANOMALY_PAD):
         starts, ends = [], []
         for f in folder.glob("*.csv"):
             df = pd.read_csv(f, usecols=lambda c: c in ("DateTimeUTC", "timestamp", "datetime"))
-            tcol = next((c for c in ("DateTimeUTC", "timestamp", "datetime") if c in df.columns), None)
+            tcol = next(
+                (c for c in ("DateTimeUTC", "timestamp", "datetime") if c in df.columns), None
+            )
             if tcol is None:
                 continue
             ts = pd.to_datetime(df[tcol], utc=True, errors="coerce").dropna()
@@ -113,7 +128,9 @@ def all_anomaly_windows(pad=ANOMALY_PAD):
     return windows
 
 
-def build_clean_windows(corpus, held_start, held_end, window_steps=WINDOW_STEPS, min_steps=MIN_WINDOW_STEPS):
+def build_clean_windows(
+    corpus, held_start, held_end, window_steps=WINDOW_STEPS, min_steps=MIN_WINDOW_STEPS
+):
     """
     Contiguous 15-min-grid stretches inside the held-out span that (a) exist
     as real rows in the corpus -- anomaly-window rows were already stripped
@@ -158,10 +175,10 @@ def build_clean_windows(corpus, held_start, held_end, window_steps=WINDOW_STEPS,
         run_idx = full_grid[(full_grid >= run_start) & (full_grid <= run_end)]
         n_chunks = len(run_idx) // window_steps
         for c in range(n_chunks):
-            chunk = run_idx[c * window_steps:(c + 1) * window_steps]
+            chunk = run_idx[c * window_steps : (c + 1) * window_steps]
             if len(chunk) >= min_steps:
                 windows.append(chunk)
-        remainder = run_idx[n_chunks * window_steps:]
+        remainder = run_idx[n_chunks * window_steps :]
         if len(remainder) >= min_steps:
             windows.append(remainder)
 
@@ -190,10 +207,14 @@ def build_window_arrays(corpus, window_ts, feature_cols, location_to_idx, raw_co
             if feat in feature_cols:
                 col = f"{site}_{feat}"
                 if col in corpus.columns:
-                    data_3d[:, node_idx, feature_cols.index(feat)] = corpus.loc[window_ts, col].to_numpy()
+                    data_3d[:, node_idx, feature_cols.index(feat)] = corpus.loc[
+                        window_ts, col
+                    ].to_numpy()
         for feat in ("rain_mm", "air_temp_c", "shortwave_radiation"):
             if feat in feature_cols and feat in corpus.columns:
-                data_3d[:, node_idx, feature_cols.index(feat)] = corpus.loc[window_ts, feat].to_numpy()
+                data_3d[:, node_idx, feature_cols.index(feat)] = corpus.loc[
+                    window_ts, feat
+                ].to_numpy()
 
         real = raw_cond[site].reindex(window_ts).notna().to_numpy()
         valid = qc_valid[site].reindex(window_ts).fillna(False).to_numpy()
@@ -225,16 +246,18 @@ def run_window_model(model, edge_index, normalized, node_mask, num_nodes, batch_
     if n_positions <= 0:
         return None, None
 
-    seqs = np.stack([normalized[i:i + seq_len] for i in range(n_positions)])
-    masks = np.stack([node_mask[i:i + seq_len] for i in range(n_positions)])
+    seqs = np.stack([normalized[i : i + seq_len] for i in range(n_positions)])
+    masks = np.stack([node_mask[i : i + seq_len] for i in range(n_positions)])
     targets = np.stack([normalized[i + seq_len] for i in range(n_positions)])
 
     preds = []
     with torch.no_grad():
         for i in range(0, n_positions, batch_size):
-            seq_t = torch.FloatTensor(seqs[i:i + batch_size]).to(Config.DEVICE)
-            mask_t = torch.BoolTensor(masks[i:i + batch_size]).to(Config.DEVICE)
-            pred = model(seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t)
+            seq_t = torch.FloatTensor(seqs[i : i + batch_size]).to(Config.DEVICE)
+            mask_t = torch.BoolTensor(masks[i : i + batch_size]).to(Config.DEVICE)
+            pred = model(
+                seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t
+            )
             preds.append(pred.cpu().numpy())
     predictions = np.concatenate(preds, axis=0)
     return predictions, targets
@@ -245,10 +268,22 @@ def robust_errors_for_node(predictions, targets, node_idx, cond_idx, error_media
     return (raw_err - error_median) / error_iqr
 
 
-def flagged_for_site(predictions, targets, site, node_idx, cond_idx, target_ts, rain_series,
-                      node_thresholds, error_median, error_iqr):
+def flagged_for_site(
+    predictions,
+    targets,
+    site,
+    node_idx,
+    cond_idx,
+    target_ts,
+    rain_series,
+    node_thresholds,
+    error_median,
+    error_iqr,
+):
     """Real detection path for one node on one window: robust error, rain-adjusted threshold, _is_flagged."""
-    errs = robust_errors_for_node(predictions, targets, node_idx, cond_idx, error_median[site], error_iqr[site])
+    errs = robust_errors_for_node(
+        predictions, targets, node_idx, cond_idx, error_median[site], error_iqr[site]
+    )
     thresholds = tad._rain_adjusted_thresholds(node_thresholds[site], target_ts, rain_series)
     return tad._is_flagged(errs, thresholds)
 
@@ -332,7 +367,9 @@ def load_full_split():
     }
 
 
-def portion_skill_vs_persistence(site, portion_ts, preds_raw_cond, node_idx, raw_cond, qc_valid, cond_mean, cond_scale):
+def portion_skill_vs_persistence(
+    site, portion_ts, preds_raw_cond, node_idx, raw_cond, qc_valid, cond_mean, cond_scale
+):
     """
     conductivity MAE (raw uS/cm) and skill vs persistence for one node, on one
     portion (train or held-out), real observations only. Same filtering
@@ -392,8 +429,12 @@ def section1(model, metadata):
     print("main.py: split_idx = int(len(sequences) * Config.TRAIN_SPLIT); positional slice,")
     print("no shuffling anywhere in the pipeline. Chronological, confirmed (same as the skill")
     print("baseline script established).")
-    print(f"  train:     {ctx['train_ts'][0]} -> {ctx['train_ts'][-1]}  ({len(ctx['train_ts']):,} sequences)")
-    print(f"  held-out:  {ctx['held_ts'][0]} -> {ctx['held_ts'][-1]}  ({len(ctx['held_ts']):,} sequences)")
+    print(
+        f"  train:     {ctx['train_ts'][0]} -> {ctx['train_ts'][-1]}  ({len(ctx['train_ts']):,} sequences)"
+    )
+    print(
+        f"  held-out:  {ctx['held_ts'][0]} -> {ctx['held_ts'][-1]}  ({len(ctx['held_ts']):,} sequences)"
+    )
     print(
         "  note: the corpus itself only starts 2025-06-04 (bounded to when the last graph node\n"
         "  came online, see build_training_corpus.py), so train contains ZERO prior spring data.\n"
@@ -424,14 +465,30 @@ def section1(model, metadata):
     rows = []
     for node_idx, site in enumerate(node_names):
         train_r = portion_skill_vs_persistence(
-            site, ctx["train_ts"], train_preds_raw_cond, node_idx, raw_cond, qc_valid, cond_mean, cond_scale
+            site,
+            ctx["train_ts"],
+            train_preds_raw_cond,
+            node_idx,
+            raw_cond,
+            qc_valid,
+            cond_mean,
+            cond_scale,
         )
         held_r = portion_skill_vs_persistence(
-            site, ctx["held_ts"], held_preds_raw_cond, node_idx, raw_cond, qc_valid, cond_mean, cond_scale
+            site,
+            ctx["held_ts"],
+            held_preds_raw_cond,
+            node_idx,
+            raw_cond,
+            qc_valid,
+            cond_mean,
+            cond_scale,
         )
 
         if not train_r["sufficient"] or not held_r["sufficient"]:
-            print(f"{site:15s} {'insufficient data (train n=' + str(train_r['n']) + ', held n=' + str(held_r['n']) + ')':>90s}")
+            print(
+                f"{site:15s} {'insufficient data (train n=' + str(train_r['n']) + ', held n=' + str(held_r['n']) + ')':>90s}"
+            )
             rows.append({"node": site, "train": train_r, "held": held_r, "status": "insufficient"})
             continue
 
@@ -446,11 +503,19 @@ def section1(model, metadata):
     for row in rows:
         site = row["node"]
         if row["status"] == "insufficient":
-            print(f"  {site}: insufficient real data on one or both portions, can't assess generalization here.")
+            print(
+                f"  {site}: insufficient real data on one or both portions, can't assess generalization here."
+            )
             continue
         train_r, held_r, gap = row["train"], row["held"], row["gap"]
-        ratio = held_r["mae_model_raw"] / train_r["mae_model_raw"] if train_r["mae_model_raw"] > 0 else float("inf")
-        print(f"  {site}: train MAE {train_r['mae_model_raw']:.3f}, held MAE {held_r['mae_model_raw']:.3f} ({ratio:.1f}x)")
+        ratio = (
+            held_r["mae_model_raw"] / train_r["mae_model_raw"]
+            if train_r["mae_model_raw"] > 0
+            else float("inf")
+        )
+        print(
+            f"  {site}: train MAE {train_r['mae_model_raw']:.3f}, held MAE {held_r['mae_model_raw']:.3f} ({ratio:.1f}x)"
+        )
         print(
             f"    train skill vs persistence {train_r['skill_vs_persist']:.4f}, "
             f"held skill vs persistence {held_r['skill_vs_persist']:.4f}"
@@ -493,20 +558,23 @@ def section2(model, metadata):
     print(f"held-out span: {held_start} -> {held_end}")
 
     print("\n2a. clean window extraction")
-    print(f"window size: {WINDOW_STEPS} steps (2 days), minimum viable: {MIN_WINDOW_STEPS} steps "
-          f"(SEQUENCE_LENGTH={Config.SEQUENCE_LENGTH} + MIN_TIMESTEPS_TO_JUDGE={tad.MIN_TIMESTEPS_TO_JUDGE})")
+    print(
+        f"window size: {WINDOW_STEPS} steps (2 days), minimum viable: {MIN_WINDOW_STEPS} steps "
+        f"(SEQUENCE_LENGTH={Config.SEQUENCE_LENGTH} + MIN_TIMESTEPS_TO_JUDGE={tad.MIN_TIMESTEPS_TO_JUDGE})"
+    )
     windows = build_clean_windows(corpus, held_start, held_end)
     print(f"clean windows found: {len(windows)} (aiming for >=15)")
     for i, w in enumerate(windows):
         print(f"  window {i:2d}: {w[0]} -> {w[-1]}  ({len(w)} steps)")
 
     print("\n2b/2c. running the real detection path per window per node")
-    print("(robust-normalized error, per-node rain-adjusted threshold, _is_flagged"
-          f" with MIN_TIMESTEPS_OVER_THRESHOLD={tad.MIN_TIMESTEPS_OVER_THRESHOLD})")
+    print(
+        "(robust-normalized error, per-node rain-adjusted threshold, _is_flagged"
+        f" with MIN_TIMESTEPS_OVER_THRESHOLD={tad.MIN_TIMESTEPS_OVER_THRESHOLD})"
+    )
 
     results = {
-        site: {"n_eval": 0, "n_flagged": 0, "n_rain": 0, "n_flagged_rain": 0}
-        for site in node_names
+        site: {"n_eval": 0, "n_flagged": 0, "n_rain": 0, "n_flagged_rain": 0} for site in node_names
     }
 
     for window_ts in windows:
@@ -517,7 +585,7 @@ def section2(model, metadata):
         predictions, targets = run_window_model(model, edge_index, normalized, node_mask, num_nodes)
         if predictions is None:
             continue
-        target_ts = window_ts[Config.SEQUENCE_LENGTH:]
+        target_ts = window_ts[Config.SEQUENCE_LENGTH :]
 
         did_rain = bool(
             rain_series is not None
@@ -556,7 +624,9 @@ def section2(model, metadata):
     print()
     print("2c. false positive rate per node")
     print("-" * 90)
-    print(f"{'node':15s} {'evaluated':>10s} {'flagged':>8s} {'FP rate':>9s}   {'rain wins':>10s} {'flag@rain':>10s} {'flag@dry':>9s}")
+    print(
+        f"{'node':15s} {'evaluated':>10s} {'flagged':>8s} {'FP rate':>9s}   {'rain wins':>10s} {'flag@rain':>10s} {'flag@dry':>9s}"
+    )
     for site in node_names:
         r = results[site]
         if r["n_eval"] == 0:
@@ -572,7 +642,9 @@ def section2(model, metadata):
         if r["n_rain"] > 0 and r["n_flagged"] > 0:
             rain_flag_rate = r["n_flagged_rain"] / r["n_rain"]
             dry_flag_rate = n_flagged_dry / n_dry if n_dry > 0 else float("nan")
-            print(f"    flag rate during rain windows: {rain_flag_rate:.1%}  vs  dry windows: {dry_flag_rate:.1%}")
+            print(
+                f"    flag rate during rain windows: {rain_flag_rate:.1%}  vs  dry windows: {dry_flag_rate:.1%}"
+            )
 
     return results
 
@@ -597,23 +669,29 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
     raw_cond, qc_valid = build_real_observation_lookups(node_names)
     held_start, held_end = held_out_range(corpus)
     all_windows = build_clean_windows(corpus, held_start, held_end)
-    test_windows = all_windows[::max(1, len(all_windows) // n_windows)][:n_windows]
-    print(f"using {len(test_windows)} of {len(all_windows)} clean windows (spread across the held-out span)")
-    print(f"injection starts at the first scored position in each window (index {Config.SEQUENCE_LENGTH}),")
+    test_windows = all_windows[:: max(1, len(all_windows) // n_windows)][:n_windows]
+    print(
+        f"using {len(test_windows)} of {len(all_windows)} clean windows (spread across the held-out span)"
+    )
+    print(
+        f"injection starts at the first scored position in each window (index {Config.SEQUENCE_LENGTH}),"
+    )
     print(f"ramp climbs over {RAMP_STEPS * 15} min, spike holds for {SPIKE_STEPS * 15} min\n")
 
-    detection = {}       # (site, shape) -> {"tested", "detected"}
-    localization = {}    # site -> {"injections", "neighbor_checks", "neighbor_false_flags"}
+    detection = {}  # (site, shape) -> {"tested", "detected"}
+    localization = {}  # site -> {"injections", "neighbor_checks", "neighbor_false_flags"}
     skipped = {"target_not_real": 0, "no_usable_neighbors": 0}
 
     for window_ts in test_windows:
         data_3d, node_mask, rain_series = build_window_arrays(
             corpus, window_ts, feature_cols, location_to_idx, raw_cond, qc_valid
         )
-        target_ts = window_ts[Config.SEQUENCE_LENGTH:]
+        target_ts = window_ts[Config.SEQUENCE_LENGTH :]
         start_pos = Config.SEQUENCE_LENGTH
 
-        fully_real = {site: node_fully_real(target_ts, site, raw_cond, qc_valid) for site in node_names}
+        fully_real = {
+            site: node_fully_real(target_ts, site, raw_cond, qc_valid) for site in node_names
+        }
 
         for target_site in node_names:
             if not fully_real[target_site]:
@@ -627,15 +705,27 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
             node_idx = location_to_idx[target_site]
 
             for shape in INJECTION_SHAPES:
-                injected_3d = apply_injection(data_3d, node_idx, cond_idx, start_pos, shape, magnitude)
+                injected_3d = apply_injection(
+                    data_3d, node_idx, cond_idx, start_pos, shape, magnitude
+                )
                 normalized = tad._normalize(injected_3d, scaler, feature_cols, location_to_idx)
-                predictions, targets = run_window_model(model, edge_index, normalized, node_mask, num_nodes)
+                predictions, targets = run_window_model(
+                    model, edge_index, normalized, node_mask, num_nodes
+                )
                 if predictions is None:
                     continue
 
                 flagged_target = flagged_for_site(
-                    predictions, targets, target_site, node_idx, cond_idx, target_ts, rain_series,
-                    node_thresholds, error_median, error_iqr
+                    predictions,
+                    targets,
+                    target_site,
+                    node_idx,
+                    cond_idx,
+                    target_ts,
+                    rain_series,
+                    node_thresholds,
+                    error_median,
+                    error_iqr,
                 )
 
                 key = (target_site, shape)
@@ -644,20 +734,32 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
                 if flagged_target:
                     d["detected"] += 1
 
-                loc = localization.setdefault(target_site, {"injections": 0, "neighbor_checks": 0, "neighbor_false_flags": 0})
+                loc = localization.setdefault(
+                    target_site, {"injections": 0, "neighbor_checks": 0, "neighbor_false_flags": 0}
+                )
                 loc["injections"] += 1
                 for nb_site in neighbor_sites:
                     nb_idx = location_to_idx[nb_site]
                     flagged_nb = flagged_for_site(
-                        predictions, targets, nb_site, nb_idx, cond_idx, target_ts, rain_series,
-                        node_thresholds, error_median, error_iqr
+                        predictions,
+                        targets,
+                        nb_site,
+                        nb_idx,
+                        cond_idx,
+                        target_ts,
+                        rain_series,
+                        node_thresholds,
+                        error_median,
+                        error_iqr,
                     )
                     loc["neighbor_checks"] += 1
                     if flagged_nb:
                         loc["neighbor_false_flags"] += 1
 
-    print(f"skipped: target node not fully real in window = {skipped['target_not_real']}, "
-          f"no usable neighbors to check = {skipped['no_usable_neighbors']}\n")
+    print(
+        f"skipped: target node not fully real in window = {skipped['target_not_real']}, "
+        f"no usable neighbors to check = {skipped['no_usable_neighbors']}\n"
+    )
 
     print("3c. DETECTION: did the injected node flag, per node per shape")
     print("-" * 60)
@@ -675,7 +777,9 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
 
     print("\n3d. LOCALIZATION: did a clean neighbor false-flag when a DIFFERENT node was perturbed")
     print("-" * 60)
-    print(f"{'injected node':15s} {'injections':>11s} {'neighbor checks':>16s} {'false flags':>12s} {'rate':>7s}")
+    print(
+        f"{'injected node':15s} {'injections':>11s} {'neighbor checks':>16s} {'false flags':>12s} {'rate':>7s}"
+    )
     for site in node_names:
         loc = localization.get(site)
         if loc is None or loc["neighbor_checks"] == 0:
@@ -689,7 +793,13 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
     return detection, localization
 
 
-def section4(model, metadata, nodes=SECTION4_NODES, magnitudes=SECTION4_MAGNITUDES, n_windows=N_SECTION3_WINDOWS):
+def section4(
+    model,
+    metadata,
+    nodes=SECTION4_NODES,
+    magnitudes=SECTION4_MAGNITUDES,
+    n_windows=N_SECTION3_WINDOWS,
+):
     """
     Step injection only, one node at a time, sweeping magnitude instead of
     shape. Same clean windows as Section 3 for consistency. Restricted to
@@ -717,33 +827,47 @@ def section4(model, metadata, nodes=SECTION4_NODES, magnitudes=SECTION4_MAGNITUD
     raw_cond, qc_valid = build_real_observation_lookups(node_names)
     held_start, held_end = held_out_range(corpus)
     all_windows = build_clean_windows(corpus, held_start, held_end)
-    test_windows = all_windows[::max(1, len(all_windows) // n_windows)][:n_windows]
+    test_windows = all_windows[:: max(1, len(all_windows) // n_windows)][:n_windows]
     print(f"using {len(test_windows)} of {len(all_windows)} clean windows, nodes={nodes}\n")
 
-    results = {site: {} for site in nodes}  # site -> magnitude -> {"tested", "detected", "n_over_sum"}
+    results = {
+        site: {} for site in nodes
+    }  # site -> magnitude -> {"tested", "detected", "n_over_sum"}
 
     for window_ts in test_windows:
         data_3d, node_mask, rain_series = build_window_arrays(
             corpus, window_ts, feature_cols, location_to_idx, raw_cond, qc_valid
         )
-        target_ts = window_ts[Config.SEQUENCE_LENGTH:]
+        target_ts = window_ts[Config.SEQUENCE_LENGTH :]
         start_pos = Config.SEQUENCE_LENGTH
 
         for site in nodes:
-            if site not in location_to_idx or not node_fully_real(target_ts, site, raw_cond, qc_valid):
+            if site not in location_to_idx or not node_fully_real(
+                target_ts, site, raw_cond, qc_valid
+            ):
                 continue
             node_idx = location_to_idx[site]
 
             for magnitude in magnitudes:
-                injected_3d = apply_injection(data_3d, node_idx, cond_idx, start_pos, "step", magnitude)
+                injected_3d = apply_injection(
+                    data_3d, node_idx, cond_idx, start_pos, "step", magnitude
+                )
                 normalized = tad._normalize(injected_3d, scaler, feature_cols, location_to_idx)
-                predictions, targets = run_window_model(model, edge_index, normalized, node_mask, num_nodes)
+                predictions, targets = run_window_model(
+                    model, edge_index, normalized, node_mask, num_nodes
+                )
                 if predictions is None:
                     continue
-                errs = robust_errors_for_node(predictions, targets, node_idx, cond_idx, error_median[site], error_iqr[site])
-                thresholds = tad._rain_adjusted_thresholds(node_thresholds[site], target_ts, rain_series)
+                errs = robust_errors_for_node(
+                    predictions, targets, node_idx, cond_idx, error_median[site], error_iqr[site]
+                )
+                thresholds = tad._rain_adjusted_thresholds(
+                    node_thresholds[site], target_ts, rain_series
+                )
                 n_over = int((errs > thresholds).sum())
-                d = results[site].setdefault(magnitude, {"tested": 0, "detected": 0, "n_over_sum": 0})
+                d = results[site].setdefault(
+                    magnitude, {"tested": 0, "detected": 0, "n_over_sum": 0}
+                )
                 d["tested"] += 1
                 d["n_over_sum"] += n_over
                 if n_over >= tad.MIN_TIMESTEPS_OVER_THRESHOLD:
@@ -770,10 +894,14 @@ def section4(model, metadata, nodes=SECTION4_NODES, magnitudes=SECTION4_MAGNITUD
                 min_reliable[site] = magnitude
         print(row)
 
-    print(f"\nsmallest magnitude reliably detected (flagged in >{RELIABLE_DETECTION_RATE:.0%} of windows):")
+    print(
+        f"\nsmallest magnitude reliably detected (flagged in >{RELIABLE_DETECTION_RATE:.0%} of windows):"
+    )
     for site in nodes:
         if site in min_reliable:
-            print(f"  {site}: {min_reliable[site]:.0f} uS/cm -- the honest deployment claim for this node")
+            print(
+                f"  {site}: {min_reliable[site]:.0f} uS/cm -- the honest deployment claim for this node"
+            )
         else:
             avg_over_top = results[site].get(magnitudes[-1], {}).get("n_over_sum", 0) / max(
                 results[site].get(magnitudes[-1], {}).get("tested", 1), 1
@@ -800,7 +928,14 @@ def section4(model, metadata, nodes=SECTION4_NODES, magnitudes=SECTION4_MAGNITUD
     return results, min_reliable
 
 
-def final_verdict(node_names, section1_rows, section2_results, section3_detection, section3_localization, section4_min_reliable):
+def final_verdict(
+    node_names,
+    section1_rows,
+    section2_results,
+    section3_detection,
+    section3_localization,
+    section4_min_reliable,
+):
     """
     Pulls the four sections into one scoped call per node instead of a single
     yes/no. Thresholds below (FP_RATE_CAVEAT, DETECT_RATE_CAVEAT,
@@ -811,12 +946,16 @@ def final_verdict(node_names, section1_rows, section2_results, section3_detectio
     print("=" * 70)
     print("FINAL VERDICT")
     print("=" * 70)
-    print(f"thresholds used: FP rate > {FP_RATE_CAVEAT:.0%} caveat, detection < {DETECT_RATE_CAVEAT:.0%} caveat, "
-          f"neighbor false-flag > {LOCALIZE_RATE_CAVEAT:.0%} caveat\n")
+    print(
+        f"thresholds used: FP rate > {FP_RATE_CAVEAT:.0%} caveat, detection < {DETECT_RATE_CAVEAT:.0%} caveat, "
+        f"neighbor false-flag > {LOCALIZE_RATE_CAVEAT:.0%} caveat\n"
+    )
 
     skill_by_node = {r["node"]: r for r in section1_rows}
 
-    print(f"{'node':15s} {'held skill':>10s} {'FP rate':>8s} {'detect avg':>10s} {'localize':>9s} {'min reliable':>13s}")
+    print(
+        f"{'node':15s} {'held skill':>10s} {'FP rate':>8s} {'detect avg':>10s} {'localize':>9s} {'min reliable':>13s}"
+    )
     print("-" * 75)
 
     verdicts = {}
@@ -838,7 +977,11 @@ def final_verdict(node_names, section1_rows, section2_results, section3_detectio
         step_spike_avg = sum(step_spike_rates) / len(step_spike_rates) if step_spike_rates else None
 
         loc = section3_localization.get(site)
-        loc_rate = loc["neighbor_false_flags"] / loc["neighbor_checks"] if loc and loc["neighbor_checks"] > 0 else None
+        loc_rate = (
+            loc["neighbor_false_flags"] / loc["neighbor_checks"]
+            if loc and loc["neighbor_checks"] > 0
+            else None
+        )
 
         min_reliable = section4_min_reliable.get(site)
 
@@ -847,7 +990,9 @@ def final_verdict(node_names, section1_rows, section2_results, section3_detectio
         detect_str = f"{detect_avg:.0%}" if detect_avg is not None else "n/a"
         loc_str = f"{loc_rate:.0%}" if loc_rate is not None else "n/a"
         min_str = f"{min_reliable:.0f}" if min_reliable is not None else "n/a"
-        print(f"{site:15s} {skill_str:>10s} {fp_str:>8s} {detect_str:>10s} {loc_str:>9s} {min_str:>13s}")
+        print(
+            f"{site:15s} {skill_str:>10s} {fp_str:>8s} {detect_str:>10s} {loc_str:>9s} {min_str:>13s}"
+        )
 
         caveats = []
         if skill is None:
@@ -858,7 +1003,9 @@ def final_verdict(node_names, section1_rows, section2_results, section3_detectio
             caveats.append(f"forecast doesn't beat persistence (skill={skill:.3f})")
         elif detect_avg is None:
             verdict = "not deployable"
-            caveats.append("no fully-real injection windows -- can't confirm detection works on this node")
+            caveats.append(
+                "no fully-real injection windows -- can't confirm detection works on this node"
+            )
         else:
             verdict = "deployable"
             if fp_rate is not None and fp_rate > FP_RATE_CAVEAT:
@@ -866,17 +1013,26 @@ def final_verdict(node_names, section1_rows, section2_results, section3_detectio
                 caveats.append(f"false-positive rate {fp_rate:.0%} on clean data")
             if detect_avg < DETECT_RATE_CAVEAT:
                 verdict = "deployable with caveats"
-                if ramp_rate is not None and ramp_rate >= DETECT_RATE_CAVEAT and step_spike_avg is not None and step_spike_avg < DETECT_RATE_CAVEAT:
+                if (
+                    ramp_rate is not None
+                    and ramp_rate >= DETECT_RATE_CAVEAT
+                    and step_spike_avg is not None
+                    and step_spike_avg < DETECT_RATE_CAVEAT
+                ):
                     caveats.append(
                         f"sustained-change (ramp) events are caught ({ramp_rate:.0%}), but a clean "
                         f"instantaneous jump (step/spike, {step_spike_avg:.0%}) mostly isn't -- see Section 4c, "
                         "this is a rule limitation (needs 3+ elevated timesteps), not a per-node calibration gap"
                     )
                 else:
-                    caveats.append(f"detection rate only {detect_avg:.0%} at {CONFIRM_MAGNITUDE:.0f} uS/cm")
+                    caveats.append(
+                        f"detection rate only {detect_avg:.0%} at {CONFIRM_MAGNITUDE:.0f} uS/cm"
+                    )
             if loc_rate is not None and loc_rate > LOCALIZE_RATE_CAVEAT:
                 verdict = "deployable with caveats"
-                caveats.append(f"neighbors false-flag {loc_rate:.0%} of the time when this node is perturbed")
+                caveats.append(
+                    f"neighbors false-flag {loc_rate:.0%} of the time when this node is perturbed"
+                )
 
         verdicts[site] = {"verdict": verdict, "caveats": caveats}
 

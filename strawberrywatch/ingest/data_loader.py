@@ -56,7 +56,8 @@ def _load_wide_corpus_as_long(file_path):
     for site in sites:
         prefix = f"{site}_"
         rename = {
-            c: c[len(prefix):] for c in wide.columns
+            c: c[len(prefix) :]
+            for c in wide.columns
             if c.startswith(prefix) and not c.endswith("_valid")
         }
         site_df = wide[list(rename.keys()) + [f"{site}_valid"] + shared_cols].rename(columns=rename)
@@ -101,8 +102,10 @@ def load_and_preprocess_data(
         file_path = Config.data_file()
 
     if _is_wide_training_corpus(file_path):
-        print(f"'{file_path}' is a wide training corpus (has *_valid columns); "
-              f"loading directly, skipping fetch/merge.")
+        print(
+            f"'{file_path}' is a wide training corpus (has *_valid columns); "
+            f"loading directly, skipping fetch/merge."
+        )
         df = _load_wide_corpus_as_long(file_path)
     else:
         if not os.path.exists(file_path) or force_download:
@@ -117,6 +120,7 @@ def load_and_preprocess_data(
 
             if data_source == "sql":
                 from strawberrywatch.ingest.sql_client import fetch_network_snapshot_sql
+
                 df_raw = fetch_network_snapshot_sql(
                     start_time=start_date.isoformat(),
                     end_time=end_date.isoformat(),
@@ -137,11 +141,11 @@ def load_and_preprocess_data(
                 # (cond, depth, temp) plus battery; SQL may have more. Extra columns pass
                 # through with their raw names and get picked up as model features.
                 column_mapping = {
-                    "Meter_Hydros21_Cond":  "conductivity",
+                    "Meter_Hydros21_Cond": "conductivity",
                     "Meter_Hydros21_Depth": "depth",
-                    "Meter_Hydros21_Temp":  "temperature",
-                    "timestamp":            "datetime",
-                    "station_id":           "location",
+                    "Meter_Hydros21_Temp": "temperature",
+                    "timestamp": "datetime",
+                    "station_id": "location",
                 }
                 df_raw = df_raw.rename(columns=column_mapping)
 
@@ -176,7 +180,8 @@ def load_and_preprocess_data(
     # Feature selection: every numeric column that isn't location or in our
     # exclude set. New columns from SQL or NWS get picked up automatically.
     feature_cols = [
-        col for col in df.columns
+        col
+        for col in df.columns
         if col != "location"
         and col not in _NON_FEATURE_COLUMNS
         and pd.api.types.is_numeric_dtype(df[col])
@@ -232,9 +237,7 @@ def _merge_with_cache(df_new, file_path):
 
     # Dedupe: keep the most recent version of each (datetime, location) row.
     # 'keep="last"' relies on df_new having been concatenated after existing.
-    combined = combined.drop_duplicates(
-        subset=["datetime", "location"], keep="last"
-    )
+    combined = combined.drop_duplicates(subset=["datetime", "location"], keep="last")
     combined = combined.sort_values("datetime").reset_index(drop=True)
     return combined
 
@@ -274,7 +277,10 @@ def _merge_weather(df_raw, start_date, end_date, days):
     more than once per window, not to disaggregate anything.
     """
     from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
-    print(f"Fetching Open-Meteo weather (window: {days}d, source: Historical Forecast API, 15-min native)...")
+
+    print(
+        f"Fetching Open-Meteo weather (window: {days}d, source: Historical Forecast API, 15-min native)..."
+    )
     df_weather = fetch_open_meteo_weather(start_date, end_date)
 
     if df_weather.empty:
@@ -291,7 +297,9 @@ def _merge_weather(df_raw, start_date, end_date, days):
         parts.append(df_weather[accumulated_present].resample("15min").sum())
     df_weather_15min = pd.concat(parts, axis=1) if parts else df_weather.resample("15min").mean()
     # Keep a stable column order matching the source
-    df_weather_15min = df_weather_15min[[c for c in df_weather.columns if c in df_weather_15min.columns]]
+    df_weather_15min = df_weather_15min[
+        [c for c in df_weather.columns if c in df_weather_15min.columns]
+    ]
 
     creek_dt = pd.to_datetime(df_raw["datetime"], utc=True)
     df_raw["_quarter_key"] = creek_dt.dt.floor("15min")
@@ -304,8 +312,7 @@ def _merge_weather(df_raw, start_date, end_date, days):
     ).drop(columns=["_quarter_key"])
 
     n_with_weather = (
-        df_merged["air_temp_c"].notna().sum()
-        if "air_temp_c" in df_merged.columns else 0
+        df_merged["air_temp_c"].notna().sum() if "air_temp_c" in df_merged.columns else 0
     )
     print(
         f"Weather merged: {n_with_weather:,}/{len(df_merged):,} rows "

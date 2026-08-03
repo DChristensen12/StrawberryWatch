@@ -25,8 +25,8 @@ _OPEN_METEO_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
 # Maps Open-Meteo parameter names to our internal column names.
 # Units: precipitation in mm/hour, shortwave in W/m², temperature in °C.
 _OPEN_METEO_VARIABLES = [
-    ("temperature_2m",      "air_temp_c"),
-    ("precipitation",       "rain_mm"),
+    ("temperature_2m", "air_temp_c"),
+    ("precipitation", "rain_mm"),
     ("shortwave_radiation", "shortwave_radiation"),
 ]
 
@@ -64,12 +64,12 @@ def fetch_open_meteo_weather(
         end_date = str(end_time)[:10]
 
     params = {
-        "latitude":     lat,
-        "longitude":    lon,
-        "start_date":   start_date,
-        "end_date":     end_date,
-        "minutely_15":  ",".join(om_name for om_name, _ in _OPEN_METEO_VARIABLES),
-        "timezone":     "UTC",
+        "latitude": lat,
+        "longitude": lon,
+        "start_date": start_date,
+        "end_date": end_date,
+        "minutely_15": ",".join(om_name for om_name, _ in _OPEN_METEO_VARIABLES),
+        "timezone": "UTC",
     }
 
     try:
@@ -79,19 +79,14 @@ def fetch_open_meteo_weather(
         return pd.DataFrame()
 
     if resp.status_code != 200:
-        logger.error(
-            f"Open-Meteo returned {resp.status_code}: {resp.text[:300]}"
-        )
+        logger.error(f"Open-Meteo returned {resp.status_code}: {resp.text[:300]}")
         return pd.DataFrame()
 
     data = resp.json()
     quarter_hourly = data.get("minutely_15", {})
     times = quarter_hourly.get("time", [])
     if not times:
-        logger.warning(
-            f"Open-Meteo returned no observations for "
-            f"{start_date} to {end_date}"
-        )
+        logger.warning(f"Open-Meteo returned no observations for {start_date} to {end_date}")
         return pd.DataFrame()
 
     # Each variable is a parallel array indexed by 'time'.

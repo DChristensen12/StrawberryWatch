@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GCNConv, GATConv
 from torch_geometric.data import Data, Batch
-
 from strawberrywatch.config import Config
 
 
@@ -106,7 +105,7 @@ def masked_mean_pool(h, node_mask):
     safe = count.clamp(min=1.0)
     pooled = summed / safe
     # If a row had zero real nodes, fall back to the unmasked mean for that row
-    empty = (count.squeeze(-1) == 0)
+    empty = count.squeeze(-1) == 0
     if empty.any():
         pooled[empty] = h[empty].mean(dim=1)
     return pooled
@@ -188,9 +187,7 @@ class DuskCrayfish(nn.Module):
         # Dense normalized adjacency for feature propagation, built once per call
         norm_adj = None
         if node_mask is not None:
-            norm_adj = build_symmetric_norm_adjacency(
-                edge_index, num_nodes, x_sequence.device
-            )
+            norm_adj = build_symmetric_norm_adjacency(edge_index, num_nodes, x_sequence.device)
 
         node_states = []
         graph_states = []
@@ -200,9 +197,7 @@ class DuskCrayfish(nn.Module):
             if node_mask is not None:
                 mask_t = node_mask[:, t, :]  # (batch, num_nodes)
                 # Fill missing nodes by diffusing the real ones before the GCN
-                x_t = propagate_missing_features(
-                    x_t, mask_t, norm_adj, num_iters=self.fp_iters
-                )
+                x_t = propagate_missing_features(x_t, mask_t, norm_adj, num_iters=self.fp_iters)
 
             x_flat = x_t.reshape(-1, num_features)
             h = x_flat
@@ -241,9 +236,7 @@ class DuskCrayfish(nn.Module):
 
         # fold nodes into the batch dim so the LSTM runs over time per node rather
         # than over one pooled sequence for the whole graph
-        lstm_input = lstm_input.permute(0, 2, 1, 3).reshape(
-            batch_size * num_nodes, seq_len, -1
-        )
+        lstm_input = lstm_input.permute(0, 2, 1, 3).reshape(batch_size * num_nodes, seq_len, -1)
         lstm_out, _ = self.lstm(lstm_input)
         last_hidden = lstm_out[:, -1, :]
 
@@ -256,4 +249,3 @@ class DuskCrayfish(nn.Module):
         delta = delta.reshape(batch_size, num_nodes, -1)
         predictions = last_x_t + delta
         return predictions
-    

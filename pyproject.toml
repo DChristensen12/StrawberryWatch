@@ -22,6 +22,9 @@ dependencies = [
     "mysql-connector-python",
 ]
 
+[project.optional-dependencies]
+dev = ["ruff", "pre-commit", "pytest"]
+
 [tool.setuptools.packages.find]
 include = ["strawberrywatch*"]
 
@@ -29,3 +32,19 @@ include = ["strawberrywatch*"]
 # Config silently falls back to its hardcoded defaults with only a warning.
 [tool.setuptools.package-data]
 strawberrywatch = ["settings.yaml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# TEMP.py is a scratch prototype that never gets committed.
+extend-exclude = ["TEMP.py", "notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ARG"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["strawberrywatch"]

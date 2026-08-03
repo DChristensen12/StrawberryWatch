@@ -5,6 +5,7 @@ Nothing here runs at import time. A consumer that only wants the classifier or
 the alert sender should never trip over a missing data/ directory, so paths are
 resolved when something actually reads or writes, not when the module loads.
 """
+
 import os
 from pathlib import Path
 

@@ -10,6 +10,7 @@ downstream is interpretable.
 
 Read-only. Doesn't touch the model, the corpus, or anything else in the repo.
 """
+
 import pickle
 from pathlib import Path
 
@@ -76,7 +77,9 @@ def step1_split_and_correspondence(metadata):
     mean_match = np.allclose(scaler.mean_, metadata["scaler"].mean_)
     scale_match = np.allclose(scaler.scale_, metadata["scaler"].scale_)
     print(f"checking whether models/{MODEL_NAME}_weights.pt corresponds to this exact split:")
-    print(f"  recomputed scaler vs saved metadata scaler -- mean match: {mean_match}, scale match: {scale_match}")
+    print(
+        f"  recomputed scaler vs saved metadata scaler -- mean match: {mean_match}, scale match: {scale_match}"
+    )
     if mean_match and scale_match:
         print(f"  MATCH. This checkpoint was fit on {CORPUS_PATH} as it exists right now,")
         print(f"  so its held-out split is exactly the one computed below.")
@@ -90,7 +93,9 @@ def step1_split_and_correspondence(metadata):
     split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
     held_ts = pd.DatetimeIndex(timestamps[split_idx:])
     print(f"total sequences: {len(sequences):,}")
-    print(f"split_idx: {split_idx:,} ({Config.TRAIN_SPLIT:.0%} train / {1 - Config.TRAIN_SPLIT:.0%} held out)")
+    print(
+        f"split_idx: {split_idx:,} ({Config.TRAIN_SPLIT:.0%} train / {1 - Config.TRAIN_SPLIT:.0%} held out)"
+    )
     print(f"held-out sequences: {len(held_ts):,}")
     print(f"held-out date range: {held_ts[0]} -> {held_ts[-1]}")
     print()
@@ -144,10 +149,12 @@ def run_model_over_held_out(model, edge_index, held_seq, held_node_mask, num_nod
     preds = []
     with torch.no_grad():
         for i in range(0, len(held_seq), batch_size):
-            seq_t = torch.FloatTensor(held_seq[i:i+batch_size]).to(Config.DEVICE)
+            seq_t = torch.FloatTensor(held_seq[i : i + batch_size]).to(Config.DEVICE)
             if USE_MASK:
-                mask_t = torch.BoolTensor(held_node_mask[i:i+batch_size]).to(Config.DEVICE)
-                pred = model(seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t)
+                mask_t = torch.BoolTensor(held_node_mask[i : i + batch_size]).to(Config.DEVICE)
+                pred = model(
+                    seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t
+                )
             else:
                 pred = model(seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes)
             preds.append(pred.cpu().numpy())
@@ -238,7 +245,9 @@ def main():
         n_dropped_by_lag = int(info["stage1_keep"].sum() - final_keep.sum())
         n = int(final_keep.sum())
 
-        print(f"\n[{site}] stage1 ok={info['n_stage1']:,}, dropped for missing lag={n_dropped_by_lag:,}, final n={n:,}")
+        print(
+            f"\n[{site}] stage1 ok={info['n_stage1']:,}, dropped for missing lag={n_dropped_by_lag:,}, final n={n:,}"
+        )
 
         if n < MIN_EVALUABLE:
             rows.append({"node": site, "n": n, "verdict": "INSUFFICIENT DATA (after lag filter)"})
@@ -274,23 +283,25 @@ def main():
         residuals = target_n - model_n
         autocorr = float(pd.Series(residuals).autocorr(lag=1))
 
-        rows.append({
-            "node": site,
-            "n": n,
-            "mae_persist_norm": mae(target_n, persist_n),
-            "mae_diurnal_norm": mae(target_n, diurnal_n),
-            "mae_model_norm": mae(target_n, model_n),
-            "rmse_persist_norm": rmse(target_n, persist_n),
-            "rmse_diurnal_norm": rmse(target_n, diurnal_n),
-            "rmse_model_norm": rmse(target_n, model_n),
-            "mae_persist_raw": mae(target_raw, persist_raw),
-            "mae_diurnal_raw": mae(target_raw, diurnal_raw_v),
-            "mae_model_raw": mae(target_raw, model_raw),
-            "skill_vs_persist": skill_persist,
-            "skill_vs_diurnal": skill_diurnal,
-            "resid_autocorr_lag1": autocorr,
-            "verdict": verdict,
-        })
+        rows.append(
+            {
+                "node": site,
+                "n": n,
+                "mae_persist_norm": mae(target_n, persist_n),
+                "mae_diurnal_norm": mae(target_n, diurnal_n),
+                "mae_model_norm": mae(target_n, model_n),
+                "rmse_persist_norm": rmse(target_n, persist_n),
+                "rmse_diurnal_norm": rmse(target_n, diurnal_n),
+                "rmse_model_norm": rmse(target_n, model_n),
+                "mae_persist_raw": mae(target_raw, persist_raw),
+                "mae_diurnal_raw": mae(target_raw, diurnal_raw_v),
+                "mae_model_raw": mae(target_raw, model_raw),
+                "skill_vs_persist": skill_persist,
+                "skill_vs_diurnal": skill_diurnal,
+                "resid_autocorr_lag1": autocorr,
+                "verdict": verdict,
+            }
+        )
 
     print()
     print("=" * 70)

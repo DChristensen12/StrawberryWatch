@@ -11,18 +11,39 @@ base_params = [
 ]
 
 cases = [
-    ("just timestamp + cond",       ["timestamp", "Meter_Hydros21_Cond"]),
-    ("just timestamp + depth",      ["timestamp", "Meter_Hydros21_Depth"]),
-    ("just timestamp + temp",       ["timestamp", "Meter_Hydros21_Temp"]),
-    ("just timestamp + batt",       ["timestamp", "EnviroDIY_Mayfly_Batt"]),
-    ("ts + cond + depth (3 vars)",   ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth"]),
-    ("ts + cond + temp (3 vars)",    ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Temp"]),
-    ("ts + cond + depth + temp",     ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth", "Meter_Hydros21_Temp"]),
-    ("ts + cond + depth + temp + batt", ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth", "Meter_Hydros21_Temp", "EnviroDIY_Mayfly_Batt"]),
+    ("just timestamp + cond", ["timestamp", "Meter_Hydros21_Cond"]),
+    ("just timestamp + depth", ["timestamp", "Meter_Hydros21_Depth"]),
+    ("just timestamp + temp", ["timestamp", "Meter_Hydros21_Temp"]),
+    ("just timestamp + batt", ["timestamp", "EnviroDIY_Mayfly_Batt"]),
+    ("ts + cond + depth (3 vars)", ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth"]),
+    ("ts + cond + temp (3 vars)", ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Temp"]),
+    (
+        "ts + cond + depth + temp",
+        ["timestamp", "Meter_Hydros21_Cond", "Meter_Hydros21_Depth", "Meter_Hydros21_Temp"],
+    ),
+    (
+        "ts + cond + depth + temp + batt",
+        [
+            "timestamp",
+            "Meter_Hydros21_Cond",
+            "Meter_Hydros21_Depth",
+            "Meter_Hydros21_Temp",
+            "EnviroDIY_Mayfly_Batt",
+        ],
+    ),
     # Order reversal test:
-    ("REVERSED ts + batt + temp + depth + cond", ["timestamp", "EnviroDIY_Mayfly_Batt", "Meter_Hydros21_Temp", "Meter_Hydros21_Depth", "Meter_Hydros21_Cond"]),
+    (
+        "REVERSED ts + batt + temp + depth + cond",
+        [
+            "timestamp",
+            "EnviroDIY_Mayfly_Batt",
+            "Meter_Hydros21_Temp",
+            "Meter_Hydros21_Depth",
+            "Meter_Hydros21_Cond",
+        ],
+    ),
     # No timestamp:
-    ("just cond + depth (no ts)",  ["Meter_Hydros21_Cond", "Meter_Hydros21_Depth"]),
+    ("just cond + depth (no ts)", ["Meter_Hydros21_Cond", "Meter_Hydros21_Depth"]),
 ]
 
 for label, cols in cases:

@@ -119,11 +119,15 @@ def train_temporal_gnn(
             feature_cols.index(f) for f in Config.SCORED_TARGET_FEATURES if f in feature_cols
         ]
         if scored_feature_idx:
-            print(f"loss scored on: {[feature_cols[i] for i in scored_feature_idx]} "
-                  f"(indices {scored_feature_idx}) -- everything else is input-only")
+            print(
+                f"loss scored on: {[feature_cols[i] for i in scored_feature_idx]} "
+                f"(indices {scored_feature_idx}) -- everything else is input-only"
+            )
         else:
-            print("none of Config.SCORED_TARGET_FEATURES are in feature_cols, "
-                  "falling back to scoring all features")
+            print(
+                "none of Config.SCORED_TARGET_FEATURES are in feature_cols, "
+                "falling back to scoring all features"
+            )
             scored_feature_idx = None
 
     device_type = "cuda" if "cuda" in str(device) else "cpu"
@@ -138,8 +142,7 @@ def train_temporal_gnn(
     train_losses = []
     val_losses = []
 
-    print(f"training on {device_type.upper()} "
-          f"({'mixed-precision' if use_amp else 'fp32'})...")
+    print(f"training on {device_type.upper()} ({'mixed-precision' if use_amp else 'fp32'})...")
 
     for epoch in range(epochs):
         model.train()
@@ -147,21 +150,25 @@ def train_temporal_gnn(
         num_batches = 0
 
         for i in range(0, len(train_sequences), batch_size):
-            batch_seq = torch.FloatTensor(train_sequences[i:i+batch_size]).to(device)
-            batch_target = torch.FloatTensor(train_targets[i:i+batch_size]).to(device)
+            batch_seq = torch.FloatTensor(train_sequences[i : i + batch_size]).to(device)
+            batch_target = torch.FloatTensor(train_targets[i : i + batch_size]).to(device)
             batch_node_mask = None
             if train_node_mask is not None:
-                batch_node_mask = torch.BoolTensor(train_node_mask[i:i+batch_size]).to(device)
+                batch_node_mask = torch.BoolTensor(train_node_mask[i : i + batch_size]).to(device)
             batch_target_mask = None
             if train_target_mask is not None:
-                batch_target_mask = torch.BoolTensor(train_target_mask[i:i+batch_size]).to(device)
+                batch_target_mask = torch.BoolTensor(train_target_mask[i : i + batch_size]).to(
+                    device
+                )
 
             optimizer.zero_grad()
 
             if use_amp:
                 with autocast(device_type=device_type):
                     predictions = _run_model(batch_seq, batch_node_mask)
-                    loss = _masked_mse(predictions, batch_target, batch_target_mask, scored_feature_idx)
+                    loss = _masked_mse(
+                        predictions, batch_target, batch_target_mask, scored_feature_idx
+                    )
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
@@ -182,15 +189,27 @@ def train_temporal_gnn(
             with torch.no_grad():
                 val_seq = torch.FloatTensor(val_sequences).to(device)
                 val_tgt = torch.FloatTensor(val_targets).to(device)
-                val_seq_mask = torch.BoolTensor(val_node_mask).to(device) if val_node_mask is not None else None
-                val_tgt_mask = torch.BoolTensor(val_target_mask).to(device) if val_target_mask is not None else None
+                val_seq_mask = (
+                    torch.BoolTensor(val_node_mask).to(device)
+                    if val_node_mask is not None
+                    else None
+                )
+                val_tgt_mask = (
+                    torch.BoolTensor(val_target_mask).to(device)
+                    if val_target_mask is not None
+                    else None
+                )
                 if use_amp:
                     with autocast(device_type=device_type):
                         val_pred = _run_model(val_seq, val_seq_mask)
-                        val_loss = _masked_mse(val_pred, val_tgt, val_tgt_mask, scored_feature_idx).item()
+                        val_loss = _masked_mse(
+                            val_pred, val_tgt, val_tgt_mask, scored_feature_idx
+                        ).item()
                 else:
                     val_pred = _run_model(val_seq, val_seq_mask)
-                    val_loss = _masked_mse(val_pred, val_tgt, val_tgt_mask, scored_feature_idx).item()
+                    val_loss = _masked_mse(
+                        val_pred, val_tgt, val_tgt_mask, scored_feature_idx
+                    ).item()
             val_losses.append(val_loss)
 
             if val_loss < best_val_loss:
@@ -200,11 +219,11 @@ def train_temporal_gnn(
             else:
                 patience_counter += 1
                 if patience_counter >= patience:
-                    print(f"early stopping at epoch {epoch+1}")
+                    print(f"early stopping at epoch {epoch + 1}")
                     break
 
         if (epoch + 1) % 5 == 0 or epoch == 0:
-            status = f"Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
+            status = f"Epoch {epoch + 1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
             if val_sequences is not None:
                 status += f" | Val Loss: {val_loss:.6f}"
             print(status)
@@ -222,7 +241,9 @@ def train_temporal_gnn(
         with torch.no_grad():
             val_seq = torch.FloatTensor(val_sequences).to(device)
             val_tgt = torch.FloatTensor(val_targets).to(device)
-            val_seq_mask = torch.BoolTensor(val_node_mask).to(device) if val_node_mask is not None else None
+            val_seq_mask = (
+                torch.BoolTensor(val_node_mask).to(device) if val_node_mask is not None else None
+            )
             val_pred = _run_model(val_seq, val_seq_mask)
             val_errors = (val_pred - val_tgt).abs().cpu().numpy()
             val_tgt_np = val_tgt.cpu().numpy()
@@ -244,9 +265,7 @@ def train_temporal_gnn(
                 per_node_cond_level = None
                 scoring_note = "mean across all features (fallback)"
 
-            threshold = float(
-                np.percentile(system_scores, Config.THRESHOLD_PERCENTILE)
-            )
+            threshold = float(np.percentile(system_scores, Config.THRESHOLD_PERCENTILE))
 
             # median/IQR per node so a site that just runs hotter than the rest
             # (south_fork_2, say) doesn't sit permanently above one shared
@@ -262,7 +281,9 @@ def train_temporal_gnn(
             node_error_stats = {}
             for node_idx in range(num_nodes):
                 node_errs = per_node_scores[:, node_idx]
-                node_level = per_node_cond_level[:, node_idx] if per_node_cond_level is not None else None
+                node_level = (
+                    per_node_cond_level[:, node_idx] if per_node_cond_level is not None else None
+                )
                 if val_target_mask is not None:
                     keep = val_target_mask[:, node_idx].astype(bool)
                     n_excluded = int((~keep).sum())
@@ -271,11 +292,15 @@ def train_temporal_gnn(
                         if node_level is not None:
                             node_level = node_level[keep]
                     else:
-                        print(f"  node {node_idx}: every validation target masked, "
-                              f"falling back to unfiltered errors for calibration")
+                        print(
+                            f"  node {node_idx}: every validation target masked, "
+                            f"falling back to unfiltered errors for calibration"
+                        )
                     if n_excluded:
-                        print(f"  node {node_idx}: excluding {n_excluded}/{len(keep)} "
-                              f"QC-invalid targets from threshold calibration")
+                        print(
+                            f"  node {node_idx}: excluding {n_excluded}/{len(keep)} "
+                            f"QC-invalid targets from threshold calibration"
+                        )
                 median = float(np.median(node_errs))
                 q75, q25 = np.percentile(node_errs, [75, 25])
                 iqr = float(q75 - q25)

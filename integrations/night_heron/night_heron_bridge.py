@@ -81,8 +81,17 @@ def _send_anomaly_email(rcpts, site, score, threshold, event_time, classificatio
         return "failure_send_error"
 
 
-def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phones,
-                            classification=None, created_by_user_id=None, group_obj_id=None):
+def fire_anomaly_alert_task(
+    site,
+    score,
+    threshold,
+    event_time_iso,
+    emails,
+    phones,
+    classification=None,
+    created_by_user_id=None,
+    group_obj_id=None,
+):
     """
     Worker task for a GNN anomaly alert, mirroring fire_alerts_task. Sends email,
     optionally SMS, and logs an AlertEvent so anomaly alerts share the same audit trail
@@ -104,7 +113,9 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
     detailed_email_status = "pending"
     try:
         if emails:
-            detailed_email_status = _send_anomaly_email(emails, site, score, threshold, event_time, classification)
+            detailed_email_status = _send_anomaly_email(
+                emails, site, score, threshold, event_time, classification
+            )
         else:
             detailed_email_status = "skipped_no_recipients"
     except Exception as e_email:
@@ -137,7 +148,9 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
         if created_by_user_id:
             current_worker_user = User.objects.get(id=created_by_user_id)
     except Exception as e:
-        logger.error(f"Anomaly worker: error fetching user {created_by_user_id}: {e}", exc_info=True)
+        logger.error(
+            f"Anomaly worker: error fetching user {created_by_user_id}: {e}", exc_info=True
+        )
     try:
         if group_obj_id:
             current_worker_group = Group.objects.get(id=group_obj_id)
@@ -158,7 +171,9 @@ def fire_anomaly_alert_task(site, score, threshold, event_time_iso, emails, phon
             group_obj=current_worker_group,
         )
     except Exception as e_log:
-        logger.error(f"CRITICAL: failed to log GNN anomaly AlertEvent for {site}: {e_log}", exc_info=True)
+        logger.error(
+            f"CRITICAL: failed to log GNN anomaly AlertEvent for {site}: {e_log}", exc_info=True
+        )
 
 
 # How a StrawberryWatch anomaly actually reaches this daemon.

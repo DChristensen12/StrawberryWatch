@@ -40,12 +40,16 @@ def show_df(df, label):
 def test_imports():
     banner("Layer 0: imports")
     from strawberrywatch.config import Config  # noqa: F401
+
     print("  strawberrywatch.config        :)")
     from strawberrywatch.ingest import api_client  # noqa: F401
+
     print("  strawberrywatch.ingest.api_client     :)")
     from strawberrywatch.ingest import sql_client  # noqa: F401
+
     print("  strawberrywatch.ingest.sql_client     :)")
     from strawberrywatch.ingest import weather_client  # noqa: F401
+
     print("  strawberrywatch.ingest.weather_client  :)")
 
 
@@ -76,7 +80,7 @@ def test_api():
     from strawberrywatch.ingest.api_client import fetch_creek_data, fetch_network_snapshot
     from strawberrywatch.config import Config
 
-    end   = datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
     print(f"\n  fetch_creek_data('oxford', last 2 days)")
@@ -94,7 +98,7 @@ def test_api():
     sites_seen = sorted(df_net["station_id"].unique()) if "station_id" in df_net.columns else []
     print(f"  sites returned: {sites_seen}")
     expected = set(Config.LOCATIONS)
-    missing  = expected - set(sites_seen)
+    missing = expected - set(sites_seen)
     if missing:
         print(f"  missing sites: {sorted(missing)}")
     return True
@@ -104,7 +108,7 @@ def test_nws():
     banner("Layer 2b: NWS weather client")
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
-    end   = datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
     df = fetch_nws_weather(start, end)
@@ -128,11 +132,13 @@ def test_sql():
     from strawberrywatch.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
     from strawberrywatch.config import Config
 
-    if not all([Config.MYSQL_HOST, Config.MYSQL_USER, Config.MYSQL_PASSWORD, Config.MYSQL_DATABASE]):
+    if not all(
+        [Config.MYSQL_HOST, Config.MYSQL_USER, Config.MYSQL_PASSWORD, Config.MYSQL_DATABASE]
+    ):
         print("  MYSQL_* env vars not all set, skipping SQL test")
         return False
 
-    end   = datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
     print(f"\n  fetch_creek_data_sql('oxford', last 2 days)")
@@ -157,12 +163,12 @@ def test_integration():
     from strawberrywatch.ingest.api_client import fetch_network_snapshot
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
-    end   = datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc)
     start = end - timedelta(days=2)
 
     print("  pulling creek (API) + weather (NWS) for the same 2-day window...")
     df_creek = fetch_network_snapshot(start, end)
-    df_nws   = fetch_nws_weather(start, end)
+    df_nws = fetch_nws_weather(start, end)
 
     if df_creek.empty:
         print("  creek data was empty, can't test merge")
@@ -172,8 +178,8 @@ def test_integration():
         return False
 
     creek_times = df_creek["timestamp"].dt.floor("h").unique()
-    nws_times   = df_nws.index.floor("h").unique()
-    overlap     = set(creek_times) & set(nws_times)
+    nws_times = df_nws.index.floor("h").unique()
+    overlap = set(creek_times) & set(nws_times)
 
     print(f"  creek hourly buckets: {len(creek_times)}")
     print(f"  nws   hourly buckets: {len(nws_times)}")
@@ -187,11 +193,11 @@ def test_integration():
 
 
 TESTS = {
-    "imports":     test_imports,
-    "config":      test_config,
-    "api":         test_api,
-    "nws":         test_nws,
-    "sql":         test_sql,
+    "imports": test_imports,
+    "config": test_config,
+    "api": test_api,
+    "nws": test_nws,
+    "sql": test_sql,
     "integration": test_integration,
 }
 

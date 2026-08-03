@@ -30,6 +30,7 @@ def run_monitor():
 
         time.sleep(900)
 
+
 if __name__ == "__main__":
     try:
         run_monitor()

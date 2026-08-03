@@ -48,9 +48,8 @@ def _impute_short_gaps(df, feature_cols, limit_hours):
             print(f"  [{location}] only {site_row_count} rows, skipping interpolation")
             continue
 
-        df.loc[mask, feature_cols] = (
-            df.loc[mask, feature_cols]
-            .interpolate(method="time", limit=limit_rows, limit_area="inside")
+        df.loc[mask, feature_cols] = df.loc[mask, feature_cols].interpolate(
+            method="time", limit=limit_rows, limit_area="inside"
         )
 
         filled = before - int(df.loc[mask, feature_cols].isna().sum().sum())
@@ -63,8 +62,12 @@ def _impute_short_gaps(df, feature_cols, limit_hours):
 
 
 def prepare_sequences_normalized(
-    df_featured, location_to_idx, sequence_length=Config.SEQUENCE_LENGTH,
-    return_node_mask=False, scaler=None, scaler_feature_cols=None,
+    df_featured,
+    location_to_idx,
+    sequence_length=Config.SEQUENCE_LENGTH,
+    return_node_mask=False,
+    scaler=None,
+    scaler_feature_cols=None,
 ):
     """
     Normalizes and slices df_featured into (sequences, targets) for training.
@@ -98,7 +101,8 @@ def prepare_sequences_normalized(
     """
     exclude_cols = _NON_FEATURE_COLUMNS | {"location"}
     feature_cols = [
-        col for col in df_featured.select_dtypes(include=[np.number]).columns.tolist()
+        col
+        for col in df_featured.select_dtypes(include=[np.number]).columns.tolist()
         if col not in exclude_cols
     ]
     print(f"using {len(feature_cols)} features: {', '.join(feature_cols)}")
@@ -139,15 +143,19 @@ def prepare_sequences_normalized(
         # isn't guaranteed to match the trained one (air_temp_c and rain_mm
         # swap depending on which weather path filled them in).
         src_cols = list(scaler_feature_cols) if scaler_feature_cols else list(feature_cols)
-        stats = {name: (float(scaler.mean_[i]), float(scaler.scale_[i]))
-                 for i, name in enumerate(src_cols)}
+        stats = {
+            name: (float(scaler.mean_[i]), float(scaler.scale_[i]))
+            for i, name in enumerate(src_cols)
+        }
         unknown = [c for c in feature_cols if c not in stats]
         means = np.array([stats.get(c, (0.0, 1.0))[0] for c in feature_cols])
         scales = np.array([stats.get(c, (0.0, 1.0))[1] for c in feature_cols])
         print(f"scaler: reusing trained stats ({len(stats)} features), not refitting")
         if unknown:
-            print(f"  no trained stats for {unknown}, left unscaled -- "
-                  f"feature alignment drops them before the model sees them")
+            print(
+                f"  no trained stats for {unknown}, left unscaled -- "
+                f"feature alignment drops them before the model sees them"
+            )
     else:
         # Fit only on fully-valid rows so long outages don't corrupt the scaler stats.
         # QC-invalid rows (masked oxford during the university_house duplication, a
@@ -229,11 +237,15 @@ def prepare_sequences_normalized(
     elif "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
         valid_3d = ~nan_mask[:, :, cond_idx]
-        print("node_mask source: no 'valid' column (live data) -- derived from "
-              "real conductivity presence instead")
+        print(
+            "node_mask source: no 'valid' column (live data) -- derived from "
+            "real conductivity presence instead"
+        )
     else:
-        print("node_mask source: no 'valid' column and no conductivity feature, "
-              "falling back to all-True")
+        print(
+            "node_mask source: no 'valid' column and no conductivity feature, "
+            "falling back to all-True"
+        )
 
     transient_absent_mask = nan_mask & ~permanent_mask[np.newaxis, :, :]
     n_transient = int(transient_absent_mask.sum())
@@ -258,9 +270,7 @@ def prepare_sequences_normalized(
     # Optional safety: a timestep with EVERY node absent is not useful even
     # if it technically passes the check. Require at least one node to have
     # real (non-absent) data at each timestep.
-    real_data_per_timestep = ~(
-        nan_mask | permanent_mask[np.newaxis, :, :]
-    )
+    real_data_per_timestep = ~(nan_mask | permanent_mask[np.newaxis, :, :])
     has_any_real_node = real_data_per_timestep.any(axis=(1, 2))
     valid_mask &= has_any_real_node
     print(f"after node filter: {valid_mask.sum():,} / {len(valid_mask):,} valid timesteps")
@@ -273,9 +283,9 @@ def prepare_sequences_normalized(
     target_node_mask = []
 
     for i in tqdm(range(len(timestamps_all) - sequence_length), desc="Sliding window"):
-        if valid_mask[i:i+sequence_length+1].all():
-            seq = data_3d[i:i+sequence_length].copy()
-            target = data_3d[i+sequence_length].copy()
+        if valid_mask[i : i + sequence_length + 1].all():
+            seq = data_3d[i : i + sequence_length].copy()
+            target = data_3d[i + sequence_length].copy()
 
             # Zero permanent absences across the whole window + target
             for node_idx, feat_idx in permanent_absent:
@@ -292,14 +302,19 @@ def prepare_sequences_normalized(
             sequence_timestamps.append(timestamps_all[i + sequence_length])
 
             if return_node_mask:
-                node_mask_sequences.append(valid_3d[i:i+sequence_length].copy())
-                target_node_mask.append(valid_3d[i+sequence_length].copy())
+                node_mask_sequences.append(valid_3d[i : i + sequence_length].copy())
+                target_node_mask.append(valid_3d[i + sequence_length].copy())
 
     print(f"done. {len(sequences):,} sequences total")
 
     if return_node_mask:
         return (
-            np.array(sequences), np.array(targets), sequence_timestamps, scaler, feature_cols,
-            np.array(node_mask_sequences), np.array(target_node_mask),
+            np.array(sequences),
+            np.array(targets),
+            sequence_timestamps,
+            scaler,
+            feature_cols,
+            np.array(node_mask_sequences),
+            np.array(target_node_mask),
         )
     return np.array(sequences), np.array(targets), sequence_timestamps, scaler, feature_cols

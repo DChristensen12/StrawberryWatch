@@ -19,12 +19,14 @@ logger = logging.getLogger(__name__)
 def _connect() -> Iterator[mysql.connector.MySQLConnection]:
     """Open a MySQL connection from Config; always closes."""
     missing = [
-        name for name, val in [
-            ("MYSQL_HOST",              Config.MYSQL_HOST),
-            ("MYSQL_DATABASE_USER",     Config.MYSQL_USER),
+        name
+        for name, val in [
+            ("MYSQL_HOST", Config.MYSQL_HOST),
+            ("MYSQL_DATABASE_USER", Config.MYSQL_USER),
             ("MYSQL_DATABASE_PASSWORD", Config.MYSQL_PASSWORD),
-            ("MYSQL_DATABASE_NAME",     Config.MYSQL_DATABASE),
-        ] if not val
+            ("MYSQL_DATABASE_NAME", Config.MYSQL_DATABASE),
+        ]
+        if not val
     ]
     if missing:
         raise RuntimeError(
@@ -84,8 +86,14 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
     table = _table_name_for_site(site)
 
     # Accept either datetime or ISO string; MySQL handles ISO strings fine.
-    start_str = start_time.strftime("%Y-%m-%d %H:%M:%S") if isinstance(start_time, datetime) else str(start_time)
-    end_str   = end_time.strftime("%Y-%m-%d %H:%M:%S")   if isinstance(end_time,   datetime) else str(end_time)
+    start_str = (
+        start_time.strftime("%Y-%m-%d %H:%M:%S")
+        if isinstance(start_time, datetime)
+        else str(start_time)
+    )
+    end_str = (
+        end_time.strftime("%Y-%m-%d %H:%M:%S") if isinstance(end_time, datetime) else str(end_time)
+    )
 
     try:
         with _connect() as conn:

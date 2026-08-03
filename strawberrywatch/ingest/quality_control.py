@@ -7,6 +7,7 @@ and decide what to do with the flags themselves.
 Expects a long-format frame: a 'location' column plus sensor columns
 (conductivity, depth, temperature), indexed by datetime.
 """
+
 import itertools
 
 import numpy as np
@@ -51,7 +52,9 @@ def _group_contiguous_ranges(times, gap_multiplier=3):
     return ranges
 
 
-def inter_site_duplicate_check(df, sensor_col="conductivity", min_points=1000, match_frac=0.25, return_all=False):
+def inter_site_duplicate_check(
+    df, sensor_col="conductivity", min_points=1000, match_frac=0.25, return_all=False
+):
     """
     For every pair of sites, over timestamps where both report a value for
     sensor_col, counts exact matches. Flags pairs with more than min_points
@@ -96,15 +99,17 @@ def inter_site_duplicate_check(df, sensor_col="conductivity", min_points=1000, m
         matched_times = common_idx[is_match]
         ranges = _group_contiguous_ranges(matched_times)
 
-        results.append({
-            "site_a": site_a,
-            "site_b": site_b,
-            "n_coincident": n_coincident,
-            "n_matched": n_matched,
-            "match_frac": frac,
-            "flagged": is_flagged,
-            "ranges": ranges,
-        })
+        results.append(
+            {
+                "site_a": site_a,
+                "site_b": site_b,
+                "n_coincident": n_coincident,
+                "n_matched": n_matched,
+                "match_frac": frac,
+                "flagged": is_flagged,
+                "ranges": ranges,
+            }
+        )
 
     return results
 

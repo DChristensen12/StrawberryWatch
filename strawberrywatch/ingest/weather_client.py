@@ -38,7 +38,7 @@ def fetch_nws_weather(
     }
     params = {
         "start": _ensure_utc_suffix(start_time),
-        "end":   _ensure_utc_suffix(end_time),
+        "end": _ensure_utc_suffix(end_time),
         "limit": 500,
     }
 
@@ -61,8 +61,7 @@ def fetch_nws_weather(
 
         if resp.status_code != 200:
             logger.error(
-                f"NWS API error {resp.status_code} for station {station}: "
-                f"{resp.text[:200]}"
+                f"NWS API error {resp.status_code} for station {station}: {resp.text[:200]}"
             )
             break
 

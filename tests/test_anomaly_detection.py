@@ -14,10 +14,10 @@ ANOMALY_DIR = ROOT / "data" / "anomalies"
 
 # Raw sensor column names to the internal feature names the model trained on.
 COLUMN_MAP = {
-    "DateTimeUTC":          "datetime",
-    "Meter_Hydros21_Cond":  "conductivity",
+    "DateTimeUTC": "datetime",
+    "Meter_Hydros21_Cond": "conductivity",
     "Meter_Hydros21_Depth": "depth",
-    "Meter_Hydros21_Temp":  "temperature",
+    "Meter_Hydros21_Temp": "temperature",
 }
 
 # The raw event folders carry one CSV per site, named by the model's site name.
@@ -50,26 +50,32 @@ MIN_TIMESTEPS_OVER_THRESHOLD = 3
 # them back into real cases.
 EVENT_CATALOG = [
     # June 2025 south-fork spill, propagating downstream. Confirmed real by SCMG.
-    ("anomaly_2025_06_12_spill_sf",        "south_fork_1", "anomaly",       "jun25_spill"),
-    ("anomaly_2025_06_12_spill_sf",        "south_fork_2", "relative_only", "jun25_spill"),
+    ("anomaly_2025_06_12_spill_sf", "south_fork_1", "anomaly", "jun25_spill"),
+    ("anomaly_2025_06_12_spill_sf", "south_fork_2", "relative_only", "jun25_spill"),
     # September overnight conductivity spike across the south fork.
-    ("anomaly_2025_09_10_overnight_sf",    "south_fork_1", "anomaly",       "sep25_overnight"),
-    ("anomaly_2025_09_10_overnight_sf",    "south_fork_2", "anomaly",       "sep25_overnight"),
+    ("anomaly_2025_09_10_overnight_sf", "south_fork_1", "anomaly", "sep25_overnight"),
+    ("anomaly_2025_09_10_overnight_sf", "south_fork_2", "anomaly", "sep25_overnight"),
     # November foam event. Footbridge is the labeled site but its sensor is
     # broken for this window, so the target falls back to north_fork_0 as the
     # nearest live north-fork node, judged relative since nf0 was the contrast.
-    ("anomaly_2025_11_05_foam_nf1",        "north_fork_0", "relative_only", "nov25_foam"),
+    ("anomaly_2025_11_05_foam_nf1", "north_fork_0", "relative_only", "nov25_foam"),
     # November storm, same footbridge problem, nf0 as the live north stand-in.
-    ("anomaly_2025_11_13_rain_nf1",        "north_fork_0", "relative_only", "nov25_rain"),
+    ("anomaly_2025_11_13_rain_nf1", "north_fork_0", "relative_only", "nov25_rain"),
     # April rainfall, confirmed heavy rain. True negatives under rain-adjusted
     # threshold. sf1 is absent this window so it is not listed.
-    ("anomaly_2026_04_01_rainfall",        "north_fork_0", "true_negative", "apr26_rainfall"),
-    ("anomaly_2026_04_01_rainfall",        "south_fork_2", "true_negative", "apr26_rainfall"),
-    # Botanical actuator malfunction Jan to Feb 2026. Confirmed real. Botanical
-    # itself is off-graph, so we score the downstream live core instead.
-    ("anomaly_2026_01_botanical_actuator", "oxford",       "anomaly",       "jan26_actuator"),
+    ("anomaly_2026_04_01_rainfall", "north_fork_0", "true_negative", "apr26_rainfall"),
+    ("anomaly_2026_04_01_rainfall", "south_fork_2", "true_negative", "apr26_rainfall"),
+    # Botanical actuator malfunction Jan to Feb 2026 was scored here against
+    # oxford and has been removed. The malfunction is at botanical_garden, which
+    # is not a graph node, so the label was attached to oxford downstream, and
+    # oxford shows no corresponding signal in its own conductivity trace. The
+    # span is also 55 days, which is a period of interest rather than an event:
+    # as a point label it marks 5,279 steps, 16.89% of oxford's record, so any
+    # detector that stays on through February scores well on it for no reason.
+    # The fixture stays in data/anomalies/ in case botanical is ever wired in as
+    # a real node. See TRAIN_SERVE_AUDIT.md.
     # Fire-hydrant spill at north fork 0. Confirmed real. sf1 absent this window.
-    ("anomaly_2026_03_20_hydrant_nf0",     "north_fork_0", "anomaly",       "mar26_hydrant"),
+    ("anomaly_2026_03_20_hydrant_nf0", "north_fork_0", "anomaly", "mar26_hydrant"),
 ]
 
 
@@ -82,13 +88,22 @@ def _load_threshold(model_metadata, target_site):
     node_thresholds = model_metadata.get("node_thresholds")
     error_median = model_metadata.get("error_median")
     error_iqr = model_metadata.get("error_iqr")
-    if not node_thresholds or not error_median or not error_iqr or target_site not in node_thresholds:
+    if (
+        not node_thresholds
+        or not error_median
+        or not error_iqr
+        or target_site not in node_thresholds
+    ):
         pytest.skip(
             f"No per-node threshold for '{target_site}' in model metadata. "
             "Retrain with 'python main.py --mode train' so node_thresholds, "
             "error_median, and error_iqr get saved."
         )
-    return float(node_thresholds[target_site]), float(error_median[target_site]), float(error_iqr[target_site])
+    return (
+        float(node_thresholds[target_site]),
+        float(error_median[target_site]),
+        float(error_iqr[target_site]),
+    )
 
 
 def _add_time_features(index):
@@ -186,15 +201,19 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         # shortwave_radiation) so no rename is needed. Feeding real weather here
         # matters: the model trained with these three channels, so zero-filling
         # them made it predict from blanks and threw off every event, not just rain.
-        for feat in ["conductivity", "depth", "temperature",
-                     "air_temp_c", "rain_mm", "shortwave_radiation"]:
+        for feat in [
+            "conductivity",
+            "depth",
+            "temperature",
+            "air_temp_c",
+            "rain_mm",
+            "shortwave_radiation",
+        ]:
             if feat in aligned.columns and feat in feature_cols:
                 data_3d[:, node_idx, feature_cols.index(feat)] = aligned[feat].values
 
     if not live_sites:
-        pytest.skip(
-            f"{event_folder}: no core site cleared {MIN_ALIGNED_ROWS} aligned rows."
-        )
+        pytest.skip(f"{event_folder}: no core site cleared {MIN_ALIGNED_ROWS} aligned rows.")
 
     # Time features are global, identical across nodes, never missing.
     time_feats = _add_time_features(grid)
@@ -288,8 +307,9 @@ def _rain_adjusted_thresholds(base_threshold, timestamps, rain_series):
     return base_threshold * multipliers
 
 
-def _reconstruction_errors(event_folder, target_site, model, model_metadata,
-                           edge_index, use_mask=False):
+def _reconstruction_errors(
+    event_folder, target_site, model, model_metadata, edge_index, use_mask=False
+):
     """
     Run an event folder through the model. Returns the per-timestep robust-
     normalized conductivity errors for the target node, the timestamps those
@@ -300,11 +320,11 @@ def _reconstruction_errors(event_folder, target_site, model, model_metadata,
     propagation and masked pooling. A model that does not accept the argument
     is called without it.
     """
-    feature_cols    = model_metadata["feature_cols"]
-    scaler          = model_metadata["scaler"]
+    feature_cols = model_metadata["feature_cols"]
+    scaler = model_metadata["scaler"]
     location_to_idx = model_metadata["location_to_idx"]
-    num_nodes       = len(location_to_idx)
-    num_features    = len(feature_cols)
+    num_nodes = len(location_to_idx)
+    num_features = len(feature_cols)
 
     if "conductivity" not in feature_cols:
         pytest.skip("conductivity not in feature_cols.")
@@ -346,21 +366,19 @@ def _reconstruction_errors(event_folder, target_site, model, model_metadata,
     target_times = []
     with torch.no_grad():
         for i in range(len(normalized) - seq_len):
-            seq = normalized[i : i + seq_len]          # (seq_len, nodes, feat)
-            target = normalized[i + seq_len]            # (nodes, feat)
+            seq = normalized[i : i + seq_len]  # (seq_len, nodes, feat)
+            target = normalized[i + seq_len]  # (nodes, feat)
             seq_t = torch.FloatTensor(seq).unsqueeze(0).to(Config.DEVICE)
 
             if use_mask:
-                mask_seq = node_mask[i : i + seq_len]    # (seq_len, nodes)
+                mask_seq = node_mask[i : i + seq_len]  # (seq_len, nodes)
                 mask_t = torch.BoolTensor(mask_seq).unsqueeze(0).to(Config.DEVICE)
-                pred = model(seq_t, edge_index, batch_size=1,
-                             num_nodes=num_nodes, node_mask=mask_t)
+                pred = model(seq_t, edge_index, batch_size=1, num_nodes=num_nodes, node_mask=mask_t)
             else:
                 pred = model(seq_t, edge_index, batch_size=1, num_nodes=num_nodes)
 
             err = torch.abs(
-                pred[0, node_idx] -
-                torch.FloatTensor(target[node_idx]).to(Config.DEVICE)
+                pred[0, node_idx] - torch.FloatTensor(target[node_idx]).to(Config.DEVICE)
             )
             raw_err = err[cond_idx].item()
             # robust-normalized so a site that naturally runs high doesn't
@@ -376,7 +394,7 @@ def _curve_shape(errors, n_buckets=10):
         return ""
     blocks = "▁▂▃▄▅▆▇█"
     bucket = max(1, len(errors) // n_buckets)
-    buckets = [errors[i:i + bucket].mean() for i in range(0, len(errors), bucket)]
+    buckets = [errors[i : i + bucket].mean() for i in range(0, len(errors), bucket)]
     lo, hi = min(buckets), max(buckets)
     span = (hi - lo) or 1.0
     return "".join(blocks[min(7, int((b - lo) / span * 7))] for b in buckets)
@@ -399,12 +417,13 @@ def _is_flagged(errors, thresholds):
     return int((errors > thresholds).sum()) >= MIN_TIMESTEPS_OVER_THRESHOLD
 
 
-ANOMALOUS_CASES     = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "anomaly"]
+ANOMALOUS_CASES = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "anomaly"]
 TRUE_NEGATIVE_CASES = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "true_negative"]
 
 
 @pytest.mark.parametrize(
-    "event,target,group", ANOMALOUS_CASES,
+    "event,target,group",
+    ANOMALOUS_CASES,
     ids=[g + "/" + e for e, s, lbl, g in EVENT_CATALOG if lbl == "anomaly"],
 )
 def test_anomaly_detected(event, target, group, model_bundle, edge_index):
@@ -413,7 +432,11 @@ def test_anomaly_detected(event, target, group, model_bundle, edge_index):
     metadata = model_bundle["metadata"]
     base_threshold, node_median, node_iqr = _load_threshold(metadata, target)
     errors, target_times, rain_series = _reconstruction_errors(
-        event, target, model, metadata, edge_index,
+        event,
+        target,
+        model,
+        metadata,
+        edge_index,
         use_mask=model_bundle["use_mask"],
     )
     if len(errors) < MIN_TIMESTEPS_TO_JUDGE:
@@ -429,7 +452,8 @@ def test_anomaly_detected(event, target, group, model_bundle, edge_index):
 
 
 @pytest.mark.parametrize(
-    "event,target,group", TRUE_NEGATIVE_CASES,
+    "event,target,group",
+    TRUE_NEGATIVE_CASES,
     ids=[g + "/" + e for e, s, lbl, g in EVENT_CATALOG if lbl == "true_negative"],
 )
 def test_true_negative_not_flagged(event, target, group, model_bundle, edge_index):
@@ -438,7 +462,11 @@ def test_true_negative_not_flagged(event, target, group, model_bundle, edge_inde
     metadata = model_bundle["metadata"]
     base_threshold, node_median, node_iqr = _load_threshold(metadata, target)
     errors, target_times, rain_series = _reconstruction_errors(
-        event, target, model, metadata, edge_index,
+        event,
+        target,
+        model,
+        metadata,
+        edge_index,
         use_mask=model_bundle["use_mask"],
     )
     if len(errors) < MIN_TIMESTEPS_TO_JUDGE:
@@ -451,4 +479,3 @@ def test_true_negative_not_flagged(event, target, group, model_bundle, edge_inde
         f"Peak {errors.max():.4f}, base {base_threshold:.4f} "
         f"(node median {node_median:.4f}, iqr {node_iqr:.4f})."
     )
-    

@@ -61,20 +61,26 @@ def _extract_rain_series(df_original, locations):
     """
     has_rain = (
         df_original is not None
-        and 'rain_mm' in df_original.columns
-        and not df_original['rain_mm'].isna().all()
-        and 'location' in df_original.columns
+        and "rain_mm" in df_original.columns
+        and not df_original["rain_mm"].isna().all()
+        and "location" in df_original.columns
         and len(locations) > 0
-        and (df_original['location'] == locations[0]).any()
+        and (df_original["location"] == locations[0]).any()
     )
     if not has_rain:
         return None
-    site_rows = df_original[df_original['location'] == locations[0]]
-    return site_rows['rain_mm']
+    site_rows = df_original[df_original["location"] == locations[0]]
+    return site_rows["rain_mm"]
 
 
-def _rain_multipliers(timestamps, rain_series, rain_window_hours, rain_threshold_multiplier,
-                       rain_amount_threshold, post_rain_decay_hours):
+def _rain_multipliers(
+    timestamps,
+    rain_series,
+    rain_window_hours,
+    rain_threshold_multiplier,
+    rain_amount_threshold,
+    post_rain_decay_hours,
+):
     """
     Rule 1's rain adjustment: full multiplier the moment lookback rain clears
     the floor, then a linear taper back to 1.0 over post_rain_decay_hours once
@@ -100,7 +106,9 @@ def _rain_multipliers(timestamps, rain_series, rain_window_hours, rain_threshold
             continue
 
         decay_start = ts - pd.Timedelta(hours=rain_window_hours + post_rain_decay_hours)
-        prior = rain_series[(rain_series.index >= decay_start) & (rain_series.index < lookback_start)]
+        prior = rain_series[
+            (rain_series.index >= decay_start) & (rain_series.index < lookback_start)
+        ]
         wet = prior.index[prior > rain_amount_threshold]
         if len(wet) > 0:
             most_recent_wet = wet.max()
@@ -132,13 +140,19 @@ def _extract_real_mask(df_original, timestamps, location_to_idx):
     """
     num_nodes = len(location_to_idx)
     real_mask = np.zeros((len(timestamps), num_nodes), dtype=bool)
-    if df_original is None or 'location' not in df_original.columns or 'conductivity' not in df_original.columns:
-        return real_mask  # no raw data to check against, treat everything as unreal rather than guess
+    if (
+        df_original is None
+        or "location" not in df_original.columns
+        or "conductivity" not in df_original.columns
+    ):
+        return (
+            real_mask  # no raw data to check against, treat everything as unreal rather than guess
+        )
     for site, node_idx in location_to_idx.items():
-        site_rows = df_original[df_original['location'] == site]
+        site_rows = df_original[df_original["location"] == site]
         if site_rows.empty:
             continue
-        real_mask[:, node_idx] = site_rows['conductivity'].reindex(timestamps).notna().to_numpy()
+        real_mask[:, node_idx] = site_rows["conductivity"].reindex(timestamps).notna().to_numpy()
     return real_mask
 
 
@@ -164,7 +178,9 @@ def _longest_run(bool_array):
     return longest
 
 
-def _rule1_forecast_residual(errors_node, error_median, error_iqr, node_threshold, rain_multipliers):
+def _rule1_forecast_residual(
+    errors_node, error_median, error_iqr, node_threshold, rain_multipliers
+):
     """
     Ported from tests/test_anomaly_detection.py: robust-normalized reconstruction
     error against a per-node, rain-adjusted threshold. Catches onsets and ramps,
@@ -204,8 +220,18 @@ def _rule2_level_shift(level_node, cond_median, cond_iqr, k):
     }
 
 
-def detect_anomalies(model, sequences, targets, timestamps, node_mask, edge_index, metadata,
-                      df_original=None, locations=None, device=Config.DEVICE):
+def detect_anomalies(
+    model,
+    sequences,
+    targets,
+    timestamps,
+    node_mask,
+    edge_index,
+    metadata,
+    df_original=None,
+    locations=None,
+    device=Config.DEVICE,
+):
     """
     Production detection, per node, never averaged. Runs the model with
     node_mask so feature propagation and masked pooling actually happen live,
@@ -245,7 +271,9 @@ def detect_anomalies(model, sequences, targets, timestamps, node_mask, edge_inde
     cond_iqr = metadata.get("cond_iqr", {})
 
     if "conductivity" not in feature_cols:
-        raise ValueError("detect_anomalies needs conductivity in feature_cols, nothing else is scored.")
+        raise ValueError(
+            "detect_anomalies needs conductivity in feature_cols, nothing else is scored."
+        )
     cond_idx = feature_cols.index("conductivity")
 
     idx_to_location = {idx: loc for loc, idx in location_to_idx.items()}
@@ -260,15 +288,23 @@ def detect_anomalies(model, sequences, targets, timestamps, node_mask, edge_inde
 
     rain_series = _extract_rain_series(df_original, locations) if df_original is not None else None
     rain_multipliers, rain_flags = _rain_multipliers(
-        timestamps, rain_series,
-        Config.RAIN_WINDOW_HOURS, Config.RAIN_THRESHOLD_MULTIPLIER,
-        Config.RAIN_AMOUNT_THRESHOLD, Config.POST_RAIN_DECAY_HOURS,
+        timestamps,
+        rain_series,
+        Config.RAIN_WINDOW_HOURS,
+        Config.RAIN_THRESHOLD_MULTIPLIER,
+        Config.RAIN_AMOUNT_THRESHOLD,
+        Config.POST_RAIN_DECAY_HOURS,
     )
 
     results = {}
     for node_idx in range(errors.shape[1]):
         site = idx_to_location.get(node_idx)
-        if site is None or site not in node_thresholds or site not in error_median or site not in error_iqr:
+        if (
+            site is None
+            or site not in node_thresholds
+            or site not in error_median
+            or site not in error_iqr
+        ):
             continue  # never calibrated for this node, nothing to judge against
 
         real = real_mask[:, node_idx]
@@ -282,12 +318,23 @@ def detect_anomalies(model, sequences, targets, timestamps, node_mask, edge_inde
         level_k_real = _rain_adjust_level_k(LEVEL_SHIFT_K, real_ts, rain_series)
 
         rule1 = _rule1_forecast_residual(
-            errors[real, node_idx], error_median[site], error_iqr[site], node_thresholds[site], rain_mult_real
+            errors[real, node_idx],
+            error_median[site],
+            error_iqr[site],
+            node_thresholds[site],
+            rain_mult_real,
         )
 
-        rule2 = {"flagged": False, "n_over_threshold": 0, "longest_run": 0, "peak_deviation": float("nan")}
+        rule2 = {
+            "flagged": False,
+            "n_over_threshold": 0,
+            "longest_run": 0,
+            "peak_deviation": float("nan"),
+        }
         if cond_median.get(site) is not None and cond_iqr.get(site) is not None:
-            rule2 = _rule2_level_shift(levels[real, node_idx], cond_median[site], cond_iqr[site], level_k_real)
+            rule2 = _rule2_level_shift(
+                levels[real, node_idx], cond_median[site], cond_iqr[site], level_k_real
+            )
 
         rules_fired = []
         if rule1["flagged"]:

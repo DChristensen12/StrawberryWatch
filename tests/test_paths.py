@@ -3,6 +3,7 @@ Guards the two ways path resolution can go wrong for a consumer who installed
 this package but has no checkout: silently writing into their cwd, and doing
 filesystem work at import time.
 """
+
 import os
 import subprocess
 import sys
@@ -27,7 +28,10 @@ def _run_isolated(code, tmp_path, env_extra=None):
     env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
-        cwd=str(tmp_path), env=env, capture_output=True, text=True,
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -93,12 +97,15 @@ def test_missing_root_raises_actionable_error(tmp_path):
     assert "explicit" in result.stdout.lower()
 
 
-@pytest.mark.parametrize("module", [
-    "strawberrywatch",
-    "strawberrywatch.config",
-    "strawberrywatch.anomalies.metrics",
-    "strawberrywatch.utils.notifier",
-])
+@pytest.mark.parametrize(
+    "module",
+    [
+        "strawberrywatch",
+        "strawberrywatch.config",
+        "strawberrywatch.anomalies.metrics",
+        "strawberrywatch.utils.notifier",
+    ],
+)
 def test_import_creates_nothing(module, tmp_path):
     """
     Importing must not resolve a path or make a directory. A consumer with no

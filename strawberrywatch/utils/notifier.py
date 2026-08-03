@@ -22,16 +22,16 @@ def send_spill_alert(spill_count, locations_affected):
     body = f"""
     The SCMG Anomaly Detection System has identified potential spills.
     Count: {spill_count}
-    Affected Locations: {', '.join(locations_affected)}
-    Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}
+    Affected Locations: {", ".join(locations_affected)}
+    Timestamp: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")}
     Please check the latest dashboard visualization for details.
     """
 
     msg = MIMEMultipart()
-    msg['From'] = sender
-    msg['To'] = receiver
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg["From"] = sender
+    msg["To"] = receiver
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
 
     try:
         server = smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT")))
@@ -120,10 +120,10 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
     """
 
     msg = MIMEMultipart()
-    msg['From'] = sender
-    msg['To'] = receiver
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg["From"] = sender
+    msg["To"] = receiver
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
 
     try:
         server = smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT")))
@@ -158,4 +158,3 @@ def fire_anomaly_alerts(events):
 
     locations = sorted({ev.get("location", "unknown") for ev in events})
     send_spill_alert(len(events), locations)
-    

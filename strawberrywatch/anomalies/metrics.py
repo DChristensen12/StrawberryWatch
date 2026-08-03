@@ -45,43 +45,43 @@ _MIN_DISCRIMINATING_FOR_DIAGNOSIS = 1
 # _PARAMETERS if you want it as a delivery hint.
 _SIGNATURES = {
     "rain": {
-        "temperature":           (INDET, NORMAL),   # depends on rain and air temp
-        "dissolved_oxygen":      (UP,    NORMAL),   # increased turbulence
-        "ph":                    (DOWN,  NORMAL),   # rain is slightly acidic
-        "conductivity":          (DOWN,  NORMAL),   # more volume dilutes solutes
-        "floating_conductivity": (DOWN,  NORMAL),   # more volume dilutes solutes
+        "temperature": (INDET, NORMAL),  # depends on rain and air temp
+        "dissolved_oxygen": (UP, NORMAL),  # increased turbulence
+        "ph": (DOWN, NORMAL),  # rain is slightly acidic
+        "conductivity": (DOWN, NORMAL),  # more volume dilutes solutes
+        "floating_conductivity": (DOWN, NORMAL),  # more volume dilutes solutes
         # "depth":               (UP,    NORMAL),   # rain adds volume
     },
     "tapwater": {
-        "temperature":           (DOWN,  NORMAL),   # Berkeley tap is ~13C, cooler
-        "dissolved_oxygen":      (DOWN,  NORMAL),   # tap has less DO, has chloramine
-        "ph":                    (UP,    NORMAL),   # Berkeley tap is ~9.4
-        "conductivity":          (DOWN,  NORMAL),   # more volume dilutes solutes
-        "floating_conductivity": (DOWN,  NORMAL),   # more volume dilutes solutes
+        "temperature": (DOWN, NORMAL),  # Berkeley tap is ~13C, cooler
+        "dissolved_oxygen": (DOWN, NORMAL),  # tap has less DO, has chloramine
+        "ph": (UP, NORMAL),  # Berkeley tap is ~9.4
+        "conductivity": (DOWN, NORMAL),  # more volume dilutes solutes
+        "floating_conductivity": (DOWN, NORMAL),  # more volume dilutes solutes
         # "depth":               (UP,    NORMAL),   # adds volume, but may be small
     },
     "oil": {
-        "temperature":           (UP,    NORMAL),   # reduces evaporative cooling
-        "dissolved_oxygen":      (DOWN,  MAJOR),    # blocks gas exchange, kills plants
-        "ph":                    (DOWN,  NORMAL),   # CO2 from decomposition
-        "conductivity":          (DOWN,  NORMAL),   # oil is a poor conductor
-        "floating_conductivity": (DOWN,  MAJOR),    # floats, hits surface hardest
+        "temperature": (UP, NORMAL),  # reduces evaporative cooling
+        "dissolved_oxygen": (DOWN, MAJOR),  # blocks gas exchange, kills plants
+        "ph": (DOWN, NORMAL),  # CO2 from decomposition
+        "conductivity": (DOWN, NORMAL),  # oil is a poor conductor
+        "floating_conductivity": (DOWN, MAJOR),  # floats, hits surface hardest
         # "depth":               (INDET, NORMAL),   # delivery dependent
     },
     "sewage": {
-        "temperature":           (UP,    NORMAL),   # sewage warmer than creek
-        "dissolved_oxygen":      (DOWN,  MAJOR),    # decomposer bacteria consume DO
-        "ph":                    (INDET, NORMAL),   # cleaners raise it, ammonia lowers it
-        "conductivity":          (UP,    NORMAL),   # chlorides, phosphates, nitrates
-        "floating_conductivity": (UP,    NORMAL),   # chlorides, phosphates, nitrates
+        "temperature": (UP, NORMAL),  # sewage warmer than creek
+        "dissolved_oxygen": (DOWN, MAJOR),  # decomposer bacteria consume DO
+        "ph": (INDET, NORMAL),  # cleaners raise it, ammonia lowers it
+        "conductivity": (UP, NORMAL),  # chlorides, phosphates, nitrates
+        "floating_conductivity": (UP, NORMAL),  # chlorides, phosphates, nitrates
         # "depth":               (UP,    NORMAL),   # adds volume, often point source
     },
     "fertilizer": {
-        "temperature":           (FLAT,  NORMAL),   # fertilizer itself does not move temp
-        "dissolved_oxygen":      (DOWN,  NORMAL),   # algae die-off, bacteria consume DO
-        "ph":                    (INDET, NORMAL),   # algae raise it, ammoniacal runoff lowers it
-        "conductivity":          (UP,    NORMAL),   # chlorides, phosphates, nitrates
-        "floating_conductivity": (UP,    NORMAL),   # chlorides, phosphates, nitrates
+        "temperature": (FLAT, NORMAL),  # fertilizer itself does not move temp
+        "dissolved_oxygen": (DOWN, NORMAL),  # algae die-off, bacteria consume DO
+        "ph": (INDET, NORMAL),  # algae raise it, ammoniacal runoff lowers it
+        "conductivity": (UP, NORMAL),  # chlorides, phosphates, nitrates
+        "floating_conductivity": (UP, NORMAL),  # chlorides, phosphates, nitrates
         # "depth":               (UP,    NORMAL),   # arrives as runoff
     },
 }
@@ -199,13 +199,15 @@ def classify_event(baseline_df, event_df):
                 per_param[param] = f"differ (saw {observed[param]}, expected {sig_dir})"
 
         score = (agreements / comparable) if comparable > 0 else 0.0
-        results.append({
-            "pollutant": pollutant,
-            "score": score,
-            "agreements": agreements,
-            "comparable": comparable,
-            "per_param": per_param,
-        })
+        results.append(
+            {
+                "pollutant": pollutant,
+                "score": score,
+                "agreements": agreements,
+                "comparable": comparable,
+                "per_param": per_param,
+            }
+        )
 
     results.sort(key=lambda r: (r["score"], r["comparable"]), reverse=True)
 
@@ -278,10 +280,14 @@ def format_classification(result):
     lines.append(result["verdict_note"])
     lines.append("")
     lines.append(f"Parameters available: {result['available_parameters'] or 'none'}")
-    lines.append("Observed changes: " + (
-        ", ".join(f"{p}={d}" for p, d in result["observed_directions"].items())
-        if result["observed_directions"] else "none"
-    ))
+    lines.append(
+        "Observed changes: "
+        + (
+            ", ".join(f"{p}={d}" for p, d in result["observed_directions"].items())
+            if result["observed_directions"]
+            else "none"
+        )
+    )
     lines.append(f"Channel confidence: {result['confidence']}")
     lines.append("")
     lines.append("Ranked matches:")
@@ -307,42 +313,56 @@ if __name__ == "__main__":
 
     # Case A: conductivity + temperature only, no discriminating channels. Should be UNDETERMINED.
     print("CASE A: conductivity up, temperature flat, no discriminating channels")
-    baseline = pd.DataFrame({
-        "conductivity": rng.normal(300, 5, 50),
-        "temperature":  rng.normal(15, 0.3, 50),
-    })
-    event = pd.DataFrame({
-        "conductivity": rng.normal(360, 5, 20),
-        "temperature":  rng.normal(15.1, 0.3, 20),
-    })
+    baseline = pd.DataFrame(
+        {
+            "conductivity": rng.normal(300, 5, 50),
+            "temperature": rng.normal(15, 0.3, 50),
+        }
+    )
+    event = pd.DataFrame(
+        {
+            "conductivity": rng.normal(360, 5, 20),
+            "temperature": rng.normal(15.1, 0.3, 20),
+        }
+    )
     print(format_classification(classify_event(baseline, event)))
     print()
 
     # Case B: clean sewage signature with DO present. Should DIAGNOSE sewage.
     print("CASE B: sewage signature with DO present")
-    baseline = pd.DataFrame({
-        "conductivity":     rng.normal(300, 5, 50),
-        "temperature":      rng.normal(15, 0.3, 50),
-        "dissolved_oxygen": rng.normal(8, 0.2, 50),
-    })
-    event = pd.DataFrame({
-        "conductivity":     rng.normal(360, 5, 20),  # up
-        "temperature":      rng.normal(16.5, 0.3, 20), # up
-        "dissolved_oxygen": rng.normal(4, 0.2, 20),   # major down
-    })
+    baseline = pd.DataFrame(
+        {
+            "conductivity": rng.normal(300, 5, 50),
+            "temperature": rng.normal(15, 0.3, 50),
+            "dissolved_oxygen": rng.normal(8, 0.2, 50),
+        }
+    )
+    event = pd.DataFrame(
+        {
+            "conductivity": rng.normal(360, 5, 20),  # up
+            "temperature": rng.normal(16.5, 0.3, 20),  # up
+            "dissolved_oxygen": rng.normal(4, 0.2, 20),  # major down
+        }
+    )
     print(format_classification(classify_event(baseline, event)))
     print()
 
     # Case C: contradictory pattern with a discriminating channel. Should be POSSIBLE NEW TYPE.
     print("CASE C: contradictory pattern with a discriminating channel")
-    baseline = pd.DataFrame({
-        "conductivity":     rng.normal(300, 5, 50),
-        "temperature":      rng.normal(15, 0.3, 50),
-        "dissolved_oxygen": rng.normal(8, 0.2, 50),
-    })
-    event = pd.DataFrame({
-        "conductivity":     rng.normal(360, 5, 20),  # up
-        "temperature":      rng.normal(16.5, 0.3, 20), # up
-        "dissolved_oxygen": rng.normal(11, 0.2, 20),  # up, which no up-conductivity type expects
-    })
+    baseline = pd.DataFrame(
+        {
+            "conductivity": rng.normal(300, 5, 50),
+            "temperature": rng.normal(15, 0.3, 50),
+            "dissolved_oxygen": rng.normal(8, 0.2, 50),
+        }
+    )
+    event = pd.DataFrame(
+        {
+            "conductivity": rng.normal(360, 5, 20),  # up
+            "temperature": rng.normal(16.5, 0.3, 20),  # up
+            "dissolved_oxygen": rng.normal(
+                11, 0.2, 20
+            ),  # up, which no up-conductivity type expects
+        }
+    )
     print(format_classification(classify_event(baseline, event)))

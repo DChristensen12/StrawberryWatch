@@ -38,5 +38,7 @@ for site in sorted(df["location"].unique()):
             continue
         max_gap_rows = gap_lengths.max()
         max_gap_hours = max_gap_rows * 0.25  # 15-min cadence
-        print(f"    {col:25s}  max gap: {max_gap_rows:>4} rows ({max_gap_hours:>5.1f}h), "
-              f"{len(gap_lengths)} total gaps")
+        print(
+            f"    {col:25s}  max gap: {max_gap_rows:>4} rows ({max_gap_hours:>5.1f}h), "
+            f"{len(gap_lengths)} total gaps"
+        )
