@@ -8,16 +8,14 @@
   <img src="assets/SCMGlogo.jpg" width="575">
 </p>
 
-<p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="Lint"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a></p>
+<p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="CI"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a></p>
 
 <p><img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" alt="Python 3.12+"> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a></p>
 
 </div>
 
-
-The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
-
 This repository is the research and development counterpart to the production monitoring platform. It is where models are built, tested against historical events, and validated before anything is trusted for live alerting.
+
 
 ## Models
 
@@ -28,9 +26,9 @@ This repository is the research and development counterpart to the production mo
     <td align="center"><b>Flame Skimmer</b></td>
   </tr>
   <tr>
-    <td align="center" width="33%">The deployed model. A graph convolutional network learns the relationships between sensor sites across the creek, and a long short-term memory network learns how each site's readings change over time. Together they predict what normal looks like, and large prediction errors are flagged as anomalies.</td>
+    <td align="center" width="33%">A graph convolutional network over the sensor site network feeds a long short-term memory network that forecasts each site's next reading. Anomalies are flagged where the forecast error exceeds a threshold calibrated on normal conditions.</td>
     <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">A model that estimates how confident it is by running predictions many times with random parts of the network switched off, then measuring how much the answers vary. Still in development, not yet deployed.</td>
+    <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate. In development, not deployed.</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
@@ -57,6 +55,8 @@ This repository is the research and development counterpart to the production mo
 </table>
 
 ## What the deployed Model does
+
+The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
 
 The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point and deliberately left out of the flow graph.
 
