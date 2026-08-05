@@ -8,13 +8,11 @@
   <img src="assets/SCMGlogo.jpg" width="575">
 </p>
 
-<p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="CI"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a></p>
-
-<p><img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" alt="Python 3.12+"> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a></p>
+<p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="CI"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a> <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" alt="Python 3.12+"> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-EE87A0" alt="License: Apache 2.0"></a></p>
 
 </div>
 
-This repository is the research and development counterpart to the production monitoring platform. It is where models are built, tested against historical events, and validated before anything is trusted for live alerting.
+This repository is the research and development counterpart to the production monitoring platform. It is where anomaly detection models are built, tested against historical events, and validated!
 
 
 ## Models
@@ -28,7 +26,7 @@ This repository is the research and development counterpart to the production mo
   <tr>
     <td align="center" width="33%">A graph convolutional network over the sensor site network feeds a long short-term memory network that forecasts each site's next reading. Anomalies are flagged where the forecast error exceeds a threshold calibrated on normal conditions.</td>
     <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate. In development, not deployed.</td>
+    <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
@@ -37,7 +35,7 @@ This repository is the research and development counterpart to the production mo
   </tr>
    <tr>
     <td align="center"><b>Berry Delight</b></td>
-    <td></td>
+    <td align="center"><b>TBD</td>
     <td></td>
   </tr>
   <tr>
