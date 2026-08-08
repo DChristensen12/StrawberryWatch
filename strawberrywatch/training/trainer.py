@@ -203,7 +203,7 @@ def train_temporal_gnn(
                     print(f"early stopping at epoch {epoch+1}")
                     break
 
-        if (epoch + 1) % 5 == 0 or epoch == 0:
+        if True:
             status = f"Epoch {epoch+1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
             if val_sequences is not None:
                 status += f" | Val Loss: {val_loss:.6f}"
