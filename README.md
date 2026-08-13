@@ -42,12 +42,10 @@ This repository is the research and development counterpart to the production mo
     <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">TBD</td>
     <td></td>
-    <td></td>
   </tr>
   <tr>
     <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
     <td align="center"><img src="assets/Fish.jpeg" width="351"></td>
-    <td></td>
     <td></td>
   </tr>
 </table>
