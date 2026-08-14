@@ -34,7 +34,5 @@ logs/
 .idea/
 .DS_Store
 
-# Scratch prototypes, never committed.
-
-# Disposable comparison harness, deleted wholesale once the objective choice is
-# made. Nothing outside it depends on it.
+# Produced file in document
+*.bbl

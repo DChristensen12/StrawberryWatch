@@ -50,11 +50,13 @@ This repository is the research and development counterpart to the production mo
   </tr>
 </table>
 
+## The Creek
+
+The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
+
 ## What the deployed Model does
 
 The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
-
-The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point and deliberately left out of the flow graph.
 
 The map below shows these sensors on the actual creek, with each fork tracing the real water flow down to the Oxford Street confluence.
 
