@@ -34,5 +34,7 @@ logs/
 .idea/
 .DS_Store
 
-# Scratch prototype, never committed.
-TEMP.py
+# Scratch prototypes, never committed.
+
+# Disposable comparison harness, deleted wholesale once the objective choice is
+# made. Nothing outside it depends on it.

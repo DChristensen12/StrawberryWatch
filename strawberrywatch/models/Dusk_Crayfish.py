@@ -4,6 +4,7 @@ from torch_geometric.data import Batch, Data
 from torch_geometric.nn import GATConv, GCNConv
 
 from strawberrywatch.config import Config
+from strawberrywatch.models import contracts
 
 # Spatial GCN plus temporal LSTM backbone. The version this replaced treated an
 # offline sensor as if it were reading the average value. Two changes fix that:
@@ -121,6 +122,16 @@ class DuskCrayfish(nn.Module):
     treated as present, which is what lets training run unchanged.
     """
 
+    INPUT_CONTRACT = contracts.SEQUENCE_TENSOR
+
+    @classmethod
+    def from_metadata(cls, metadata):
+        """Rebuild from a trained metadata blob, for loading a checkpoint."""
+        return cls(
+            num_node_features=len(metadata["feature_cols"]),
+            num_nodes=len(metadata["location_to_idx"]),
+        )
+
     def __init__(self, num_node_features, num_nodes, node_embed_dim=8):
         super().__init__()
 
@@ -219,7 +230,7 @@ class DuskCrayfish(nn.Module):
             node_states.append(h)
             graph_states.append(h_graph)
 
-        # last timestep the GCN actually saw -- propagated if node_mask filled
+        # last timestep the GCN actually saw, propagated if node_mask filled
         # it in, raw otherwise. This is what the output delta gets added to.
         last_x_t = x_t
 

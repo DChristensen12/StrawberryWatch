@@ -42,7 +42,7 @@ def _load_wide_corpus_as_long(file_path):
     Converts a wide training corpus into the long (datetime, location) format
     the rest of this pipeline expects, carrying each site's {site}_valid flag
     over as a plain 'valid' column. hour_sin/cos/dayofyear_sin/cos aren't
-    carried over -- they get regenerated below from the index either way, so
+    carried over, they get regenerated below from the index either way, so
     keeping the corpus's copy would just create duplicate columns.
     """
     wide = pd.read_csv(file_path)
@@ -93,7 +93,7 @@ def load_and_preprocess_data(
 
     If file_path is a wide training-corpus CSV (has {site}_valid columns, see
     scripts/build_training_corpus.py), this skips the fetch/merge/cache path
-    entirely and loads it directly -- it's a static, already-QC'd file, not a
+    entirely and loads it directly. It's a static, already-QC'd file, not a
     rolling cache to refresh. force_download is ignored in that case.
 
     file_path defaults to the rolling cache, resolved here rather than in the
@@ -273,7 +273,7 @@ def _merge_weather(df_raw, start_date, end_date, days):
     with historical data further back, so it covers both windows fine.
 
     Native 15-min data, same cadence as the creek grid, so there's no more
-    hourly accumulation to split across sub-hourly rows -- resampling to 15min
+    hourly accumulation to split across sub-hourly rows, resampling to 15min
     here is only to collapse duplicate timestamps if a source ever reports
     more than once per window, not to disaggregate anything.
     """

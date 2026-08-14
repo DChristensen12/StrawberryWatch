@@ -1,10 +1,9 @@
-import inspect
-
 import numpy as np
 import torch
 from torch.amp import GradScaler, autocast
 
 from strawberrywatch.config import Config
+from strawberrywatch.models import contracts
 
 
 def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):
@@ -13,12 +12,12 @@ def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):
     channels in scored_feature_idx (if given) count at all. target_mask is
     None or (batch, num_nodes) bool; broadcasts across the feature dim.
     scored_feature_idx is None (score every channel) or a list of indices
-    into the feature dim -- narrows which channels are compared BEFORE the
+    into the feature dim, narrows which channels are compared BEFORE the
     mask is applied, so QC masking still zeroes out a bad node the same way
     regardless of how many channels are being scored.
 
     With both args None this reduces to exactly nn.MSELoss()(predictions,
-    target) (mean over every element) -- same numbers, so passing neither
+    target) (mean over every element). Same numbers, so passing neither
     doesn't change training at all.
     """
     if scored_feature_idx is not None:
@@ -64,7 +63,7 @@ def train_temporal_gnn(
 
     train_target_mask/val_target_mask: optional (N, num_nodes) bool, QC
     validity at the prediction target. A masked node's target is a real-looking
-    but untrustworthy value (e.g. oxford mirroring university_house) -- scoring
+    but untrustworthy value (e.g. oxford mirroring university_house), scoring
     the model on reconstructing it would just teach it to reproduce bad data,
     so it's excluded from the loss and from threshold calibration below.
 
@@ -85,31 +84,29 @@ def train_temporal_gnn(
     thresholding instead of one global cutoff. cond_median/cond_iqr are a
     separate thing: the robust center and spread of the node's actual
     normalized conductivity LEVEL (not its error), for detecting a level shift
-    that the error-based stats can't see -- a sustained step gets predicted
+    that the error-based stats can't see, a sustained step gets predicted
     correctly again after one timestep, so its error goes quiet, but the level
     itself stays away from normal the whole time.
     """
     model = model.to(device)
     edge_index = edge_index.to(device)
 
-    # Not every model in the registry takes node_mask (Dusk Crayfish doesn't).
-    # Check once instead of assuming, so training the default model doesn't
-    # crash on an unexpected kwarg the moment a caller passes masks in.
-    supports_node_mask = "node_mask" in inspect.signature(model.forward).parameters
+    # Not every model takes node_mask, and a model that does not is a
+    # TypeError rather than a no-op if you pass it anyway. Ask once.
+    supports_node_mask = contracts.accepts_node_mask(model)
     if (train_node_mask is not None or val_node_mask is not None) and not supports_node_mask:
         print(
             f"node_mask data was provided but {type(model).__name__}.forward() doesn't "
-            f"accept node_mask -- QC masking will affect the loss/threshold calibration "
+            f"accept node_mask, QC masking will affect the loss/threshold calibration "
             f"below but NOT feature propagation or pooling inside the model."
         )
 
     def _run_model(seq_tensor, mask_tensor):
-        kwargs = dict(batch_size=len(seq_tensor), num_nodes=seq_tensor.shape[2])
-        if supports_node_mask:
-            kwargs["node_mask"] = mask_tensor
-        return model(seq_tensor, edge_index, **kwargs)
+        return contracts.run_sequence_model(
+            model, seq_tensor, edge_index, mask_tensor if supports_node_mask else None
+        )
 
-    # Loss only scores Config.SCORED_TARGET_FEATURES -- everything else (weather,
+    # Loss only scores Config.SCORED_TARGET_FEATURES, everything else (weather,
     # time encodings) stays a model input but stops being something we penalize
     # the model for mispredicting. Output layer is untouched (still predicts all
     # of feature_cols); this only narrows what the loss looks at.
@@ -121,7 +118,7 @@ def train_temporal_gnn(
         if scored_feature_idx:
             print(
                 f"loss scored on: {[feature_cols[i] for i in scored_feature_idx]} "
-                f"(indices {scored_feature_idx}) -- everything else is input-only"
+                f"(indices {scored_feature_idx}), everything else is input-only"
             )
         else:
             print(
@@ -248,24 +245,49 @@ def train_temporal_gnn(
             val_errors = (val_pred - val_tgt).abs().cpu().numpy()
             val_tgt_np = val_tgt.cpu().numpy()
 
+            # Nodes whose target was masked contribute a fabricated error, so
+            # the mean below has to skip them rather than average them in. Same
+            # exclusion the per-node loop makes further down.
+            node_keep = (
+                np.asarray(val_target_mask).astype(bool)
+                if val_target_mask is not None
+                else np.ones(val_errors.shape[:2], dtype=bool)
+            )
+
+            def _masked_node_mean(per_node):
+                kept = node_keep.sum(axis=1)
+                total = np.where(node_keep, per_node, 0.0).sum(axis=1)
+                return np.divide(total, kept, out=np.full(len(total), np.nan), where=kept > 0)
+
             if feature_cols and "conductivity" in feature_cols:
                 cond_idx = feature_cols.index("conductivity")
                 # Average conductivity error across nodes per timestep.
                 # System-wide spills score higher than single-site blips.
-                system_scores = val_errors[:, :, cond_idx].mean(axis=1)
+                system_scores = _masked_node_mean(val_errors[:, :, cond_idx])
                 per_node_scores = val_errors[:, :, cond_idx]  # (n_val, num_nodes), node axis kept
-                # the actual normalized conductivity value, not the error -- this
+                # the actual normalized conductivity value, not the error. This
                 # is the level-shift anchor, kept separate from per_node_scores
                 per_node_cond_level = val_tgt_np[:, :, cond_idx]  # (n_val, num_nodes)
                 scoring_note = f"conductivity only (feature index {cond_idx})"
             else:
                 # Fallback if feature_cols not passed in
-                system_scores = val_errors.mean(axis=(1, 2))
+                system_scores = _masked_node_mean(val_errors.mean(axis=2))
                 per_node_scores = val_errors.mean(axis=2)  # (n_val, num_nodes)
                 per_node_cond_level = None
                 scoring_note = "mean across all features (fallback)"
 
-            threshold = float(np.percentile(system_scores, Config.THRESHOLD_PERCENTILE))
+            # A timestep with no valid node anywhere has no score at all, so it
+            # cannot vote on the threshold either.
+            usable_scores = system_scores[np.isfinite(system_scores)]
+            n_dropped = len(system_scores) - len(usable_scores)
+            if n_dropped:
+                print(
+                    f"  global threshold: excluding {n_dropped}/{len(system_scores)} "
+                    f"timesteps with no valid target at any node"
+                )
+            if len(usable_scores) == 0:
+                usable_scores = system_scores
+            threshold = float(np.percentile(usable_scores, Config.THRESHOLD_PERCENTILE))
 
             # median/IQR per node so a site that just runs hotter than the rest
             # (south_fork_2, say) doesn't sit permanently above one shared
@@ -311,7 +333,7 @@ def train_temporal_gnn(
                 node_threshold = float(np.percentile(normalized, Config.THRESHOLD_PERCENTILE))
 
                 # same robust median/IQR, but on the node's conductivity LEVEL,
-                # the anchor Rule 2 (level shift) needs -- see docstring above
+                # the anchor Rule 2 (level shift) needs. See docstring above
                 if node_level is not None and len(node_level) > 0:
                     cond_median = float(np.median(node_level))
                     cq75, cq25 = np.percentile(node_level, [75, 25])

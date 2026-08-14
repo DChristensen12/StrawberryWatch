@@ -28,14 +28,13 @@ def _build_model(model_name, metadata):
     if not weights_path.exists():
         pytest.skip(f"No {model_name}_weights.pt found.")
 
-    num_features = len(metadata["feature_cols"])
-    if model_name == "dusk_crayfish":
-        from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+    import main
+    from strawberrywatch.models import contracts
 
-        num_nodes = len(metadata["location_to_idx"])
-        model = DuskCrayfish(num_node_features=num_features, num_nodes=num_nodes).to(Config.DEVICE)
-    else:
-        pytest.skip(f"Don't know how to build model '{model_name}'.")
+    model_cls = main._MODEL_REGISTRY.get(model_name)
+    if model_cls is None:
+        pytest.skip(f"'{model_name}' is not in main._MODEL_REGISTRY.")
+    model = contracts.build_from_metadata(model_cls, metadata, device=Config.DEVICE)
 
     model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE, weights_only=True))
     model.eval()
@@ -45,6 +44,13 @@ def _build_model(model_name, metadata):
 # Each test runs once per model, judged against that model's own trained
 # threshold from its own metadata. The model gets its node_mask passed so masked
 # pooling and feature propagation switch on.
+#
+# Only sequence-contract models belong here. The event tests drive the model
+# with (batch, seq_len, sites, features) windows, and Riffle Darner reads
+# per-node series off the node registry instead, so adding it would not fail on
+# a keyword argument, it would have nothing to read. It needs the ingestion
+# adapter described in PORT_PROGRESS.md first. _build_model itself is generic,
+# so once that lands this list is the only thing that changes.
 _MODELS = [
     ("dusk_crayfish", True),
 ]

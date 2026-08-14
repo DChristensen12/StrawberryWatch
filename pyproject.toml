@@ -34,8 +34,7 @@ strawberrywatch = ["settings.yaml"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# TEMP.py is a scratch prototype that will never be committed
-extend-exclude = ["TEMP.py", "notebooks", "data", "assets"]
+extend-exclude = ["notebooks", "data", "assets"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ARG"]

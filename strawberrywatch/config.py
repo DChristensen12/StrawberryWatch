@@ -61,8 +61,13 @@ class Config:
     RAIN_WINDOW_HOURS = _s.get("detection", {}).get("rain_window_hours", 12)
     RAIN_THRESHOLD_MULTIPLIER = _s.get("detection", {}).get("rain_multiplier", 2.0)
     RAIN_AMOUNT_THRESHOLD = _s.get("detection", {}).get("rain_amount_threshold", 0.1)
-    RAIN_SATURATION_MM = _s.get("detection", {}).get("rain_saturation_mm", 6.0)
     POST_RAIN_DECAY_HOURS = _s.get("detection", {}).get("post_rain_decay_hours", 36)
+    # There was a RAIN_SATURATION_MM here, the upper end of an amount-scaled
+    # ramp. Nothing read it: production applies the full multiplier as soon as
+    # the lookback total clears RAIN_AMOUNT_THRESHOLD, and the only consumer was
+    # a test helper that graded against a rule production does not implement.
+    # Removed rather than wired, because wiring it would change the shape of the
+    # production rain multiplier, which is a science decision and not a defect.
 
     # Preprocessing
     IMPUTATION_LIMIT_HOURS = _s.get("preprocessing", {}).get("imputation_limit_hours", 3)
@@ -70,7 +75,7 @@ class Config:
     # Model still takes all 10 features as input and predicts all 10 (output
     # layer shape unchanged), but the loss only scores these. Weather (rain_mm,
     # air_temp_c, shortwave_radiation) and the 4 cyclical time encodings are
-    # context, not something a creek sensor model should be forecasting -- rain
+    # context, not something a creek sensor model should be forecasting. Rain
     # 15 minutes out isn't learnable from conductivity/depth/temp, and scoring
     # it just adds irreducible error that's worst exactly during storms, which
     # is when conductivity gradients (the thing we actually alert on) matter most.

@@ -1,26 +1,25 @@
-import inspect
-
 import numpy as np
 import pandas as pd
 import torch
 
 from strawberrywatch.config import Config
+from strawberrywatch.models import contracts
 
 # Same sustained-crossing bar tests/test_anomaly_detection.py uses, ported so
 # a lone noisy point doesn't flag but a real event does. Applies to both rules
 # below, "sustained" means at least this many scored timesteps over threshold
-# in the window, not necessarily consecutive -- that's what the test path
+# in the window, not necessarily consecutive, that's what the test path
 # means by it and what the deployment battery was validated against.
 MIN_TIMESTEPS_OVER_THRESHOLD = 3
 
 # Rule 2: how many robust deviations from a node's normal conductivity level
-# before it counts as shifted. Starting guess, not yet calibrated -- Stage 3
+# before it counts as shifted. Starting guess, not yet calibrated, Stage 3
 # is what tells us if this is too loose or too tight.
 LEVEL_SHIFT_K = 4.0
 
 # Same "don't judge on scraps" bar tests/test_anomaly_detection.py uses. A node
 # with fewer than this many REAL (non-fabricated) readings in the window
-# doesn't get scored at all -- see _extract_real_mask below for why that's
+# doesn't get scored at all. See _extract_real_mask below for why that's
 # not optional.
 MIN_TIMESTEPS_TO_JUDGE = 30
 
@@ -40,14 +39,10 @@ def run_model_over_sequences(model, sequences, node_mask, edge_index, device):
     model = model.to(device)
     edge_index = edge_index.to(device)
 
-    supports_node_mask = "node_mask" in inspect.signature(model.forward).parameters
-
     with torch.no_grad():
         seq_tensor = torch.FloatTensor(sequences).to(device)
-        kwargs = dict(batch_size=len(sequences), num_nodes=sequences.shape[2])
-        if supports_node_mask and node_mask is not None:
-            kwargs["node_mask"] = torch.BoolTensor(node_mask).to(device)
-        predictions = model(seq_tensor, edge_index, **kwargs)
+        mask_tensor = None if node_mask is None else torch.BoolTensor(node_mask).to(device)
+        predictions = contracts.run_sequence_model(model, seq_tensor, edge_index, mask_tensor)
 
     return predictions.cpu().numpy()
 
@@ -130,7 +125,7 @@ def _extract_real_mask(df_original, timestamps, location_to_idx):
     signal when the source data has a QC 'valid' column, which only exists
     for the wide training-corpus format (scripts/build_training_corpus.py). A
     live API pull has no such column, so node_mask defaults to all-True
-    everywhere, including for a node with zero rows this window -- it was
+    everywhere, including for a node with zero rows this window. It was
     never told "this node is absent," only ever told "nothing flagged this as
     QC-bad." Scoring a node whose target is the zero-fill placeholder
     (permanently-absent cells get zeroed before this function ever sees them)
@@ -186,7 +181,7 @@ def _rule1_forecast_residual(
     error against a per-node, rain-adjusted threshold. Catches onsets and ramps,
     anything that keeps surprising the model step after step. Structurally blind
     to a clean step/spike past the first timestep or two, since the model
-    absorbs a level shift into its own forecast almost immediately -- that gap
+    absorbs a level shift into its own forecast almost immediately. That gap
     is exactly what Rule 2 exists to cover.
     """
     normalized = (errors_node - error_median) / error_iqr
@@ -241,7 +236,7 @@ def detect_anomalies(
     things operationally.
 
     metadata needs feature_cols, location_to_idx, error_median, error_iqr,
-    node_thresholds (Rule 1), and cond_median, cond_iqr (Rule 2) -- all written
+    node_thresholds (Rule 1), and cond_median, cond_iqr (Rule 2), all written
     by trainer.py/main.py's train path. A node missing from node_thresholds
     (never calibrated, e.g. not enough real data at train time) is skipped
     rather than guessed at.
@@ -253,7 +248,7 @@ def detect_anomalies(
     as a huge fake error/level deviation and flags a node that reported
     nothing. See _extract_real_mask. Pass df_original or this will silently
     treat every node as having zero real data and skip all of them, not treat
-    everything as real -- the unsafe direction is assuming real, not the other
+    everything as real, the unsafe direction is assuming real, not the other
     way around.
 
     Returns a dict keyed by site name. A node that never got real data this

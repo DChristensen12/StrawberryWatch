@@ -11,13 +11,19 @@ from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch.models.Riffle_Darner import RiffleDarner
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.training.trainer import train_temporal_gnn
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
 # Maps --model names to classes. Add new models here; nothing else in main.py changes.
+#
+# dusk_crayfish stays exactly as it was, class, weights and checkpoint. The
+# audit comparison rests on it, so it is not refactored, renamed or re-exported
+# on the way past.
 _MODEL_REGISTRY = {
     "dusk_crayfish": DuskCrayfish,
+    "riffle_darner": RiffleDarner,
 }
 
 
@@ -196,7 +202,7 @@ def main(
         test_timestamps = timestamps
         # inference doesn't split, so the whole mask applies to the whole test set.
         # this was missing before the rewrite, which is why node_mask never made
-        # it into a live forward pass -- there was nothing here to pass.
+        # it into a live forward pass. There was nothing here to pass.
         test_node_mask = node_mask_seq
     else:
         split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
@@ -236,7 +242,7 @@ def main(
             node_thresholds = {
                 idx_to_location[i]: s["threshold"] for i, s in node_error_stats.items()
             }
-            # normal conductivity LEVEL per node, not error -- the anchor the
+            # normal conductivity LEVEL per node, not error, the anchor the
             # level-shift rule needs, see trainer.py's node_error_stats docstring
             cond_median = {
                 idx_to_location[i]: s["cond_median"] for i, s in node_error_stats.items()
@@ -278,7 +284,7 @@ def main(
         print("Skipping training phase. Entering evaluation mode.")
         # saved_metadata was already loaded above for feature alignment, and
         # loading_existing being true (the only way to reach this branch) means
-        # it has everything detect_anomalies needs -- no need to read it twice.
+        # it has everything detect_anomalies needs. No need to read it twice.
         detection_metadata = saved_metadata
 
     model.eval()
@@ -316,7 +322,7 @@ def main(
 
     if visualize:
         print(
-            "--visualize is not yet ported to the per-node detection rewrite -- "
+            "--visualize is not yet ported to the per-node detection rewrite, "
             "plot_static_dashboard/plot_interactive_plotly still expect the old "
             "collapsed-scalar shape (system_anomaly_scores, spill_flags, etc). "
             "Skipping plots this run."

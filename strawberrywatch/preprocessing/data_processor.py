@@ -154,13 +154,13 @@ def prepare_sequences_normalized(
         print(f"scaler: reusing trained stats ({len(stats)} features), not refitting")
         if unknown:
             print(
-                f"  no trained stats for {unknown}, left unscaled -- "
+                f"  no trained stats for {unknown}, left unscaled, "
                 f"feature alignment drops them before the model sees them"
             )
     else:
         # Fit only on fully-valid rows so long outages don't corrupt the scaler stats.
         # QC-invalid rows (masked oxford during the university_house duplication, a
-        # stuck sensor's streak, etc.) get excluded here too -- they're not NaN, so
+        # stuck sensor's streak, etc.) get excluded here too, they're not NaN, so
         # the outage check alone wouldn't catch them, but they're not real readings
         # either and would otherwise shift the mean and scale.
         all_data = []
@@ -202,7 +202,11 @@ def prepare_sequences_normalized(
     # all-True, the QC loop below fills it in when a 'valid' column exists.
     # If there's no 'valid' column this gets replaced wholesale further down,
     # see the disambiguation right after nan_mask is built.
-    valid_3d = np.ones((len(timestamps_all), num_nodes), dtype=bool)
+    # QC verdicts only. A node with no row at this timestep never gets written
+    # here, which is why this cannot be the mask on its own: absence and
+    # "nothing flagged it" are different things and this array only knows the
+    # second one. Presence gets ANDed in below, once nan_mask exists.
+    qc_valid_3d = np.ones((len(timestamps_all), num_nodes), dtype=bool)
 
     for t_idx, timestamp in enumerate(tqdm(timestamps_all, desc="Pivoting data")):
         t_data = df_normalized.loc[timestamp]
@@ -212,7 +216,7 @@ def prepare_sequences_normalized(
             node_idx = location_to_idx[row["location"]]
             data_3d[t_idx, node_idx, :] = row[feature_cols].values
             if has_valid_col:
-                valid_3d[t_idx, node_idx] = bool(row["valid"])
+                qc_valid_3d[t_idx, node_idx] = bool(row["valid"])
 
     # transient_absent_mask[t, n, f] = True if (node n, feature f) is NaN at
     # timestep t and NOT permanently absent. Real outages longer than the
@@ -224,7 +228,7 @@ def prepare_sequences_normalized(
 
     # node_mask disambiguation. The wide training corpus carries a real QC
     # 'valid' column (sentinel/streak/duplicate checks from
-    # build_training_corpus.py) -- use it, unchanged from before. A live API
+    # build_training_corpus.py). Use it, unchanged from before. A live API
     # pull never has one, so valid_3d was defaulting to all-True for
     # everything, including a node with zero rows this window, which meant
     # masked pooling and feature propagation never actually engaged live, and
@@ -233,19 +237,28 @@ def prepare_sequences_normalized(
     # _extract_real_mask (real conductivity presence = trustworthy), computed
     # locally here off nan_mask instead of re-deriving it from df_original,
     # since nan_mask already has everything this needs.
-    if has_valid_col:
-        print("node_mask source: QC 'valid' column (training-corpus data)")
-    elif "conductivity" in feature_cols:
+    # A node is trustworthy at a timestep only if it actually reported there AND
+    # QC did not flag it. Presence has to come from the data; QC alone used to
+    # be the whole mask on the corpus path, and because a missing node has no
+    # row to flag, it stayed marked valid while its target was zero-filled.
+    # That put 11,709 fabricated zeros, 10.05% of corpus target cells, into the
+    # MSE loss and the threshold calibration as if they were real readings.
+    if "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
-        valid_3d = ~nan_mask[:, :, cond_idx]
-        print(
-            "node_mask source: no 'valid' column (live data) -- derived from "
-            "real conductivity presence instead"
+        present_3d = ~nan_mask[:, :, cond_idx]
+        valid_3d = present_3d & qc_valid_3d if has_valid_col else present_3d
+        source = (
+            "real conductivity presence AND the QC 'valid' column"
+            if has_valid_col
+            else "real conductivity presence (no 'valid' column, live data)"
         )
+        print(f"node_mask source: {source}")
     else:
+        valid_3d = qc_valid_3d
         print(
-            "node_mask source: no 'valid' column and no conductivity feature, "
-            "falling back to all-True"
+            "node_mask source: no conductivity feature to check presence against, QC column only"
+            if has_valid_col
+            else "node_mask source: nothing to derive presence from, falling back to all-True"
         )
 
     transient_absent_mask = nan_mask & ~permanent_mask[np.newaxis, :, :]

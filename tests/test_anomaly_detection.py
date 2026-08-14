@@ -5,7 +5,10 @@ import pandas as pd
 import pytest
 import torch
 
+from strawberrywatch.anomalies import anomaly_detector as _ad
+from strawberrywatch.anomalies.anomaly_detector import _rain_multipliers
 from strawberrywatch.config import Config
+from strawberrywatch.models import contracts
 
 ROOT = Path(__file__).parent.parent
 ANOMALY_DIR = ROOT / "data" / "anomalies"
@@ -29,11 +32,13 @@ COLUMN_MAP = {
 # is what correctly drops it.
 MIN_ALIGNED_ROWS = 30
 
-# A window needs at least this many scored error points to be judged.
-MIN_TIMESTEPS_TO_JUDGE = 30
-
-# How many points over threshold before we call it an event.
-MIN_TIMESTEPS_OVER_THRESHOLD = 3
+# How many scored points a window needs before it can be judged, and how many
+# must cross the threshold before it counts as an event. Both imported from
+# production rather than restated: they used to be a second copy of the same two
+# numbers, and a test that grades against its own copy of a rule stops being
+# evidence about production the moment either side moves.
+MIN_TIMESTEPS_TO_JUDGE = _ad.MIN_TIMESTEPS_TO_JUDGE
+MIN_TIMESTEPS_OVER_THRESHOLD = _ad.MIN_TIMESTEPS_OVER_THRESHOLD
 
 
 # (event_folder, target_site, label)
@@ -255,53 +260,32 @@ def _normalize(data_3d, scaler, feature_cols, location_to_idx):
 
 def _rain_adjusted_thresholds(base_threshold, timestamps, rain_series):
     """
-    Build a per-timestep threshold that rises during and after rain. The bar
-    scales with how much rain actually fell in the lookback window, not just
-    whether any rain happened at all, so trace drizzle barely moves it and a
-    real storm pushes it hard. After rain it tapers from wherever it peaked back to base over
-    the decay window. Without a rain series it just returns the flat base
-    everywhere, same as the no-rain path in production.
+    Per-timestep threshold that rises during and after rain, delegating to the
+    production rule rather than restating it.
+
+    This used to carry its own formula, which scaled the multiplier by how much
+    rain fell, between the amount floor and a saturation level. Production's
+    _rain_multipliers does not do that: it applies the full multiplier whenever
+    the lookback total clears the floor, then tapers. The test was therefore
+    validating a rule nothing runs, and could pass while production behaved
+    differently. Calling production directly is what makes these tests evidence
+    about production, and makes the two impossible to drift apart again.
+
+    The amount-scaled ramp is a proposal, not an implementation. Adopting it
+    would change the shape of the production rain multiplier, which is a
+    science decision rather than a defect, so it is escalated and not done here.
 
     timestamps is the DatetimeIndex for the scored errors (the target timesteps).
     rain_series is raw per-15-min rain indexed by the grid, or None.
     """
-    n = len(timestamps)
-    if rain_series is None or rain_series.empty:
-        return np.full(n, base_threshold)
-
-    window_h = Config.RAIN_WINDOW_HOURS
-    mult = Config.RAIN_THRESHOLD_MULTIPLIER
-    amount = Config.RAIN_AMOUNT_THRESHOLD
-    saturation_mm = Config.RAIN_SATURATION_MM
-    decay_h = Config.POST_RAIN_DECAY_HOURS
-
-    multipliers = np.ones(n, dtype=float)
-    ridx = rain_series.index
-
-    def _scale(rain_sum):
-        # amount is the floor where rain starts to count at all. saturation_mm
-        # is the point where the full multiplier kicks in. anything between
-        # scales linearly, so a trace amount just above the floor barely
-        # moves the threshold, and a real storm climbs toward the full mult.
-        frac = (rain_sum - amount) / (saturation_mm - amount)
-        frac = min(max(frac, 0.0), 1.0)
-        return 1.0 + (mult - 1.0) * frac
-
-    for i, ts in enumerate(timestamps):
-        lookback_start = ts - pd.Timedelta(hours=window_h)
-        recent = rain_series[(ridx >= lookback_start) & (ridx <= ts)]
-        recent_sum = recent.sum()
-        if recent_sum > amount:
-            multipliers[i] = _scale(recent_sum)
-            continue
-        decay_start = ts - pd.Timedelta(hours=window_h + decay_h)
-        prior = rain_series[(ridx >= decay_start) & (ridx < lookback_start)]
-        wet = prior.index[prior > amount]
-        if len(wet) > 0:
-            peak_mult = _scale(prior[prior > amount].max())
-            hours_since = (ts - wet.max()).total_seconds() / 3600.0 - window_h
-            frac = min(max(hours_since / decay_h, 0.0), 1.0)
-            multipliers[i] = 1.0 + (peak_mult - 1.0) * (1.0 - frac)
+    multipliers, _ = _rain_multipliers(
+        timestamps,
+        rain_series,
+        Config.RAIN_WINDOW_HOURS,
+        Config.RAIN_THRESHOLD_MULTIPLIER,
+        Config.RAIN_AMOUNT_THRESHOLD,
+        Config.POST_RAIN_DECAY_HOURS,
+    )
     return base_threshold * multipliers
 
 
@@ -321,7 +305,6 @@ def _reconstruction_errors(
     feature_cols = model_metadata["feature_cols"]
     scaler = model_metadata["scaler"]
     location_to_idx = model_metadata["location_to_idx"]
-    num_nodes = len(location_to_idx)
 
     if "conductivity" not in feature_cols:
         pytest.skip("conductivity not in feature_cols.")
@@ -361,18 +344,18 @@ def _reconstruction_errors(
 
     errors = []
     target_times = []
+    target_real = []
     with torch.no_grad():
         for i in range(len(normalized) - seq_len):
             seq = normalized[i : i + seq_len]  # (seq_len, nodes, feat)
             target = normalized[i + seq_len]  # (nodes, feat)
             seq_t = torch.FloatTensor(seq).unsqueeze(0).to(Config.DEVICE)
 
+            mask_t = None
             if use_mask:
                 mask_seq = node_mask[i : i + seq_len]  # (seq_len, nodes)
                 mask_t = torch.BoolTensor(mask_seq).unsqueeze(0).to(Config.DEVICE)
-                pred = model(seq_t, edge_index, batch_size=1, num_nodes=num_nodes, node_mask=mask_t)
-            else:
-                pred = model(seq_t, edge_index, batch_size=1, num_nodes=num_nodes)
+            pred = contracts.run_sequence_model(model, seq_t, edge_index, mask_t)
 
             err = torch.abs(
                 pred[0, node_idx] - torch.FloatTensor(target[node_idx]).to(Config.DEVICE)
@@ -382,8 +365,22 @@ def _reconstruction_errors(
             # look permanently anomalous next to sites that run low
             errors.append((raw_err - error_median) / error_iqr)
             target_times.append(grid[i + seq_len])
+            target_real.append(bool(node_mask[i + seq_len, node_idx]))
 
-    return np.array(errors), pd.DatetimeIndex(target_times), rain_series
+    errors = np.array(errors)
+    target_times = pd.DatetimeIndex(target_times)
+    real = np.array(target_real, dtype=bool)
+
+    # Score only the timesteps where the target node actually reported.
+    # _load_event_grid zero-fills missing conductivity (the post-z-score neutral
+    # value) and records what was real in node_mask, but this loop used to score
+    # every timestep regardless, differencing a fabricated zero against the
+    # model's real prediction and calling the result an error. On the June 2025
+    # spill that was 1542 of 2094 scored points, and 1542 of the 1818 points
+    # over threshold: the event "detected" was mostly an absent sensor.
+    # Production already filters this way, in anomaly_detector.py via
+    # _extract_real_mask and errors[real, node_idx]; this path did not.
+    return errors[real], target_times[real], rain_series
 
 
 def _curve_shape(errors, n_buckets=10):
@@ -411,7 +408,24 @@ def _report(name, errors, thresholds):
 
 
 def _is_flagged(errors, thresholds):
-    return int((errors > thresholds).sum()) >= MIN_TIMESTEPS_OVER_THRESHOLD
+    """
+    Production's Rule 1 verdict, taken from production.
+
+    errors are already robust-normalised and thresholds are already
+    rain-adjusted here, so _rule1_forecast_residual is handed an identity
+    median/IQR and a unit multiplier and contributes exactly the
+    over-threshold count and the flagged decision, which is the part that
+    must not be restated in a test.
+    """
+    return bool(
+        _ad._rule1_forecast_residual(
+            np.asarray(errors, dtype=float),
+            0.0,
+            1.0,
+            np.asarray(thresholds, dtype=float),
+            1.0,
+        )["flagged"]
+    )
 
 
 ANOMALOUS_CASES = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "anomaly"]

@@ -41,7 +41,7 @@ def fetch_open_meteo_weather(
     Returns a DataFrame with a UTC DatetimeIndex and the same columns as
     fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation), so data_loader
     can swap sources without knowing which one ran. rain_mm is the actual mm
-    that fell in that 15-min window, not an hourly accumulation -- no
+    that fell in that 15-min window, not an hourly accumulation, no
     disaggregation needed downstream.
 
     start_time/end_time can be datetime objects or ISO-8601 strings.
