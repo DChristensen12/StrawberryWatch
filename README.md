@@ -24,7 +24,7 @@ This repository is the research and development counterpart to the production mo
     <td align="center"><b>Flame Skimmer</b></td>
   </tr>
   <tr>
-    <td align="center" width="33%">A graph convolutional network over the sensor site network feeds a long short-term memory network that forecasts each site's next reading. Anomalies are flagged where the forecast error exceeds a threshold calibrated on normal conditions.</td>
+    <td align="center" width="33%">A graph neural network paired with an LSTM. It predicts what each site should be reading next, and flags anything that misses by too much.</td>
     <td align="center" width="33%">TBD</td>
     <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
@@ -36,17 +36,17 @@ This repository is the research and development counterpart to the production mo
    <tr>
     <td align="center"><b>Berry Delight</b></td>
     <td align="center"><b>TBD</td>
-    <td></td>
+    <td align="center"><b>TBD</b></td>
   </tr>
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">TBD</td>
-    <td></td>
+    <td align="center" width="33%">TBD</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
     <td align="center"><img src="assets/Fish.jpeg" width="351"></td>
-    <td></td>
+    <td align="center"><img src="assets/Spider.jpeg" width="351"></td>
   </tr>
 </table>
 
