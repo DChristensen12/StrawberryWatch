@@ -41,7 +41,7 @@ This repository is the research and development counterpart to the production mo
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">Crimson Parker</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
@@ -49,6 +49,7 @@ This repository is the research and development counterpart to the production mo
     <td align="center"><img src="assets/Spider.jpeg" width="351"></td>
   </tr>
 </table>
+
 
 ## The Creek
 
