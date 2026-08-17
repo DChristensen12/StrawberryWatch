@@ -5,7 +5,7 @@
 <p>A modular anomaly detection system for the Strawberry Creek urban watershed</p>
 
 <p align="center">
-  <img src="assets/SCMGlogo.jpg" width="575">
+  <img src="assets/logos/SCMGlogo.jpg" width="575">
 </p>
 
 <p><a href="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml"><img src="https://github.com/DChristensen12/StrawberryWatch/actions/workflows/lint.yml/badge.svg" alt="CI"></a> <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a> <a href="https://github.com/pre-commit/pre-commit"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white" alt="pre-commit"></a> <img src="https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white" alt="Python 3.12+"> <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a> <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-EE87A0" alt="License: Apache 2.0"></a></p>
@@ -29,27 +29,50 @@ This repository is the research and development counterpart to the production mo
     <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/Crayfish.jpeg" width="351"></td>
-    <td align="center"><img src="assets/WaterStrider.jpeg" width="351"></td>
-    <td align="center"><img src="assets/Flame_Skimmer.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Crayfish.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/WaterStrider.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Flame_Skimmer.jpeg" width="351"></td>
   </tr>
    <tr>
     <td align="center"><b>Berry Delight</b></td>
     <td align="center"><b>TBD</td>
-    <td align="center"><b>TBD</b></td>
+    <td align="center"><b>Crimson Parker</b></td>
   </tr>
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">Crimson Parker</td>
+    <td align="center" width="33%">TBD</td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/Berries.jpeg" width="351"></td>
-    <td align="center"><img src="assets/Fish.jpeg" width="351"></td>
-    <td align="center"><img src="assets/Spider.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Berries.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Fish.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Spider.jpeg" width="351"></td>
   </tr>
 </table>
 
+## Support Modules
+
+Support modules attach to any model. They are not models themselves and have no
+weights of their own. Some explain a detection after it happens while others cover something a model structurally cannot see (adds tests,
+so switching one on makes the model slightly less sensitive elsewhere).
+
+<table align="center">
+  <tr>
+    <td align="center"><b>Trial Bed</b></td>
+    <td align="center"><b>Newtwork Run</b></td>
+    <td align="center"><b>Settling Pool</b></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">Reads which way each measurement moved and compares that pattern against known signatures for different kinds of contamination. A model reports that something is wrong at a site; this reports what it looks like and which readings led to that conclusion.</td>
+    <td align="center" width="33%">Checks whether a detection travelled the way water does. A real spill reaches downstream sites after a delay set by how fast the creek is flowing, and never reaches sites on the other fork. Rain arrives everywhere at once. Comparing the timing across sites separates the two, and flags anything that moved in a way water cannot.</td>
+    <td align="center" width="33%">Screens the incoming data before a model ever sees it. Catches placeholder values that look like real readings, feeds that have silently started reporting the same numbers as another site, sensors that were re-zeroed between deployments, and gaps that were filled rather than measured. Every problem it finds is one a model would otherwise learn from.</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/biota/Rose_Bed_BG.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Newt.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/JPond_BG.jpeg" width="351"></td>
+  </tr>
+</table>
 
 ## The Creek
 
@@ -62,7 +85,7 @@ The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior
 The map below shows these sensors on the actual creek, with each fork tracing the real water flow down to the Oxford Street confluence.
 
 <p align="center">
-  <img src="assets/Strawberry_Creek_Physical_Graph_Topology.png" width="80%">
+  <img src="assets/diagrams/Strawberry_Creek_Physical_Graph_Topology.png" width="80%">
 </p>
 
 <p align="center"><i>The physical sensor network along Strawberry Creek, overlaid on the creek's real flow. Both forks converge at the Oxford Street confluence. This is the full field deployment, not the modeled graph: four of these sites are modeled, north_fork_0, south_fork_1, south_fork_2, and Oxford.</i></p>
@@ -183,7 +206,8 @@ strawberrywatch/        the importable package
   ingest/  preprocessing/  models/  training/  anomalies/  utils/
 main.py                 pipeline entry point
 scripts/                operational and verification scripts
-tests/  data/  checkpoints/  assets/  integrations/  notebooks/
+assets/                 logos/, biota/ (creek life), diagrams/ (graphs and maps)
+tests/  data/  checkpoints/  integrations/  notebooks/
 ```
 
 Imports use the package path:
@@ -301,5 +325,5 @@ those whose contributions do not appear in the commit history.
 ---
 
 <p align="center">
-  <img src="assets/SCMGBacklogo.png" width="400">
+  <img src="assets/logos/SCMGBacklogo.png" width="400">
 </p>

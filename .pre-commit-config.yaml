@@ -16,7 +16,8 @@ repos:
         exclude: ^(data|assets)/
       - id: check-yaml
       - id: check-toml
-      # The raw data exports in data/raw_data/ runs to 4 MB.
+      # The raw data exports in data/raw_data/ runs to 4 MB, and the
+      # full-resolution creek photos in assets/biota/ reach 5.5 MB.
       - id: check-added-large-files
-        args: [--maxkb=4500]
+        args: [--maxkb=6000]
       - id: check-merge-conflict
