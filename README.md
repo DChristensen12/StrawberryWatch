@@ -63,14 +63,14 @@ so switching one on makes the model slightly less sensitive elsewhere).
     <td align="center"><b>Settling Pool</b></td>
   </tr>
   <tr>
-    <td align="center" width="33%">Reads which way each measurement moved and compares that pattern against known signatures for different kinds of contamination. A model reports that something is wrong at a site; this reports what it looks like and which readings led to that conclusion.</td>
-    <td align="center" width="33%">Checks whether a detection travelled the way water does. A real spill reaches downstream sites after a delay set by how fast the creek is flowing, and never reaches sites on the other fork. Rain arrives everywhere at once. Comparing the timing across sites separates the two, and flags anything that moved in a way water cannot.</td>
-    <td align="center" width="33%">Screens the incoming data before a model ever sees it. Catches placeholder values that look like real readings, feeds that have silently started reporting the same numbers as another site, sensors that were re-zeroed between deployments, and gaps that were filled rather than measured. Every problem it finds is one a model would otherwise learn from.</td>
+    <td align="center" width="33%">Identifies what kind of contamination a detection looks like. It reads the direction each measurement moved, matches that pattern against known signatures, and reports the likely cause alongside the readings behind it.</td>
+    <td align="center" width="33%">Confirms a detection travelled the way water does. A spill reaches downstream sites after a delay set by the creek's flow and never crosses forks, while rain arrives everywhere at once; comparing timing across sites separates the two and flags anything water could not have carried.</td>
+    <td align="center" width="33%">Screens incoming data before a model ever sees it. Catches placeholder values passing as real readings, feeds silently mirroring another site, sensors re-zeroed between deployments, and gaps that were filled rather than measured, each one something a model would otherwise learn from.</td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/biota/Rose_Bed_BG.jpeg" width="351"></td>
-    <td align="center"><img src="assets/biota/Newt.jpeg" width="351"></td>
-    <td align="center"><img src="assets/biota/JPond_BG.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Rose_Bed_BG.jpeg" width="800"></td>
+    <td align="center"><img src="assets/biota/Newt.jpeg" width="800"></td>
+    <td align="center"><img src="assets/biota/JPond_BG.jpeg" width="800"></td>
   </tr>
 </table>
 
