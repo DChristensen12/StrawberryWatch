@@ -24,7 +24,7 @@ This repository is the research and development counterpart to the production mo
     <td align="center"><b>Flame Skimmer</b></td>
   </tr>
   <tr>
-    <td align="center" width="33%">A graph neural network paired with an LSTM. It predicts what each site should be reading next, and flags anything that misses by too much.</td>
+    <td align="center" width="33%">A graph neural network paired with an LSTM. It predicts what the creek as a whole should be reading next, and flags timesteps where the network differs from that.</td>
     <td align="center" width="33%">TBD</td>
     <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
@@ -35,12 +35,12 @@ This repository is the research and development counterpart to the production mo
   </tr>
    <tr>
     <td align="center"><b>Berry Delight</b></td>
-    <td align="center"><b>TBD</td>
+    <td align="center"><b>Cobble Shoal</td>
     <td align="center"><b>Crimson Parker</b></td>
   </tr>
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">A graph neural network paired with an LSTM that scores each sensor separately rather than the network as a whole. It treats every sensor at every site as its own node, learns how quickly each reading goes stale, and combines several independent checks so it can name which sensor looks wrong and how confident it is.</td>
     <td align="center" width="33%">TBD</td>
   </tr>
   <tr>

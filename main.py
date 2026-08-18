@@ -10,9 +10,10 @@ from strawberrywatch import paths
 from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.models.Cobble_Shoal import CobbleShoal
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
-from strawberrywatch.models.Riffle_Darner import RiffleDarner
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
+from strawberrywatch.support_modules import DEFAULT_Q_TOTAL, SUPPORT_REGISTRY, SupportStack
 from strawberrywatch.training.trainer import train_temporal_gnn
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
@@ -23,13 +24,13 @@ from strawberrywatch.utils.graph_utils import create_graph_topology
 # on the way past.
 _MODEL_REGISTRY = {
     "dusk_crayfish": DuskCrayfish,
-    "riffle_darner": RiffleDarner,
+    "cobble_shoal": CobbleShoal,
 }
 
 
 def _align_to_trained_features(sequences, targets, current_feature_cols, trained_feature_cols):
     """
-    Makes the freshly-built sequences match the feature set the model was trained on.
+    Match the freshly-built sequences to the feature set the model was trained on.
 
     Fix for size-mismatch crashes at load time. Training might have seen 6 features,
     but the current run only got 4 because a weather fetch failed. We build a
@@ -73,11 +74,52 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
     return aligned_seq, aligned_tgt, report
 
 
+def _support_window(sequences, targets, timestamps, node_mask, df_original):
+    """
+    What a support module is handed as its window.
+
+    A dict and not a class: the three kinds read different parts of it, and
+    fixing a structure now would be guessing at modules nobody has written yet.
+    """
+    return {
+        "sequences": sequences,
+        "targets": targets,
+        "timestamps": timestamps,
+        "node_mask": node_mask,
+        "raw": df_original,
+    }
+
+
+def _fired_grid(node_results, site_order, shape):
+    """
+    Which node-timesteps the primary flagged, as the grid an explainer reads.
+
+    A node that was never judged, or judged and not flagged, is all False. That
+    is the honest answer: the primary said nothing about it, so neither can an
+    explainer.
+    """
+    grid = np.zeros(shape, dtype=bool)
+    for j, site in enumerate(site_order):
+        result = node_results.get(site, {})
+        if result.get("judged") and result.get("flagged"):
+            grid[:, j] = result["over_timesteps"]
+    return grid
+
+
 def main(
-    mode="update", data_source="api", model_name="dusk_crayfish", visualize=False, data_file=None
+    mode="update",
+    data_source="api",
+    model_name="dusk_crayfish",
+    data_file=None,
+    support=None,
+    q_total=DEFAULT_Q_TOTAL,
 ):
     """
-    Runs the GNN anomaly detection pipeline in train, update, or inference mode.
+    Run the GNN anomaly detection pipeline in train, update, or inference mode.
+
+    support is a list of names from support_modules.SUPPORT_REGISTRY, or None
+    for a run with no support attached. None and [] take the same path as three
+    modules do; there is no separate no-support branch anywhere below.
     """
     model_dir = paths.checkpoints_dir()
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
@@ -85,11 +127,29 @@ def main(
 
     file_path = data_file or Config.data_file()
 
+    if model_name not in _MODEL_REGISTRY:
+        print(f"ERROR: Unknown model '{model_name}'. Available: {list(_MODEL_REGISTRY)}")
+        sys.exit(1)
+    ModelClass = _MODEL_REGISTRY[model_name]
+
+    # Resolved before anything is downloaded, so an unknown name, a module that
+    # cannot attach, a builtin collision or an impossible budget split all fail
+    # here with nothing done yet. The registry check moved up for the same
+    # reason.
+    stack = SupportStack.load(support, ModelClass, q_total=q_total)
+    split = stack.budget()
+
     print("SCMG Anomaly Detection System")
     print(f"Execution Mode: {mode.upper()}")
     print(f"Model:          {model_name}")
     print(f"Device:         {Config.DEVICE}")
     print(f"Data file:      {file_path}")
+    print(f"Support:        {', '.join(stack.names) if stack.names else 'none'}")
+    for line in stack.describe():
+        print(f"  {line}")
+    print(f"False alarm budget: q_total={split['q_total']:g}, primary={split['primary']:g}")
+    for name, q in sorted(split["detectors"].items()):
+        print(f"  {name}: q={q:g}")
 
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring
@@ -103,11 +163,6 @@ def main(
         )
 
     edge_index, _, location_to_idx = create_graph_topology()
-
-    if model_name not in _MODEL_REGISTRY:
-        print(f"ERROR: Unknown model '{model_name}'. Available: {list(_MODEL_REGISTRY)}")
-        sys.exit(1)
-    ModelClass = _MODEL_REGISTRY[model_name]
 
     # Resolve mode before sizing the model: inference falls back to train if no
     # weights exist, and that affects whether we size from metadata or fresh data.
@@ -177,6 +232,19 @@ def main(
     else:
         # Fresh train: the current data defines the feature set.
         trained_feature_cols = list(feature_cols)
+
+    # Node names in the order the score columns come out in, which is what
+    # every support module is handed alongside its window.
+    site_order = [site for site, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
+    support_window = _support_window(sequences, targets, timestamps, node_mask_seq, df_original)
+
+    # Screens run here, before the model sees anything, which is the whole
+    # reason they are a separate kind. node_mask_seq is what carries "this
+    # reading is not fit to read" through the rest of the pipeline, so a screen
+    # narrows that mask rather than editing the readings themselves.
+    if stack.screens:
+        admitted = stack.admit(support_window, site_order, (len(sequences), len(site_order)))
+        node_mask_seq = node_mask_seq & admitted[:, None, :]
 
     num_node_features = len(feature_cols)
 
@@ -320,13 +388,25 @@ def main(
                 f"duration={rule['longest_run']} timesteps ({rule['n_over_threshold']} total over threshold)"
             )
 
-    if visualize:
-        print(
-            "--visualize is not yet ported to the per-node detection rewrite, "
-            "plot_static_dashboard/plot_interactive_plotly still expect the old "
-            "collapsed-scalar shape (system_anomaly_scores, spill_flags, etc). "
-            "Skipping plots this run."
-        )
+    # Modulators and detectors run after the primary has judged: a modulator
+    # moves the bar the primary was compared against, a detector adds its own
+    # test beside it. Both read the same window the model read.
+    shape = (len(test_seq), len(site_order))
+    if stack.modulators or stack.detectors:
+        stack.multipliers(support_window, site_order, shape)
+        stack.detector_results(support_window, site_order)
+
+    # Explainers run last, on firings the primary has already made. They add no
+    # test and take no budget, so every site above fired without them.
+    if stack.explainers:
+        fired_grid = _fired_grid(node_results, site_order, shape)
+        accounts = stack.explanations(support_window, site_order, fired_grid)
+        for name, per_node in sorted(accounts.items()):
+            for site, account in zip(site_order, per_node, strict=True):
+                if account["verdict"] == "nothing_to_explain":
+                    continue
+                print(f"  {name} at {site}: {account['explanation']}")
+                print(f"    confidence: {account['confidence']}")
 
     if mode == "inference" and flagged_sites:
         try:
@@ -362,9 +442,23 @@ if __name__ == "__main__":
         help="Which model architecture to use",
     )
     parser.add_argument(
-        "--visualize",
-        action="store_true",
-        help="Generate static and interactive plots after detection",
+        "--support",
+        type=str,
+        nargs="+",
+        default=None,
+        choices=sorted(SUPPORT_REGISTRY),
+        metavar="NAME",
+        help="Support modules to attach, space separated. Order does not "
+        "matter. Omit for a run with no support. Valid names: "
+        + ", ".join(sorted(SUPPORT_REGISTRY)),
+    )
+    parser.add_argument(
+        "--q-total",
+        type=float,
+        default=DEFAULT_Q_TOTAL,
+        help="Total false alarm rate for the whole run, divided across the "
+        "primary and every attached detector rather than handed to each. "
+        f"Default {DEFAULT_Q_TOTAL:g}.",
     )
     parser.add_argument(
         "--data-file",
@@ -380,6 +474,7 @@ if __name__ == "__main__":
         mode=args.mode,
         data_source=args.data_source,
         model_name=args.model,
-        visualize=args.visualize,
         data_file=args.data_file,
+        support=args.support,
+        q_total=args.q_total,
     )

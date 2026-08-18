@@ -35,7 +35,7 @@ def fetch_open_meteo_weather(
     longitude: float | None = None,
 ) -> pd.DataFrame:
     """
-    Fetches native 15-minute weather from Open-Meteo's Historical Forecast API
+    Fetch native 15-minute weather from Open-Meteo's Historical Forecast API
     for the given date range.
 
     Returns a DataFrame with a UTC DatetimeIndex and the same columns as

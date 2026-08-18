@@ -37,9 +37,9 @@ def _is_wide_training_corpus(file_path):
     return any(c.endswith("_valid") for c in header)
 
 
-def _load_wide_corpus_as_long(file_path):
+def _load_wide_corpus(file_path):
     """
-    Converts a wide training corpus into the long (datetime, location) format
+    Convert a wide training corpus into the long (datetime, location) format
     the rest of this pipeline expects, carrying each site's {site}_valid flag
     over as a plain 'valid' column. hour_sin/cos/dayofyear_sin/cos aren't
     carried over, they get regenerated below from the index either way, so
@@ -81,7 +81,7 @@ def load_and_preprocess_data(
     data_source="api",
 ):
     """
-    Loads creek data from the cache CSV, fetching fresh if the cache is missing
+    Load creek data from the cache CSV, fetching fresh if the cache is missing
     or force_download=True.
 
     Cache works as a rolling window: new data is merged in and deduplicated on
@@ -107,7 +107,7 @@ def load_and_preprocess_data(
             f"'{file_path}' is a wide training corpus (has *_valid columns); "
             f"loading directly, skipping fetch/merge."
         )
-        df = _load_wide_corpus_as_long(file_path)
+        df = _load_wide_corpus(file_path)
     else:
         if not os.path.exists(file_path) or force_download:
             source_label = "API" if data_source == "api" else "SQL database"
@@ -216,7 +216,7 @@ def load_and_preprocess_data(
 
 def _merge_with_cache(df_new, file_path):
     """
-    Combines freshly-fetched data with whatever's already in the cache file,
+    Combine freshly-fetched data with whatever's already in the cache file,
     deduplicating on (datetime, location). Newer rows win on conflict, so
     late-arriving backfills can correct earlier values.
     """
@@ -245,7 +245,7 @@ def _merge_with_cache(df_new, file_path):
 
 def _trim_to_rolling_window(df, window_days):
     """
-    Keeps the last `window_days` of data. Anchored on the dataset's latest
+    Keep the last `window_days` of data. Anchored on the dataset's latest
     timestamp (not 'now'), so the cache stays useful even when fetches happen
     well after the last real observation.
     """
@@ -264,7 +264,7 @@ def _trim_to_rolling_window(df, window_days):
 
 def _merge_weather(df_raw, start_date, end_date, days):
     """
-    Merges Open-Meteo weather onto df_raw.
+    Merge Open-Meteo weather onto df_raw.
 
     Both training and live inference go through this one source now (used to
     route recent windows to NWS LBNL1 instead) so the model isn't trained on

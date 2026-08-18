@@ -1,5 +1,5 @@
 """
-Calibrated artifacts for the Riffle Darner detector, loaded at inference.
+Calibrated artifacts for the Cobble Shoal detector, loaded at inference.
 
 Nothing here fits anything. A detector that refits its own null on the window
 it is judging has no null, it has a description of the data it just saw.
@@ -17,8 +17,8 @@ from pathlib import Path
 from strawberrywatch.anomalies import channel_scoring
 from strawberrywatch.paths import checkpoints_dir
 
-CALIBRATION_FILENAME = "riffle_darner_calibration.json"
-WEIGHTS_FILENAME = "riffle_darner_weights.pt"
+CALIBRATION_FILENAME = "cobble_shoal_calibration.json"
+WEIGHTS_FILENAME = "cobble_shoal_weights.pt"
 
 
 class CalibrationError(RuntimeError):
@@ -26,7 +26,7 @@ class CalibrationError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class RiffleCalibration:
+class CobbleCalibration:
     """Everything the alerting path needs that is not the weights."""
 
     nulls: channel_scoring.ChannelNulls
@@ -66,7 +66,7 @@ def load_calibration(checkpoint_dir=None):
     path = calibration_path(checkpoint_dir)
     if not path.exists():
         raise CalibrationError(
-            f"no calibration artifact at {path}. The Riffle Darner alerting path "
+            f"no calibration artifact at {path}. The Cobble Shoal alerting path "
             f"needs the channel nulls and z_q that were fitted with the weights; "
             f"it will not fit its own."
         )
@@ -78,7 +78,7 @@ def load_calibration(checkpoint_dir=None):
         raise CalibrationError(f"{path} is not a usable calibration: {exc}") from exc
     if not (z_q == z_q) or z_q in (float("inf"), float("-inf")):
         raise CalibrationError(f"{path} has a non-finite z_q ({z_q})")
-    return RiffleCalibration(
+    return CobbleCalibration(
         nulls=nulls,
         z_q=z_q,
         operating_q=float(blob.get("operating_q", 1e-4)),

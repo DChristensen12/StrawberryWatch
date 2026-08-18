@@ -25,7 +25,7 @@ def plot_static_dashboard(
     locations,
     threshold_percentile,
 ):
-    """Generates and saves the high-resolution Matplotlib dashboard to reports/."""
+    """Save the high-resolution Matplotlib dashboard to reports/."""
     spills_during_rain = spill_flags & rain_flags
     spills_no_rain = spill_flags & ~rain_flags
 
@@ -141,7 +141,7 @@ def plot_interactive_plotly(
     threshold_percentile,
 ):
     """
-    Saves the interactive Plotly visualization as HTML. plotly.show() won't work
+    Save the interactive Plotly visualization as HTML. plotly.show() won't work
     in a headless loop, which is why we write to disk instead.
     """
     fig_plotly = go.Figure()

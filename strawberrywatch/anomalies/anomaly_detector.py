@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 
 from strawberrywatch.config import Config
-from strawberrywatch.models import contracts
+from strawberrywatch.models import model_calls
 
 # Same sustained-crossing bar tests/test_anomaly_detection.py uses, ported so
 # a lone noisy point doesn't flag but a real event does. Applies to both rules
@@ -42,14 +42,14 @@ def run_model_over_sequences(model, sequences, node_mask, edge_index, device):
     with torch.no_grad():
         seq_tensor = torch.FloatTensor(sequences).to(device)
         mask_tensor = None if node_mask is None else torch.BoolTensor(node_mask).to(device)
-        predictions = contracts.run_sequence_model(model, seq_tensor, edge_index, mask_tensor)
+        predictions = model_calls.run_sequence_model(model, seq_tensor, edge_index, mask_tensor)
 
     return predictions.cpu().numpy()
 
 
 def _extract_rain_series(df_original, locations):
     """
-    Pulls rain from the first known location, because rain is one shared
+    Pull rain from the first known location, because rain is one shared
     weather signal over the whole small creek, not a per-node quantity, so one
     site's rain_mm column speaks for all of them. Returns a rain_mm Series
     indexed by datetime, or None if rain data isn't available this run.
@@ -193,6 +193,9 @@ def _rule1_forecast_residual(
         "n_over_threshold": n_over,
         "longest_run": _longest_run(over),
         "peak_deviation": float(normalized.max()) if len(normalized) else float("nan"),
+        # Which of this node's real timesteps went over, for anything that has
+        # to point at the readings behind the flag rather than count them.
+        "over": over,
     }
 
 
@@ -212,6 +215,7 @@ def _rule2_level_shift(level_node, cond_median, cond_iqr, k):
         "n_over_threshold": n_over,
         "longest_run": _longest_run(over),
         "peak_deviation": float(np.abs(deviation).max()) if len(deviation) else float("nan"),
+        "over": over,
     }
 
 
@@ -325,6 +329,7 @@ def detect_anomalies(
             "n_over_threshold": 0,
             "longest_run": 0,
             "peak_deviation": float("nan"),
+            "over": np.zeros(n_real, dtype=bool),
         }
         if cond_median.get(site) is not None and cond_iqr.get(site) is not None:
             rule2 = _rule2_level_shift(
@@ -337,6 +342,11 @@ def detect_anomalies(
         if rule2["flagged"]:
             rules_fired.append("level_shift")
 
+        # Scattered back onto the full time axis, because the rules only saw
+        # this node's real timesteps and a caller holds every timestep.
+        over_timesteps = np.zeros(len(timestamps), dtype=bool)
+        over_timesteps[real] = rule1["over"] | rule2["over"]
+
         results[site] = {
             "judged": True,
             "flagged": bool(rules_fired),
@@ -344,6 +354,7 @@ def detect_anomalies(
             "rule1": rule1,
             "rule2": rule2,
             "n_real": n_real,
+            "over_timesteps": over_timesteps,
         }
 
     return results, rain_flags

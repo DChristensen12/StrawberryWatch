@@ -1,8 +1,8 @@
 """
-How a model wants to be called.
+The call shape each model takes.
 
 Dusk Crayfish takes a (batch, seq_len, sites, features) tensor and an
-edge_index. Riffle Darner takes per-node series where a node is a
+edge_index. Cobble Shoal takes per-node series where a node is a
 (site, variable) pair, so it sees 17 nodes on the same creek Dusk Crayfish sees
 5 sites on. Different data model, not a different keyword argument, so
 signature inspection cannot bridge it and call sites ask the model instead.
@@ -17,7 +17,7 @@ import inspect
 SEQUENCE_TENSOR = "sequence_tensor"
 
 # A dict of per-node series keyed by the encoder's argument names, built from
-# the node registry. See models/Riffle_Darner.py.
+# the node registry. See models/Cobble_Shoal.py.
 NESTED_NODE_BATCH = "nested_node_batch"
 
 CONTRACTS = (SEQUENCE_TENSOR, NESTED_NODE_BATCH)
@@ -84,7 +84,7 @@ def build_from_metadata(model_cls, metadata, device=None):
     """
     Construct a model from a trained metadata blob.
 
-    Each class knows its own constructor arguments, so it provides
+    Each class defines its own constructor arguments, so it provides
     from_metadata and this just calls it. The alternative, a table of
     per-name construction rules living away from the models, is the thing that
     kept going stale.

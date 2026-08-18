@@ -61,7 +61,7 @@ _SITE_TABLE_OVERRIDES = {
 
 
 def _table_name_for_site(site_code: str) -> str:
-    """Converts a site code to the MySQL table name, handling capitalization edge cases."""
+    """Convert a site code to the MySQL table name, handling capitalization edge cases."""
     if not isinstance(site_code, str) or not site_code:
         raise ValueError(f"Invalid site_code: {site_code!r}")
     lowered = site_code.lower()
@@ -71,13 +71,13 @@ def _table_name_for_site(site_code: str) -> str:
 
 
 def _is_safe_identifier(name: str) -> bool:
-    """Returns True if name is a safe MySQL identifier (no injection risk)."""
+    """Return True if name is a safe MySQL identifier (no injection risk)."""
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
 
 
 def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
     """
-    Pulls all sensor columns for one site from MySQL over [start_time, end_time].
+    Pull all sensor columns for one site from MySQL over [start_time, end_time].
 
     Returns a DataFrame with 'timestamp' plus every sensor column the table
     exposes (raw MMW codes like 'Meter_Hydros21_Cond'). Column renaming to
@@ -146,7 +146,7 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
 
 def fetch_network_snapshot_sql(start_time, end_time) -> pd.DataFrame:
     """
-    Pulls data for every site in Config.LOCATIONS and concatenates them.
+    Pull data for every site in Config.LOCATIONS and concatenate them.
     Same shape as api_client.fetch_network_snapshot.
     """
     frames = []

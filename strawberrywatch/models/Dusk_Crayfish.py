@@ -1,35 +1,12 @@
+"""Spatial GCN plus temporal LSTM backbone, aware of missing nodes."""
+
 import torch
 import torch.nn as nn
 from torch_geometric.data import Batch, Data
 from torch_geometric.nn import GATConv, GCNConv
 
 from strawberrywatch.config import Config
-from strawberrywatch.models import contracts
-
-# Spatial GCN plus temporal LSTM backbone. The version this replaced treated an
-# offline sensor as if it were reading the average value. Two changes fix that:
-#
-#   1. Feature propagation fills a missing node's features by diffusing its
-#      neighbors' real values across the graph before the GCN sees them, instead
-#      of leaving it zero-filled. An offline site between two reporting sites
-#      ends up with an estimate that sits between them, which on a creek is
-#      physically sensible. Based on Rossi et al 2022, "On the Unreasonable
-#      Effectiveness of Feature Propagation in Learning on Graphs with Missing
-#      Node Features": propagate by multiplying by the normalized adjacency,
-#      then reset the known nodes back to their real values, repeat. The steady
-#      state does not depend on what the unknown nodes were initialized to, so
-#      zero init is fine.
-#
-#   2. Masked mean pool averages only the nodes that actually have data at each
-#      timestep instead of dividing by the full node count. A three-present
-#      timestep pools over three real nodes, not three real plus one
-#      misleading zero. Standard masked-mean trick: sum the kept rows,
-#      divide by the count of kept rows.
-#
-# Both changes are opt-in through a node_mask argument. If no mask is passed the
-# model falls back to plain all-nodes-present behavior, which is what keeps it a
-# drop-in for the older interface and lets it train through the existing
-# pipeline without changes.
+from strawberrywatch.models import model_calls
 
 
 def build_symmetric_norm_adjacency(edge_index, num_nodes, device):
@@ -64,12 +41,16 @@ def propagate_missing_features(x, node_mask, norm_adj, num_iters=40):
     """
     Fill missing node features by diffusing the known ones across the graph.
 
+    The version this replaced treated an offline sensor as if it were reading
+    the average value. An offline site between two reporting sites now ends up
+    with an estimate that sits between them, which on a creek is physically
+    sensible.
+
     x:         (batch, num_nodes, num_features) for a single timestep
     node_mask: (batch, num_nodes) bool, True where the node has real data
     norm_adj:  (num_nodes, num_nodes) symmetric normalized adjacency
-    num_iters: how many diffusion steps. The paper notes convergence is fast and
-               the result does not depend on the unknown init, so a few dozen
-               steps is plenty for a tiny graph.
+    num_iters: how many diffusion steps. Convergence is fast and the result does
+               not depend on the unknown init, so a few dozen is plenty here.
 
     Each step multiplies by norm_adj (the diffusion), then resets the known nodes
     back to their real values so they anchor the solution. Missing nodes settle
@@ -122,7 +103,13 @@ class DuskCrayfish(nn.Module):
     treated as present, which is what lets training run unchanged.
     """
 
-    INPUT_CONTRACT = contracts.SEQUENCE_TENSOR
+    INPUT_CONTRACT = model_calls.SEQUENCE_TENSOR
+
+    # What this model already does internally. The loader refuses to attach a
+    # module named here, see registry.check_collision. Rain: anomaly_detector
+    # applies a multiplier to Rule 1's threshold, so a rain modulator on top
+    # would raise the bar twice.
+    BUILTIN_SUPPORT = ("rain",)
 
     @classmethod
     def from_metadata(cls, metadata):
@@ -239,7 +226,7 @@ class DuskCrayfish(nn.Module):
         graph_seq = graph_seq.unsqueeze(2).expand(-1, -1, num_nodes, -1)
 
         # one learned vector per site, same across batch and time. without this the
-        # LSTM has no way to know south_fork_2 normally runs hotter than the others.
+        # LSTM has no signal that south_fork_2 normally runs hotter than the others.
         node_ids = self.node_embedding.weight
         node_ids = node_ids.unsqueeze(0).unsqueeze(0).expand(batch_size, seq_len, -1, -1)
 

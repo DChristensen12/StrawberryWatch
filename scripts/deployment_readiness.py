@@ -3,7 +3,7 @@ Deployment readiness gate for Dusk Crayfish. Four questions: does it generalize
 past the training window, does it stay quiet on clean data, does it actually
 detect and localize a real perturbation, and what's the smallest spill it
 reliably catches. The skill baseline test only answered "is the forecast
-better than a lagged copy" -- this is the next gate up, whether the thing is
+better than a lagged copy". This is the next gate up, whether the thing is
 safe to point at production.
 
 Read-only. Doesn't touch the model, the corpus, or existing files. Reuses the
@@ -38,6 +38,7 @@ from forecast_skill_baseline import (
 import tests.test_anomaly_detection as tad  # noqa: E402  (real detection path: _is_flagged, _rain_adjusted_thresholds, _normalize, the MIN_* constants)
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.models import model_calls
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
@@ -50,7 +51,7 @@ INJECTION_SHAPES = ("step", "ramp", "spike")
 RAMP_STEPS = 8  # 2 hours at 15-min cadence
 SPIKE_STEPS = 2  # 30 minutes at 15-min cadence
 CONFIRM_MAGNITUDE = 150.0  # uS/cm, Section 3's "does the mechanism work at all" magnitude
-N_SECTION3_WINDOWS = 10  # a spread subset of the clean windows, not all 30 -- compute tractability
+N_SECTION3_WINDOWS = 10  # a spread subset of the clean windows, not all 30, compute tractability
 
 SECTION4_NODES = (
     "north_fork_0",
@@ -66,7 +67,7 @@ SECTION4_MAGNITUDES = (
     500.0,
     2000.0,
 )  # 500/2000 exist to settle
-# whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one -- see 4b
+# whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one, see 4b
 RELIABLE_DETECTION_RATE = 0.5  # "reliably detected" = flagged in most windows, per the spec
 
 FP_RATE_CAVEAT = 0.2  # false positive rate above this gets flagged in the verdict
@@ -85,8 +86,8 @@ def held_out_range(corpus):
     Same boundary main.py's split produces, derived directly from the corpus
     index instead of re-running the full sequence build (which takes a couple
     minutes just to pivot). Every timestep in this corpus is a valid sequence
-    position -- Section 1 confirmed valid_mask is all-True, 29,099 sequences
-    from 29,123 timesteps, exactly len - SEQUENCE_LENGTH -- so the sequence
+    position. Section 1 confirmed valid_mask is all-True, 29,099 sequences
+    from 29,123 timesteps, exactly len - SEQUENCE_LENGTH. So the sequence
     split index maps onto the timestamp index with a fixed offset.
     """
     all_ts = corpus.index.sort_values().unique()
@@ -100,7 +101,7 @@ def held_out_range(corpus):
 def all_anomaly_windows(pad=ANOMALY_PAD):
     """
     Every folder under data/anomalies/, min/max timestamp padded 12h each
-    side -- same derivation build_training_corpus.py uses, EXCEPT this
+    side, same derivation build_training_corpus.py uses, EXCEPT this
     doesn't skip botanical_actuator. That event stays in the training corpus
     on purpose (it's being dropped from the catalog, treated as ordinary wet
     season data), but it's still a real labeled event, and calling its window
@@ -133,9 +134,9 @@ def build_clean_windows(
 ):
     """
     Contiguous 15-min-grid stretches inside the held-out span that (a) exist
-    as real rows in the corpus -- anomaly-window rows were already stripped
+    as real rows in the corpus. Anomaly-window rows were already stripped
     when the corpus was built, so most of the "does this overlap a known
-    anomaly" work is already done for us -- and (b) don't fall inside ANY
+    anomaly" work is already done for us, and (b) don't fall inside ANY
     known anomaly window including botanical_actuator (see
     all_anomaly_windows). Chops each contiguous stretch into non-overlapping
     window_steps chunks, keeping a final remainder if it still clears
@@ -188,10 +189,10 @@ def build_clean_windows(
 def build_window_arrays(corpus, window_ts, feature_cols, location_to_idx, raw_cond, qc_valid):
     """
     (T, num_nodes, num_features) raw array for one clean window, straight off
-    the corpus -- no imputation, these windows were chosen specifically
+    the corpus. No imputation, these windows were chosen specifically
     because the underlying rows are real. node_mask combines "conductivity is
     actually present" with "{site}_valid": a node is only trusted if BOTH
-    hold. QC-valid alone isn't enough -- a node can be un-flagged by QC and
+    hold. QC-valid alone isn't enough. A node can be un-flagged by QC and
     still have a plain data gap, and if node_mask said "trust this" for a gap,
     feature propagation would never kick in to fix it, and the model would
     see a fabricated raw zero as if it were a real reading.
@@ -250,14 +251,15 @@ def run_window_model(model, edge_index, normalized, node_mask, num_nodes, batch_
     masks = np.stack([node_mask[i : i + seq_len] for i in range(n_positions)])
     targets = np.stack([normalized[i + seq_len] for i in range(n_positions)])
 
+    assert seqs.shape[2] == num_nodes, (
+        f"caller says {num_nodes} nodes, sequences carry {seqs.shape[2]}"
+    )
     preds = []
     with torch.no_grad():
         for i in range(0, n_positions, batch_size):
             seq_t = torch.FloatTensor(seqs[i : i + batch_size]).to(Config.DEVICE)
             mask_t = torch.BoolTensor(masks[i : i + batch_size]).to(Config.DEVICE)
-            pred = model(
-                seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t
-            )
+            pred = model_calls.run_sequence_model(model, seq_t, edge_index, mask_t)
             preds.append(pred.cpu().numpy())
     predictions = np.concatenate(preds, axis=0)
     return predictions, targets
@@ -304,14 +306,14 @@ def node_fully_real(target_ts, site, raw_cond, qc_valid):
 
 def apply_injection(data_3d, node_idx, cond_idx, start_pos, shape, magnitude):
     """
-    Adds a synthetic perturbation to data_3d[:, node_idx, cond_idx] in RAW
-    conductivity units, from start_pos through the end of the window. Doesn't
-    mutate the input. Injected into the same array used to build both the
-    model's input sequences and its targets, so the target the model gets
-    scored against is the perturbed (i.e. "actual sensor reading now") value
-    -- exactly what a real spill would look like: clean history in, anomalous
-    reading out, error is the gap between what the model expected and what's
-    actually there.
+     Adds a synthetic perturbation to data_3d[:, node_idx, cond_idx] in RAW
+     conductivity units, from start_pos through the end of the window. Doesn't
+     mutate the input. Injected into the same array used to build both the
+     model's input sequences and its targets, so the target the model gets
+     scored against is the perturbed (i.e. "actual sensor reading now") value
+    , exactly what a real spill would look like: clean history in, anomalous
+     reading out, error is the gap between what the model expected and what's
+     actually there.
     """
     out = data_3d.copy()
     T = out.shape[0]
@@ -335,11 +337,20 @@ def apply_injection(data_3d, node_idx, cond_idx, start_pos, shape, magnitude):
     return out
 
 
-def load_full_split():
+def load_full_split(metadata):
     """
     Same corpus load + sequence build as forecast_skill_baseline.py, but keeps
-    both the train and held-out portions instead of just held-out -- Section 1
+    both the train and held-out portions instead of just held-out. Section 1
     needs both to compare.
+
+    The trained scaler is passed in rather than refitted. This used to refit,
+    which put the sequences in one normalised space while every threshold,
+    median and IQR read out of metadata stayed in the space the model was
+    trained in. Section1 then de-normalised conductivity with
+    metadata["scaler"] against sequences built from a different one. Readiness
+    numbers measured across that mismatch are not measuring the deployed model.
+    Production does it this way too, see main.py's prepare_sequences_normalized
+    call, which passes saved_metadata["scaler"] whenever it is not training.
     """
     edge_index, _, location_to_idx = create_graph_topology()
     df_featured, _, _ = load_and_preprocess_data(
@@ -347,7 +358,12 @@ def load_full_split():
     )
     sequences, targets, timestamps, scaler, feature_cols, node_mask_seq, target_mask = (
         prepare_sequences_normalized(
-            df_featured, location_to_idx, Config.SEQUENCE_LENGTH, return_node_mask=True
+            df_featured,
+            location_to_idx,
+            Config.SEQUENCE_LENGTH,
+            return_node_mask=True,
+            scaler=metadata["scaler"],
+            scaler_feature_cols=metadata["feature_cols"],
         )
     )
     split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
@@ -416,7 +432,7 @@ def section1(model, metadata):
     print("SECTION 1: overfitting vs generalization")
     print("=" * 70)
 
-    ctx = load_full_split()
+    ctx = load_full_split(metadata)
     location_to_idx = ctx["location_to_idx"]
     feature_cols = ctx["feature_cols"]
     node_names = list(location_to_idx.keys())
@@ -523,12 +539,12 @@ def section1(model, metadata):
 
     print()
     print("Held-out covers a season (spring, post-wet-season drawdown) that literally does not")
-    print("exist anywhere in the training portion, because the corpus itself starts June 2025 --")
-    print("there's no prior spring to have included. That's a structural argument for distribution")
+    print("exist anywhere in the training portion, because the corpus itself starts June 2025.")
+    print("There's no prior spring to have included. That's a structural argument for distribution")
     print("shift being at least a real contributor to any gap above, for every node, before even")
     print("looking at the per-node numbers. Whether it's ALSO overfitting can't be fully separated")
-    print("from that with a single chronological split and no independent same-season holdout --")
-    print("said plainly: this data cannot distinguish 'overfit' from 'never seen this season' on")
+    print("from that with a single chronological split and no independent same-season holdout.")
+    print("Said plainly, this data cannot distinguish 'overfit' from 'never seen this season' on")
     print("its own. A same-season holdout (e.g. holding out last spring instead of last calendar")
     print("chunk) would be needed to separate them cleanly.")
 
@@ -804,7 +820,7 @@ def section4(
     Step injection only, one node at a time, sweeping magnitude instead of
     shape. Same clean windows as Section 3 for consistency. Restricted to
     north_fork_0 and south_fork_2 because those are the only two nodes with
-    enough fully-real windows for a sweep to mean anything -- oxford's
+    enough fully-real windows for a sweep to mean anything. Oxford's
     duplication gaps and footbridge's sparse cadence make node_fully_real
     rare enough that a 6-point sweep would mostly be "no data".
     """
@@ -900,7 +916,7 @@ def section4(
     for site in nodes:
         if site in min_reliable:
             print(
-                f"  {site}: {min_reliable[site]:.0f} uS/cm -- the honest deployment claim for this node"
+                f"  {site}: {min_reliable[site]:.0f} uS/cm. The honest deployment claim for this node"
             )
         else:
             avg_over_top = results[site].get(magnitudes[-1], {}).get("n_over_sum", 0) / max(
@@ -915,13 +931,13 @@ def section4(
         "\n4c. why this caps out instead of climbing with magnitude: a step injection is a single\n"
         "level shift. The model predicts one step ahead, so as soon as the elevated reading enters\n"
         "its own input history (the very next timestep), it starts predicting the NEW value as\n"
-        "normal -- the residual collapses back down immediately. That caps a step at roughly 1\n"
+        "normal. The residual collapses back down immediately. That caps a step at roughly 1\n"
         "elevated timestep and a spike (up then back down) at roughly 2, no matter how large the\n"
-        "jump is -- confirmed above up to 2000 uS/cm, 4x the entire conductivity scale. Since\n"
+        "jump is. Confirmed above up to 2000 uS/cm, 4x the entire conductivity scale. Since\n"
         f"_is_flagged needs >= {tad.MIN_TIMESTEPS_OVER_THRESHOLD} elevated timesteps, a clean step/spike on an\n"
         "otherwise-quiet window structurally can't cross that bar at these nodes, regardless of X.\n"
         "Ramp shapes don't have this problem, because each of the RAMP_STEPS climbing steps is its\n"
-        "own fresh surprise -- Section 3's ramp numbers (which use total magnitude, not per-step\n"
+        "own fresh surprise. Section 3's ramp numbers (which use total magnitude, not per-step\n"
         "rate) are the more honest read on real detectability here, not this sweep."
     )
 
@@ -940,7 +956,7 @@ def final_verdict(
     Pulls the four sections into one scoped call per node instead of a single
     yes/no. Thresholds below (FP_RATE_CAVEAT, DETECT_RATE_CAVEAT,
     LOCALIZE_RATE_CAVEAT) are judgment calls, not something the model or data
-    dictate -- printed alongside the table so the reasoning is checkable, not
+    dictate. Printed alongside the table so the reasoning is checkable, not
     just the label.
     """
     print("=" * 70)
@@ -1004,7 +1020,7 @@ def final_verdict(
         elif detect_avg is None:
             verdict = "not deployable"
             caveats.append(
-                "no fully-real injection windows -- can't confirm detection works on this node"
+                "no fully-real injection windows. Can't confirm detection works on this node"
             )
         else:
             verdict = "deployable"
@@ -1021,7 +1037,7 @@ def final_verdict(
                 ):
                     caveats.append(
                         f"sustained-change (ramp) events are caught ({ramp_rate:.0%}), but a clean "
-                        f"instantaneous jump (step/spike, {step_spike_avg:.0%}) mostly isn't -- see Section 4c, "
+                        f"instantaneous jump (step/spike, {step_spike_avg:.0%}) mostly isn't. See Section 4c, "
                         "this is a rule limitation (needs 3+ elevated timesteps), not a per-node calibration gap"
                     )
                 else:

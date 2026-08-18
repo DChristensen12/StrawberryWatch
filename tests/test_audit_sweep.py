@@ -277,8 +277,8 @@ def test_calibration_is_loaded_not_fitted():
     """
     import inspect
 
-    from strawberrywatch.anomalies import riffle_calibration
+    from strawberrywatch.anomalies import cobble_calibration
 
-    src = inspect.getsource(riffle_calibration)
-    assert ".fit(" not in src, "riffle_calibration started fitting something"
+    src = inspect.getsource(cobble_calibration)
+    assert ".fit(" not in src, "cobble_calibration started fitting something"
     assert "json.loads" in src, "calibration is no longer read from the artifact"

@@ -10,7 +10,7 @@ load_dotenv()
 
 
 def send_spill_alert(spill_count, locations_affected):
-    """Sends a system-level summary email when spills are detected."""
+    """Send a system-level summary email when spills are detected."""
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
     receiver = os.getenv("ALERT_EMAIL_RECEIVER")
@@ -47,9 +47,10 @@ def send_spill_alert(spill_count, locations_affected):
 
 def _diagnosis_line(classification):
     """
-    Turns a metrics.classify_event result into one plain-English sentence for
-    the alert email. Handles all three verdicts (diagnosed, possible_new_type,
-    undetermined) and falls back gracefully if classification is None.
+    Turn one Trial Bed account into a plain-English sentence for the email.
+
+    Handles every verdict support_modules.trial_bed.classify can return, and
+    falls back to saying so when nothing classified the event at all.
     """
     if classification is None:
         return "Spill type was not classified for this anomaly."
@@ -57,7 +58,7 @@ def _diagnosis_line(classification):
     verdict = classification.get("verdict")
 
     if verdict == "diagnosed":
-        named = classification.get("named_type", "unknown")
+        named = classification.get("cause", "unknown")
         top = classification["ranked"][0]
         return (
             f"Likely type: {named}. This matched {top['agreements']} of "
@@ -72,7 +73,7 @@ def _diagnosis_line(classification):
             "This may be a new or unclassified event and is worth a closer look."
         )
 
-    # undetermined, or any unexpected verdict
+    # cannot_evaluate, nothing_to_explain, or any unexpected verdict
     candidates = classification.get("top_candidates") or []
     hint = ""
     if candidates:
@@ -86,10 +87,10 @@ def _diagnosis_line(classification):
 
 def send_anomaly_alert(location, score, threshold, event_time, classification=None):
     """
-    Sends one alert email for a single detected anomaly event.
+    Send one alert email for a single detected anomaly event.
 
-    classification is the metrics.classify_event dict for this event, or None
-    if it wasn't classified. Credential handling mirrors send_spill_alert.
+    classification is the support_modules.trial_bed account for this event, or
+    None if nothing classified it. Credential handling mirrors send_spill_alert.
     """
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
@@ -139,10 +140,10 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
 
 def fire_anomaly_alerts(events):
     """
-    Sends one detailed email per event and one system summary for the full batch.
+    Send one detailed email per event and one system summary for the full batch.
 
     Each event dict needs: location, score, threshold, event_time, and
-    optionally classification (from metrics.classify_event, or None).
+    optionally classification (one support_modules.trial_bed account, or None).
     """
     if not events:
         print("No anomaly events to alert on.")

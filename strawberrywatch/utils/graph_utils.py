@@ -4,7 +4,7 @@ from strawberrywatch.config import Config
 
 
 def _create_edge_index(edges, location_to_idx):
-    """Converts an edge list to PyTorch Geometric format (shape [2, num_edges])."""
+    """Convert an edge list to PyTorch Geometric format (shape [2, num_edges])."""
     edge_list = [[location_to_idx[src], location_to_idx[dst]] for src, dst in edges]
     # .t() transposes to [2, num_edges] format required by PyTorch Geometric
     edge_index = torch.tensor(edge_list, dtype=torch.long).t().contiguous()
@@ -13,7 +13,7 @@ def _create_edge_index(edges, location_to_idx):
 
 def create_graph_topology():
     """
-    Builds the creek flow graph from the hardcoded edge list and returns the edge index.
+    Build the creek flow graph from the hardcoded edge list.
     Matches the Colab topology.
     """
     locations = Config.LOCATIONS

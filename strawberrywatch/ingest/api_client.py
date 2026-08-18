@@ -31,7 +31,7 @@ def _fetch_single_var(
     headers: dict,
 ) -> pd.DataFrame:
     """
-    Pulls one (site, sensor) pair from the API. Returns a DataFrame with
+    Pull one (site, sensor) pair from the API. Returns a DataFrame with
     'timestamp' and one sensor column, or empty on any failure.
 
     One request per sensor because the API only honors the last 'vars' param
@@ -82,7 +82,7 @@ def fetch_creek_data(
     variables: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Queries the Strawberry Creek API for one site over [start_time, end_time].
+    Query the Strawberry Creek API for one site over [start_time, end_time].
 
     Makes one HTTP request per sensor column and merges them on timestamp.
     Returns a DataFrame with 'timestamp', 'station_id', and one column per
@@ -128,7 +128,7 @@ def fetch_creek_data(
 
 def fetch_network_snapshot(start_time, end_time) -> pd.DataFrame:
     """
-    Pulls data for every site in Config.LOCATIONS and concatenates them.
+    Pull data for every site in Config.LOCATIONS and concatenate them.
     Same shape as sql_client.fetch_network_snapshot_sql.
     """
     frames = []

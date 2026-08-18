@@ -5,7 +5,7 @@ not a re-derivation of them and not the test-path _is_flagged this repo's other
 battery (deployment_readiness.py) normally borrows.
 
 Reuses deployment_readiness.py's window building, clean-window extraction, and
-injection machinery completely unchanged -- only the scoring/flagging step is
+injection machinery completely unchanged, only the scoring/flagging step is
 swapped from tad._is_flagged to the actual ad._rule1_forecast_residual /
 ad._rule2_level_shift a live run would call. tad._normalize is still used, that's
 just scaler.transform per node, not a detection decision, same thing
@@ -290,9 +290,7 @@ def section3_livepath(
                         if nb_flagged:
                             loc["rule2_neighbor_false_flags"] += 1
 
-    print(
-        "3c. DETECTION: combined (Rule1 OR Rule2), per node per shape -- rule breakdown in parens"
-    )
+    print("3c. DETECTION: combined (Rule1 OR Rule2), per node per shape, rule breakdown in parens")
     print("-" * 80)
     print(f"{'node':15s} {'step':>22s} {'ramp':>22s} {'spike':>22s}")
     for site in node_names:

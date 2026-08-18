@@ -3,7 +3,7 @@ import torch
 from torch.amp import GradScaler, autocast
 
 from strawberrywatch.config import Config
-from strawberrywatch.models import contracts
+from strawberrywatch.models import model_calls
 
 
 def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):
@@ -51,7 +51,7 @@ def train_temporal_gnn(
     device=Config.DEVICE,
 ):
     """
-    Trains a temporal GNN via MSE reconstruction and returns losses plus a threshold.
+    Train a temporal GNN via MSE reconstruction. Returns losses plus a threshold.
 
     Mixed-precision on CUDA, plain fp32 on CPU (autocast on CPU breaks oneDNN's
     LSTM kernel and gives no speedup since CPUs lack tensor cores).
@@ -93,7 +93,7 @@ def train_temporal_gnn(
 
     # Not every model takes node_mask, and a model that does not is a
     # TypeError rather than a no-op if you pass it anyway. Ask once.
-    supports_node_mask = contracts.accepts_node_mask(model)
+    supports_node_mask = model_calls.accepts_node_mask(model)
     if (train_node_mask is not None or val_node_mask is not None) and not supports_node_mask:
         print(
             f"node_mask data was provided but {type(model).__name__}.forward() doesn't "
@@ -102,7 +102,7 @@ def train_temporal_gnn(
         )
 
     def _run_model(seq_tensor, mask_tensor):
-        return contracts.run_sequence_model(
+        return model_calls.run_sequence_model(
             model, seq_tensor, edge_index, mask_tensor if supports_node_mask else None
         )
 
@@ -230,7 +230,7 @@ def train_temporal_gnn(
         print(f"restored best weights (val loss {best_val_loss:.6f})")
 
     # Conductivity-only threshold. Other channels add noise; spills show as
-    # conductivity deviations. See "Model All, Alert One" in the SCMG paper.
+    # conductivity deviations, so the model scores three and alerts on one.
     threshold = None
     node_error_stats = None
     if val_sequences is not None:
@@ -289,16 +289,13 @@ def train_temporal_gnn(
                 usable_scores = system_scores
             threshold = float(np.percentile(usable_scores, Config.THRESHOLD_PERCENTILE))
 
-            # median/IQR per node so a site that just runs hotter than the rest
-            # (south_fork_2, say) doesn't sit permanently above one shared
-            # global threshold. Each node gets judged against its own spread.
+            # median/IQR per node, so a site that just runs hotter
+            # (south_fork_2) is judged against its own spread.
             #
-            # QC-invalid targets get excluded here too, same rule HadISD uses:
-            # flagged data doesn't get a vote in threshold derivation. A node
-            # scored partly against known-bad targets (e.g. oxford during the
-            # university_house duplication) would have its "normal" error
-            # spread pulled toward however wrong those targets happen to be,
-            # silently miscalibrating the threshold for every future reading.
+            # QC-invalid targets are excluded too, the rule HadISD uses. A node
+            # scored against known-bad targets (oxford during the
+            # university_house duplication) gets its "normal" spread pulled
+            # toward however wrong those targets are.
             num_nodes = per_node_scores.shape[1]
             node_error_stats = {}
             for node_idx in range(num_nodes):

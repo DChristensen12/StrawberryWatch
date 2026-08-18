@@ -1,7 +1,7 @@
 """
 The design document against the code.
 
-documents/Math_and_Design_of_DuskCrayfish.tex states the deployed
+documents/Dusk-Crayfish/Math_and_Design_of_DuskCrayfish.tex states the deployed
 configuration, the graph, the score and the thresholds as facts. They drifted
 apart once already: the document described a pure step rain rule, a five node
 graph and one shared prediction for every node, none of which had been true for
@@ -22,7 +22,12 @@ from strawberrywatch.anomalies import anomaly_detector as ad
 from strawberrywatch.config import Config
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
-DOC = Path(__file__).resolve().parents[1] / "documents" / "Math_and_Design_of_DuskCrayfish.tex"
+DOC = (
+    Path(__file__).resolve().parents[1]
+    / "documents"
+    / "Dusk-Crayfish"
+    / "Math_and_Design_of_DuskCrayfish.tex"
+)
 CHECKPOINTS = Path(__file__).resolve().parents[1] / "checkpoints"
 
 
@@ -211,7 +216,7 @@ def test_node_prediction_spread_is_not_zero(flat):
     """
     import pickle
 
-    from strawberrywatch.models import contracts
+    from strawberrywatch.models import model_calls
     from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 
     weights = CHECKPOINTS / "dusk_crayfish_weights.pt"
@@ -221,7 +226,7 @@ def test_node_prediction_spread_is_not_zero(flat):
     with open(meta_path, "rb") as fh:
         meta = pickle.load(fh)
 
-    model = contracts.build_from_metadata(DuskCrayfish, meta)
+    model = model_calls.build_from_metadata(DuskCrayfish, meta)
     model.load_state_dict(torch.load(weights, map_location="cpu", weights_only=True))
     model.eval()
     edge_index, locations, _ = create_graph_topology()
@@ -229,7 +234,7 @@ def test_node_prediction_spread_is_not_zero(flat):
     torch.manual_seed(0)
     x = torch.randn(4, Config.SEQUENCE_LENGTH, len(locations), len(meta["feature_cols"]))
     with torch.no_grad():
-        pred = contracts.run_sequence_model(model, x, edge_index)
+        pred = model_calls.run_sequence_model(model, x, edge_index)
 
     spread = float((pred.max(dim=1).values - pred.min(dim=1).values).max())
     assert spread > 0.0, "every node received the same prediction, node identity is gone"

@@ -20,10 +20,11 @@ import torch
 
 ROOT = Path(__file__).parent.parent
 
+from main import _MODEL_REGISTRY as MODEL_REGISTRY
 from strawberrywatch import paths
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
-from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
+from strawberrywatch.models import model_calls
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
@@ -41,9 +42,9 @@ def load_model_and_metadata():
     with open(meta_path, "rb") as f:
         metadata = pickle.load(f)
 
-    num_features = len(metadata["feature_cols"])
-    num_nodes = len(metadata["location_to_idx"])
-    model = DuskCrayfish(num_node_features=num_features, num_nodes=num_nodes).to(Config.DEVICE)
+    model = model_calls.build_from_metadata(
+        MODEL_REGISTRY[MODEL_NAME], metadata, device=Config.DEVICE
+    )
     model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE, weights_only=True))
     model.eval()
     return model, metadata
@@ -60,7 +61,7 @@ def step1_split_and_correspondence(metadata):
     print()
     print("sequences come from a chronological sliding window over sorted timestamps")
     print("(data_processor.py::prepare_sequences_normalized), and split_idx slices that")
-    print("array positionally. No shuffling anywhere in the pipeline -- this IS a")
+    print("array positionally. No shuffling anywhere in the pipeline, this IS a")
     print("chronological split, not random. Held-out is strictly the most recent slice.")
     print()
 
@@ -78,7 +79,7 @@ def step1_split_and_correspondence(metadata):
     scale_match = np.allclose(scaler.scale_, metadata["scaler"].scale_)
     print(f"checking whether models/{MODEL_NAME}_weights.pt corresponds to this exact split:")
     print(
-        f"  recomputed scaler vs saved metadata scaler -- mean match: {mean_match}, scale match: {scale_match}"
+        f"  recomputed scaler vs saved metadata scaler, mean match: {mean_match}, scale match: {scale_match}"
     )
     if mean_match and scale_match:
         print(f"  MATCH. This checkpoint was fit on {CORPUS_PATH} as it exists right now,")
@@ -86,7 +87,7 @@ def step1_split_and_correspondence(metadata):
     else:
         print(f"  MISMATCH. models/{MODEL_NAME}_weights.pt does NOT correspond to the current")
         print("  corpus/pipeline. Everything below is being computed on a split that does not")
-        print("  match what this checkpoint actually held out during its own training -- retrain")
+        print("  match what this checkpoint actually held out during its own training, retrain")
         print("  first (see command at the end) before trusting these numbers.")
     print()
 
@@ -114,15 +115,15 @@ def step1_split_and_correspondence(metadata):
 
 def build_real_observation_lookups(node_names):
     """
-    Per site: a Series of RAW (un-imputed) conductivity indexed by datetime,
-    read straight off training_corpus.csv, plus the {site}_valid QC column.
+     Per site: a Series of RAW (un-imputed) conductivity indexed by datetime,
+     read straight off training_corpus.csv, plus the {site}_valid QC column.
 
-    NaN in the raw column means that grid step had no underlying raw sensor
-    reading. Checked this is bit-identical to freshly resampling
-    data/raw_data/ onto the same grid (build_training_corpus.py never imputes
-    -- only prepare_sequences_normalized does, and only in memory at train
-    time), so reading the corpus directly IS the reconstruction the task
-    asked for, not a shortcut around it.
+     NaN in the raw column means that grid step had no underlying raw sensor
+     reading. Checked this is bit-identical to freshly resampling
+     data/raw_data/ onto the same grid (build_training_corpus.py never imputes
+    . Only prepare_sequences_normalized does, and only in memory at train
+     time), so reading the corpus directly IS the reconstruction the task
+     asked for, not a shortcut around it.
     """
     corpus = pd.read_csv(CORPUS_PATH)
     corpus["datetime"] = pd.to_datetime(corpus["datetime"], utc=True)
@@ -141,22 +142,22 @@ def run_model_over_held_out(model, edge_index, held_seq, held_node_mask, num_nod
     uses (node_mask passed when USE_MASK, model.eval() + no_grad already set),
     just batched instead of one sequence at a time. Verified first that this
     model has no batch-dependent layers (no batchnorm, dropout is off in
-    eval()) -- batched output matched single-sequence output to float32
+    eval()), batched output matched single-sequence output to float32
     precision (max abs diff ~6e-8) on a synthetic check, so this is a speed
     fix, not a change to what's being measured. 5,820 sequences one at a time
     didn't finish in 10 minutes; this does.
     """
+    assert held_seq.shape[2] == num_nodes, (
+        f"caller says {num_nodes} nodes, sequences carry {held_seq.shape[2]}"
+    )
     preds = []
     with torch.no_grad():
         for i in range(0, len(held_seq), batch_size):
             seq_t = torch.FloatTensor(held_seq[i : i + batch_size]).to(Config.DEVICE)
+            mask_t = None
             if USE_MASK:
                 mask_t = torch.BoolTensor(held_node_mask[i : i + batch_size]).to(Config.DEVICE)
-                pred = model(
-                    seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes, node_mask=mask_t
-                )
-            else:
-                pred = model(seq_t, edge_index, batch_size=len(seq_t), num_nodes=num_nodes)
+            pred = model_calls.run_sequence_model(model, seq_t, edge_index, mask_t)
             preds.append(pred.cpu().numpy())
     return np.concatenate(preds, axis=0)  # (n_held, num_nodes, num_features)
 
@@ -186,7 +187,7 @@ def main():
     print("STEP 2: filtering to real observations")
     print("=" * 70)
     print("method: raw corpus NaN pattern for {site}_conductivity (verified equivalent")
-    print("to re-resampling data/raw_data/ onto the grid -- build_training_corpus.py")
+    print("to re-resampling data/raw_data/ onto the grid, build_training_corpus.py")
     print("applies no imputation, so the corpus's own NaN IS that reconstruction).")
     print()
 
@@ -319,7 +320,7 @@ def main():
     print("=" * 70)
     print("computed on the same final-filtered, chronologically-ordered residual series")
     print("as the table above. Gaps from filtering mean 'lag-1' is 'previous surviving")
-    print("point', not always exactly 15 minutes back -- caveat, not a rewrite of the metric.")
+    print("point', not always exactly 15 minutes back, caveat, not a rewrite of the metric.")
     for _, row in df.iterrows():
         if "resid_autocorr_lag1" in row and pd.notna(row.get("resid_autocorr_lag1")):
             print(f"  {row.name:15s} autocorr(resid, lag=1) = {row['resid_autocorr_lag1']:.4f}")
@@ -346,7 +347,7 @@ def main():
             print(f"  - {name}: {v}")
         print()
         print("Any node listed above means its anomaly-detection results are not currently")
-        print("interpretable -- the reconstruction error there could just be persistence error")
+        print("interpretable, the reconstruction error there could just be persistence error")
         print("in disguise (or, for insufficient nodes, there isn't enough real data this")
         print("window to know either way).")
 

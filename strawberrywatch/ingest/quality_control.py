@@ -23,7 +23,7 @@ def _sensor_cols_present(df, sensor_cols):
 
 def _group_contiguous_ranges(times, gap_multiplier=3):
     """
-    Groups a sorted DatetimeIndex into (start, end) ranges, tolerating small
+    Group a sorted DatetimeIndex into (start, end) ranges, tolerating small
     gaps so one missing coincident timestamp doesn't split a run in two.
     Gap tolerance scales off the run's own median spacing since coincident
     timestamps between two sites can be irregular (footbridge in particular).
@@ -64,7 +64,7 @@ def inter_site_duplicate_check(
     fall under match_frac once diluted against a much longer non-duplicated
     history, so pass return_all=True to get every pair with more than
     min_points coincident readings regardless of match_frac, each tagged with
-    a "flagged" bool. Useful for a QC report that wants to show near-misses,
+    a "flagged" bool. Useful for a QC report that shows near-misses,
     not just the ones that cleared the bar.
 
     Returns a list of dicts: site_a, site_b, n_coincident, n_matched,
@@ -115,7 +115,7 @@ def inter_site_duplicate_check(
 
 def sentinel_check(df, sensor_cols=None, sentinels=(-9999, -999, -99)):
     """
-    Flags rows where any sensor column equals a sentinel value, or where
+    Flag rows where any sensor column equals a sentinel value, or where
     conductivity, depth, or temperature is negative (physically impossible
     for these sensors). Returns a boolean Series aligned to df.index, frame
     untouched.
@@ -132,7 +132,7 @@ def sentinel_check(df, sensor_cols=None, sentinels=(-9999, -999, -99)):
 
 def repeated_streak_check(df, sensor_cols=None, max_streak=96):
     """
-    Flags runs where a sensor holds an identical value for more than
+    Flag runs where a sensor holds an identical value for more than
     max_streak consecutive timesteps, per (location, sensor). Stuck sensors
     read as perfectly valid data to a reconstruction model, so this needs to
     be caught explicitly. Returns a boolean Series aligned to df.index.

@@ -1,0 +1,441 @@
+\documentclass{article}
+\usepackage{arxiv}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{bm}
+\usepackage{natbib}
+\usepackage{graphicx}
+
+% The emblem lives in the repository-wide assets directory, two levels up.
+\graphicspath{{../../assets/}{../../assets/logos/}{../../assets/biota/}{../../assets/diagrams/}}
+
+\title{Support Modules and the False Alarm Budget}
+
+% arxiv.sty labels every paper "A Preprint" in the running head and under the
+% title. This is an internal technical report, not a preprint of a submission.
+\renewcommand{\headeright}{Technical Report}
+\renewcommand{\undertitle}{Technical Report}
+
+% arxiv.sty's title block sets a 24pt strut above the author names and 0.4in
+% below them, which leaves the byline stranded between "Technical Report" and
+% the date. This is the same layout with those two gaps halved. Overridden here
+% rather than edited in arxiv.sty, which is a vendored file.
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \vbox{%
+    \hsize\textwidth
+    \linewidth\hsize
+    \vskip 0.1in
+    \@toptitlebar
+    \centering
+    {\LARGE\sc \@title\par}
+    \@bottomtitlebar
+    \textsc{\undertitle}\\
+    \vskip 0.1in
+    \def\And{%
+      \end{tabular}\hfil\linebreak[0]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \def\AND{%
+      \end{tabular}\hfil\linebreak[4]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\@author\end{tabular}%
+  \vskip 0.2in \@minus 0.1in \center{\@date}   \vskip 0.2in
+  }
+}
+\makeatother
+
+\author{
+  Daniel Boupha Christensen \\
+  Environmental, Health, and Safety, University of California, Berkeley \\
+  The Green Initiative Fund \\
+}
+
+\begin{document}
+
+% Masthead. Licence at the left, group emblem at the right. This is an internal
+% report, so the block carries the licence and the project mark only, and
+% deliberately no journal, volume, page range or DOI furniture.
+\noindent
+\begin{minipage}[c]{0.74\textwidth}
+  \footnotesize
+  Copyright 2024--2026 Strawberry Creek Monitoring Group contributors.\\
+  Licensed under the Apache License, Version 2.0.\\
+  \url{https://www.apache.org/licenses/LICENSE-2.0}
+\end{minipage}%
+\hfill
+\begin{minipage}[c]{0.16\textwidth}
+  \raggedleft
+  \includegraphics[width=\linewidth]{SCMGemblem.png}
+\end{minipage}
+
+\maketitle
+
+\begin{abstract}
+Support modules are optional layers that attach to a detection run. They are
+not models, they have no weights of their own, and one module attaches to any
+model that declares the input contract it needs. The design problem they solve
+is narrower than it looks: attaching a second test to a detector calibrated at
+a false alarm rate $q$ produces a system alerting at roughly $2q$, and every
+component reports $q$ while it happens. Nothing in the arithmetic complains.
+This document sets out the taxonomy that makes the false alarm budget
+divisible, the algebra that divides it, the audit record that says which module
+caused which alert, and the mathematics of Trial Bed, the first module
+implemented. Trial Bed is an explainer: it names the pollutant a firing looks
+like by matching the direction each channel moved against a signature table,
+and it declines to answer when the channels a signature needs are not
+measured.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+A detector is calibrated once, against a fault-free distribution, at a false
+alarm rate chosen in advance. That calibration is the only thing standing
+between an operator and an alert stream nobody reads, and it is fragile in a
+specific way: it describes one test. Add a second test beside it and the
+guarantee is gone, silently, because both tests are individually correct.
+
+This is the failure the support layer is built around. If a primary detector
+fires with probability $q$ under the null and a second detector fires with
+probability $q$ under the null, the system fires with probability up to $2q$.
+Both components report $q$ when asked. No exception is raised, no number looks
+wrong, and the alarm rate has doubled.
+
+The consequence is that a false alarm budget is a quantity to be divided, never
+handed out fresh per module. Everything else in this document follows from
+taking that seriously.
+
+\section{Four Kinds}
+\label{sec:kinds}
+
+Not everything that attaches to a run costs budget, and collapsing the ones
+that do with the ones that do not is what makes the budget indivisible. The
+layer therefore has four kinds, and a module must be exactly one of them.
+Reading them in order reads the pipeline in order.
+
+\begin{table}[t]
+  \centering
+  \caption{The four kinds. Only one of them spends false alarm budget.}
+  \label{tab:kinds}
+  \begin{tabular}{lllll}
+    \toprule
+    Kind & Runs & Method & Changes & Budget \\
+    \midrule
+    screen    & before the model & \texttt{admit}       & the model's input & none \\
+    modulator & alongside        & \texttt{multipliers} & the threshold     & none \\
+    detector  & after            & \texttt{score}, \texttt{null} & the verdict & yes \\
+    explainer & after the decision & \texttt{explain}   & nothing           & none \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A \textbf{modulator} moves the alerting threshold and never touches the score.
+That direction is not a stylistic preference. The threshold was fitted against
+the fault-free distribution of the score, so a score scaled by any factor is no
+longer a draw from the distribution the fit was made on, and every probability
+under it quietly stops meaning what it says. Multiplying the threshold instead
+leaves the score, its probability and the calibration exactly where they were,
+and turns the adjustment into a stated alerting decision that can be read off
+the record.
+
+A \textbf{detector} adds a score, therefore a test, therefore a second tail to
+pay for. It is the only kind that spends budget, and separating it from the
+modulator is precisely what makes the budget divisible. One class with a flag
+would leave nothing to stop three modules running at $q$ each while the real
+rate went to $3q$.
+
+A \textbf{screen} runs before the model and decides which readings are fit to
+consume. It adds no test, so it is not a detector and takes no budget; it moves
+no threshold, so it is not a modulator. What it changes is the model's input,
+and that carries a consequence neither other kind does: the null and the
+threshold were fitted on unscreened windows, so screening moves the
+distribution the score is drawn from and the existing calibration no longer
+describes it. A screen therefore cannot be switched on without refitting the
+primary.
+
+An \textbf{explainer} runs after the decision has been made and reads it. It
+adds no test, moves no threshold, and changes nothing the decision was made
+from. It is a separate kind rather than a detector precisely because charging
+it budget would cost the primary sensitivity in exchange for a module that can
+never fire.
+
+\section{The Budget}
+\label{sec:budget}
+
+\subsection{Dividing $q$}
+
+Let $q$ be the total false alarm rate for the whole run, and let there be $n$
+attached detectors with weights $w_{1}, \dots, w_{n}$. The split is
+\begin{equation}
+  q_{\mathrm{primary}} = q \left( 1 - \sum_{i=1}^{n} w_{i} \right),
+  \qquad
+  q_{i} = q\, w_{i} .
+\end{equation}
+
+This is a union bound. The probability that at least one of the tests fires
+under the null is at most the sum of the individual rates, so allocating shares
+that sum to $q$ puts the combined rate at or below $q$ rather than on it. It is
+the same correction used whenever a family of tests has to hold a joint error
+rate~\citep{dunn1961multiple}, applied here to a family that grows whenever an
+operator adds a module on the command line.
+
+The default is an even split. With $n$ detectors there are $n+1$ shares, so
+each weight is $1/(n+1)$ and the sum is $n/(n+1)$, which is below one for every
+$n$. Even is the honest default: weighting one detector above another is a
+claim about which test is more likely to fire, and nothing has measured that.
+
+\subsection{Why the weights must sum below one}
+
+The weights are required to sum strictly below one, and both boundary cases
+raise rather than clamp. At a sum of exactly one the primary is left a budget
+of zero, which is a threshold at infinity and a primary that can never fire.
+Above one the primary's budget is negative, which is not a rate at all.
+
+Clamping either case would produce a run that looks like it worked, reports a
+plausible split, and has silently switched the primary detector off. Raising is
+the only safe behaviour, because the failure is otherwise invisible in exactly
+the way the whole layer exists to prevent.
+
+Modulators, screens and explainers are absent from this arithmetic entirely.
+They add no test, so $n$ counts detectors only, and a stack containing nothing
+but modulators leaves the primary the whole budget.
+
+\subsection{Firing on the probability, not the score}
+
+Each detector fires when its right-tail probability falls below its own share,
+$p_{i} < q_{i}$, and never on the raw score. Raw scores from different
+detectors are not comparable, which is the same reason a multi-channel detector
+converts each channel before combining. Comparing on the probability keeps the
+budget meaning the same thing for every module regardless of what units its
+score happens to be in.
+
+A detector's null is fitted at calibration time and loaded from an artifact. It
+is never fitted here. A detector that fits its null on the window it is judging
+does not have a null; it has a description of the data it just saw. Where a
+detector's null is a fitted tail, it is the same peaks-over-threshold
+construction the primary uses~\citep{siffer2017spot,pickands1975gpd}, and where
+several probabilities have to become one number it is the same combination
+rule~\citep{fisher1925methods}.
+
+\section{Composition}
+\label{sec:composition}
+
+\subsection{The stack}
+
+The modules attached to one run form a stack, built through a loader so that
+name resolution, contract validation, collision against a model's built-in
+behaviour, and the budget split all happen before anything runs. A stack that
+exists is a stack that has already been checked, and a module that cannot
+attach must not turn up halfway through a detection.
+
+Screens intersect. A reading is admitted only if every screen admits it, and an
+empty screen list admits everything, which is the identity.
+
+Modulator multipliers compose by product,
+\begin{equation}
+  M_{t,j} = \prod_{m} M^{(m)}_{t,j},
+  \qquad M^{(m)}_{t,j} \ge 1 ,
+\end{equation}
+and every multiplier is required to be at least one and finite. This layer
+raises the alerting bar and never lowers it, so a factor below one is refused
+rather than applied. A timestep with no reading behind it contributes exactly
+one, so an uninformed modulator is inert rather than suppressing.
+
+\subsection{Ordering}
+
+Modules are sorted by name before composition, so the order an operator typed
+them in cannot reach anything downstream. Sorting rather than trusting
+commutativity is deliberate. Multiplication commutes, so $ab = ba$ holds, but
+floating point association does not: $(ab)c$ and $(ac)b$ need not be
+bit-identical, and three modulators is enough to reach that. An empty stack is
+the identity with no special case, so zero modules walk the same code as three.
+
+\section{The Audit Record}
+\label{sec:record}
+
+The record answers two questions an operator actually asks: why did this fire,
+and what changes if I turn that off.
+
+\subsection{Three verdicts, not two}
+
+Every node at every timestep resolves to one of three verdicts. It fired, it
+was clear, or it was not scorable. The third exists because a score that could
+not be computed is not the same answer as a score that did not exceed, and
+collapsing them is how an unscorable node reaches an operator as a quiet
+all-clear. A non-finite score never fires, and where nothing was scorable the
+record says so.
+
+\subsection{Counterfactuals}
+
+For each attached module the record carries the verdict that would have been
+reached with that module switched off, computed without re-running anything. A
+modulator drops out by dividing its multiplier back out of the threshold; a
+detector drops out by removing its vote. An explainer's entry is written too,
+and it always equals the actual verdict, which is how the record states in its
+own contents that the explainer cost nothing.
+
+The record extends the primary's own format rather than replacing it. Every
+field the primary wrote keeps its meaning and the support fields sit alongside,
+because two formats would mean two readers, and the reader who has to act at
+two in the morning should not have to know which one they are holding.
+
+\section{Trial Bed}
+\label{sec:trialbed}
+
+Trial Bed is the first module implemented, and it is an explainer. Given a
+firing it names the pollutant the event looks like, the evidence behind that
+name, and how much confidence the reporting channels support.
+
+\subsection{Directions, not magnitudes}
+
+For each parameter the module compares the readings at the timesteps that fired
+against the readings at the timesteps that did not, and reduces the comparison
+to a direction. Writing $\bar{b}$ and $s_{b}$ for the baseline mean and
+standard deviation and $\bar{e}$ for the event mean,
+\begin{equation}
+  \text{direction} =
+  \begin{cases}
+    \textsc{up}   & (\bar{e} - \bar{b}) / s_{b} \ge \kappa, \\
+    \textsc{down} & (\bar{e} - \bar{b}) / s_{b} \le -\kappa, \\
+    \textsc{flat} & \text{otherwise},
+  \end{cases}
+  \qquad \kappa = 1 .
+\end{equation}
+
+Using the baseline's own spread as the yardstick is what lets one rule serve
+parameters on wildly different scales. A one degree move in temperature and a
+one degree move in conductivity are not comparable in absolute units; both are
+comparable in units of how much that parameter normally varies at that node.
+Where the baseline has no spread at all the comparison falls back to a relative
+change with a five percent band, and where there is too little data the
+direction is undefined rather than guessed.
+
+\subsection{The signature table}
+
+Table~\ref{tab:signatures} is the deployed table. Each cell is the direction a
+pollutant is expected to push a parameter, and \textsc{indet} marks a parameter
+that does not discriminate for that pollutant and is therefore skipped without
+reward or penalty.
+
+\begin{table}[t]
+  \centering
+  \caption{The pollutant signature table as deployed. \textsc{indet} means the
+    parameter does not discriminate for that pollutant. Entries marked $\ast$
+    are expected to move strongly; the current matcher does not yet weight
+    them differently.}
+  \label{tab:signatures}
+  \begin{tabular}{llllll}
+    \toprule
+    & temperature & dissolved oxygen & pH & conductivity & floating cond. \\
+    \midrule
+    rain       & \textsc{indet} & up   & down & down & down \\
+    tapwater   & down           & down & up   & down & down \\
+    oil        & up             & down$^{\ast}$ & down & down & down$^{\ast}$ \\
+    sewage     & up             & down$^{\ast}$ & \textsc{indet} & up & up \\
+    fertilizer & flat           & down & \textsc{indet} & up & up \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+A row is scored by the fraction of its non-\textsc{indet} parameters whose
+observed direction agrees,
+\begin{equation}
+  \mathrm{score}(P) = \frac{|\{v \in R(P) : d_{v} = \sigma_{P,v}\}|}{|R(P)|},
+\end{equation}
+where $R(P)$ is the set of parameters row $P$ asserts a direction for. A row
+scoring below one half is a poor fit and is reported as a possible new type
+rather than as a name, as is a tie at the top: if the reporting channels did
+not separate two candidates, naming one of them would be inventing the
+separation.
+
+\subsection{Declining to answer}
+
+The property that matters most is what happens when the channels a row needs
+are not measured. A row is evaluated only if every parameter it asserts a
+direction for has an observed direction behind it. Otherwise it is reported as
+unevaluable, naming the parameters that were absent.
+
+The alternative, scoring a row on whichever of its parameters happen to be
+present, produces a number that looks exactly like a full match and is not one.
+A partial signature scored as if it were whole is how a guess reaches an
+operator wearing the clothes of a diagnosis.
+
+This is not a hypothetical concern for this network. The deployed sites measure
+conductivity, depth and temperature. Depth is not in the table at all, and
+every row in Table~\ref{tab:signatures} requires both dissolved oxygen and
+floating conductivity, with four of the five also requiring pH. On the deployed
+channels, therefore, \emph{no} row is evaluable, and Trial Bed's honest output
+at every node is that it cannot evaluate, together with the list of channels
+that would let it.
+
+\subsection{The output}
+
+An account names the likely cause, the evidence and the confidence, in a form
+an operator can act on rather than a label. Where a diagnosis is possible it
+reads, for example, \emph{consistent with sewage: temperature up, dissolved
+oxygen down, pH not measured, conductivity up, floating conductivity up}.
+Where it is not, the same sentence structure carries the refusal and the
+missing channels. Confidence is reported from how many of the discriminating
+channels were populated, not from the score, because a perfect match on two
+channels is not strong evidence.
+
+\section{The Modules Not Yet Built}
+\label{sec:pending}
+
+Two further modules are specified and registered but not implemented, and both
+raise from their required method rather than returning a default. Reaching the
+raise proves the call arrived.
+
+\textbf{Newtwork Run} is a detector. It will score whether a flagged event
+travelled the way water does: a real spill appears downstream after the travel
+lag and a failing sensor does not, so agreement along the flow edges separates
+the two. Being a detector, it will spend its share of the budget.
+
+\textbf{Settling Pool} is a screen. It will withhold readings a sensor produced
+while it was settling, purging, or otherwise not measuring the creek, so the
+model is never asked to explain a reading that was never a measurement. It
+takes no budget, but as a screen it moves the distribution the primary was
+calibrated against, so switching it on means recalibrating the primary on
+screened windows.
+
+\section{Limitations and Future Work}
+\label{sec:limitations}
+
+The budget split is a union bound, which is conservative. The real combined
+rate lands below $q$ rather than on it, and how far below depends on how
+correlated the tests are. Nothing has measured that correlation for this
+system, so the amount of sensitivity given away is currently unknown.
+
+The even default split is an admission of ignorance rather than a finding. It
+is the right default only until something measures which test is more likely to
+fire.
+
+Within Table~\ref{tab:signatures}, floating conductivity carries the same
+direction as conductivity in all five rows. It is nonetheless counted as a
+discriminating channel, and one discriminating channel is currently enough to
+unlock a named diagnosis. It also means conductivity's evidence is counted
+twice in every row's score. Whether that is intended is a question about the
+table, and the table belongs to the Water Quality team.
+
+No cell in the table carries its own source. The table is attributed as a whole
+and two cells assert measurable quantities, the local tap water temperature and
+its pH, with nothing recorded behind them. Depth is measured at every deployed
+site and appears nowhere in the table, which is part of why no row is currently
+evaluable.
+
+Finally, Trial Bed reduces a window to one direction per parameter, which
+discards magnitude and timing entirely. A signature table that distinguished a
+large move from a small one, or an abrupt one from a gradual one, would need
+both a richer table and a matcher that reads it, and neither exists yet.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

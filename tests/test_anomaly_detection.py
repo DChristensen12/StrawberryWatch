@@ -8,7 +8,7 @@ import torch
 from strawberrywatch.anomalies import anomaly_detector as _ad
 from strawberrywatch.anomalies.anomaly_detector import _rain_multipliers
 from strawberrywatch.config import Config
-from strawberrywatch.models import contracts
+from strawberrywatch.models import model_calls
 
 ROOT = Path(__file__).parent.parent
 ANOMALY_DIR = ROOT / "data" / "anomalies"
@@ -355,7 +355,7 @@ def _reconstruction_errors(
             if use_mask:
                 mask_seq = node_mask[i : i + seq_len]  # (seq_len, nodes)
                 mask_t = torch.BoolTensor(mask_seq).unsqueeze(0).to(Config.DEVICE)
-            pred = contracts.run_sequence_model(model, seq_t, edge_index, mask_t)
+            pred = model_calls.run_sequence_model(model, seq_t, edge_index, mask_t)
 
             err = torch.abs(
                 pred[0, node_idx] - torch.FloatTensor(target[node_idx]).to(Config.DEVICE)

@@ -1,5 +1,5 @@
 """
-Rain gating for the Riffle Darner alerting path.
+Rain gating for the Cobble Shoal alerting path.
 
 The model has no weather input and gains none here. This raises the alerting
 bar during and after rain, because runoff genuinely moves conductivity and an
@@ -13,6 +13,70 @@ asserts the scores are bit-identical across modes.
 
 Rain comes from the caller as a plain array of per-timestep amounts. This
 module never fetches weather.
+
+The measured cost, and why it is written down here
+
+These tables were measured in August 2026 against the comparison harness
+corpus, which has since been deleted. THEY CANNOT BE RECOMPUTED FROM THIS
+REPOSITORY. They are the evidence behind the multiplier and decay_hours
+defaults, and anyone moving those parameters needs to know what the last
+measurement said. Cobble Shoal, seed 20260806, combined Fisher at q=1e-4,
+z_q = 39.130, multiplier 2.0, decay_hours 36, lookback_hours 12, wet_mm 0.1.
+
+A synthetic hourly rain series was laid over the 275 stored fault-sweep cases
+so 30% fell in a raised-threshold window. The sweep cases have no real time
+axis, so that assignment is arbitrary by construction. These show the shape of
+the trade, not a measurement of this creek.
+
+  shape       n     % wet   off      step     decay    decay - off
+  decouple    17    0%      100.0%   100.0%   100.0%   +0.0%
+  drift       51    73%     100.0%   100.0%   100.0%   +0.0%
+  partial     119   35%     98.3%    88.2%    88.2%    -10.1%
+  slow_all    3     0%      100.0%   100.0%   100.0%   +0.0%
+  spike       51    0%      100.0%   100.0%   100.0%   +0.0%
+  stale       17    24%     100.0%   100.0%   100.0%   +0.0%
+  stuck       17    0%      100.0%   100.0%   100.0%   +0.0%
+  all         275   30%     99.3%    94.9%    94.9%    -4.4%
+
+The whole cost lands on partial, and it is 10 points of detection on the one
+fault shape whose signal is weakest. Every other shape clears 2*z_q as easily
+as it cleared z_q. A gate tuned for rain is in practice a gate that trades away
+partial faults specifically.
+
+False alarms on 3536 fault-free windows by 17 nodes:
+
+  mode    detection (all shapes)   false alarms   detections lost   alarms removed
+  off     99.3%                    2.394%         0.0%              0.000%
+  step    94.9%                    2.249%         4.4%              0.145%
+  decay   94.9%                    2.128%         4.4%              0.266%
+
+Restricted to wet windows, where the gate does anything, the alarm rate falls
+from 4.86% (off) to 2.46% (step) to 0.44% (decay).
+
+Two caveats. Those fault-free windows are the regime-swept ones, spanning noise
+and diurnal regimes the nulls were not fitted on, which is why the ungated rate
+is 2.4% and not the nominal 1e-4. Only the comparison between rows is
+meaningful. And step and decay tie on detection because of how the arbitrary
+case-to-time mapping fell, not because the rules are equivalent.
+
+The delayed first flush, which is the failure the old step design documents.
+Rain falls for six hours and a conductivity pulse arrives 21 hours after it
+stops, outside the 12 hour lookback and inside the 36 hour decay:
+
+  pulse         off     step    decay        deployed
+  1.10 * z_q    fires   fires   suppressed   suppressed
+  1.25 * z_q    fires   fires   suppressed   suppressed
+  1.50 * z_q    fires   fires   fires        suppressed
+  1.75 * z_q    fires   fires   fires        suppressed
+  1.90 * z_q    fires   fires   fires        fires
+
+At the pulse step is back at 1.00*z_q, so it flags a delayed first flush at any
+magnitude. decay holds 1.42*z_q and deployed holds 1.75*z_q. Neither is
+asserted correct and the tests do not assert one. decay_hours is the dial and
+this table is what moving it trades.
+
+No operating point is recommended. The choice belongs to whoever owns the
+alerting budget.
 """
 
 from __future__ import annotations
@@ -52,7 +116,7 @@ class RainGate:
     """
     Per-timestep alerting threshold as a function of a rain series.
 
-    Parameters, all operator-settable and all documented in RAIN_GATE.md:
+    Parameters, all operator-settable and all documented here:
 
       base_threshold  the POT threshold z_q for the combined score. The gate
                       never computes this; it is whatever calibration produced.
@@ -382,7 +446,7 @@ def fired(scores, thresholds):
 # An operator edits this block, not the code. Every value is named, and the
 # comment beside it says which direction makes alerts more sensitive.
 EXAMPLE_CONFIG_YAML = """
-# Rain gate for the Riffle Darner alerting path. Optional: mode "off" disables it.
+# Rain gate for the Cobble Shoal alerting path. Optional: mode "off" disables it.
 base_threshold: 39.13047989749433   # POT z_q at q=1e-4. Comes from calibration.
 mode: decay                         # off | step | decay | deployed
 multiplier: 2.0                     # higher = fewer alerts during rain

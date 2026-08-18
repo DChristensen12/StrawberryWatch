@@ -50,7 +50,7 @@ def _read_flexible_csv(path):
 
 def load_raw_site(path):
     """
-    Loads one raw_data CSV into a frame indexed by UTC datetime with
+    Load one raw_data CSV into a frame indexed by UTC datetime with
     conductivity/depth/temperature columns (whichever are present). Duplicate
     timestamps within the file are collapsed, keeping the first occurrence.
     """
@@ -74,7 +74,7 @@ def load_raw_site(path):
 
 
 def load_all_raw_sites(raw_dir=None):
-    """Returns {site_name: DataFrame} for every CSV in raw_dir."""
+    """Return {site_name: DataFrame} for every CSV in raw_dir."""
     raw_dir = raw_dir or paths.raw_data_dir()
     sites = {}
     for path in sorted(glob.glob(os.path.join(raw_dir, "*.csv"))):
@@ -85,7 +85,7 @@ def load_all_raw_sites(raw_dir=None):
 
 def load_raw_long(raw_dir=None):
     """
-    Returns one concatenated long-format frame: datetime index, 'location'
+    Return one concatenated long-format frame: datetime index, 'location'
     column, plus whatever sensor columns each site's file had (missing ones
     are NaN for that site).
     """

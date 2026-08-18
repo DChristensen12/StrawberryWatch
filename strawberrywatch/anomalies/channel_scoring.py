@@ -1,6 +1,6 @@
 """
 Detection channels, per-channel nulls, p-value combination and the POT
-threshold, for the Riffle Darner detector.
+threshold, for the Cobble Shoal detector.
 
 Ported from the comparison harness that selected this detection objective. The
 arithmetic is deliberately unchanged: the calibrated artifacts shipped beside
@@ -12,11 +12,6 @@ nothing here may be tuned against a fault. Every number a channel produces is
 turned into a right-tail probability against that channel's own fault-free
 distribution, and the alerting threshold comes from Extreme Value Theory at a
 false alarm rate chosen a priori.
-
-  peaks over threshold, GPD tail   Siffer et al. KDD 2017
-    https://dl.acm.org/doi/10.1145/3097983.3098144
-  forecast residual scoring        GDN, Deng and Hooi AAAI 2021
-    https://ojs.aaai.org/index.php/AAAI/article/view/16523
 """
 
 from __future__ import annotations
@@ -333,8 +328,8 @@ def combine(pvalues=None, raw=None, rule="fisher"):
     "max" is the naive path, the maximum over raw channel magnitudes with no
     null and no calibration. It is kept because a previous run measured it at
     68.6% combined where a single channel alone scored 92.2%: raw magnitudes are
-    not comparable, so the loudest channel wins whether or not it knows
-    anything. That regression has to stay visible in the results table rather
+    not comparable, so the loudest channel wins whether or not it carries any
+    information. That regression has to stay visible in the results table rather
     than be assumed away.
 
     Fisher assumes independent channels, which these are not: dispersion and
@@ -381,13 +376,13 @@ def fisher_pvalue(stat, k):
 
 def fit_pot(scores, q=1e-4, u_pct=98.0):
     """
-    Siffer et al. KDD 2017, spelled out:
+    Fit the tail of the fault-free scores and return the alerting threshold.
 
-      1. initial threshold u = 98th percentile of the fault-free scores
-      2. exceedances = scores[scores > u] - u
-      3. fit a Generalised Pareto (sigma, gamma) to the exceedances by MLE
-      4. z_q = u + (sigma/gamma) * ((q*n/N_u)**(-gamma) - 1)
-      5. gamma near zero uses the exponential limit, z_q = u - sigma*log(q*n/N_u)
+    An initial threshold u sits at the u_pct percentile of the fault-free
+    scores, and the exceedances above it are what the tail is fitted to. A
+    Generalised Pareto fitted to those by maximum likelihood gives sigma and
+    gamma, from which z_q = u + (sigma/gamma) * ((q*n/N_u)**(-gamma) - 1).
+    Gamma near zero takes the exponential limit, z_q = u - sigma*log(q*n/N_u).
 
     q is chosen a priori and the false alarm rate follows by construction, with
     no labels anywhere. Returns the threshold; pot_diagnostics returns the fit.

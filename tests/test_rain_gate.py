@@ -8,16 +8,16 @@ alone. The no-contamination test at the bottom is what holds that line.
 
 The detection-cost and false-alarm numbers that justified the design were
 measured against the comparison harness corpus, which is gone. They are
-recorded in strawberrywatch/anomalies/RAIN_GATE.md and cannot be recomputed
-here without that corpus.
+recorded in the rain_gate module docstring and cannot be recomputed here
+without that corpus.
 """
 
 import numpy as np
 import pytest
 
 from strawberrywatch.anomalies import channel_scoring as scoring
+from strawberrywatch.anomalies.cobble_calibration import CalibrationError, load_calibration
 from strawberrywatch.anomalies.rain_gate import RainGate, RainGateConfigError, fired
-from strawberrywatch.anomalies.riffle_calibration import CalibrationError, load_calibration
 
 N_CHANNELS = 4
 

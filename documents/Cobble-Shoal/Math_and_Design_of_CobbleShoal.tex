@@ -1,0 +1,579 @@
+\documentclass{article}
+\usepackage{arxiv}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{bm}
+\usepackage{natbib}
+\usepackage{graphicx}
+
+% The emblem lives in the repository-wide assets directory, two levels up.
+\graphicspath{{../../assets/}{../../assets/logos/}{../../assets/biota/}{../../assets/diagrams/}}
+
+\title{The Mathematics and Design of CobbleShoal}
+
+% arxiv.sty labels every paper "A Preprint" in the running head and under the
+% title. This is an internal technical report, not a preprint of a submission.
+\renewcommand{\headeright}{Technical Report}
+\renewcommand{\undertitle}{Technical Report}
+
+% arxiv.sty's title block sets a 24pt strut above the author names and 0.4in
+% below them, which leaves the byline stranded between "Technical Report" and
+% the date. This is the same layout with those two gaps halved. Overridden here
+% rather than edited in arxiv.sty, which is a vendored file.
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \vbox{%
+    \hsize\textwidth
+    \linewidth\hsize
+    \vskip 0.1in
+    \@toptitlebar
+    \centering
+    {\LARGE\sc \@title\par}
+    \@bottomtitlebar
+    \textsc{\undertitle}\\
+    \vskip 0.1in
+    \def\And{%
+      \end{tabular}\hfil\linebreak[0]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \def\AND{%
+      \end{tabular}\hfil\linebreak[4]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\@author\end{tabular}%
+  \vskip 0.2in \@minus 0.1in \center{\@date}   \vskip 0.2in
+  }
+}
+\makeatother
+
+\author{
+  Daniel Boupha Christensen \\
+  Environmental, Health, and Safety, University of California, Berkeley \\
+  The Green Initiative Fund \\
+}
+
+\begin{document}
+
+% Masthead. Licence at the left, group emblem at the right. This is an internal
+% report, so the block carries the licence and the project mark only, and
+% deliberately no journal, volume, page range or DOI furniture.
+\noindent
+\begin{minipage}[c]{0.74\textwidth}
+  \footnotesize
+  Copyright 2024--2026 Strawberry Creek Monitoring Group contributors.\\
+  Licensed under the Apache License, Version 2.0.\\
+  \url{https://www.apache.org/licenses/LICENSE-2.0}
+\end{minipage}%
+\hfill
+\begin{minipage}[c]{0.16\textwidth}
+  \raggedleft
+  \includegraphics[width=\linewidth]{SCMGemblem.png}
+\end{minipage}
+
+\maketitle
+
+\begin{abstract}
+CobbleShoal is the second detector built for Strawberry Creek, and it exists
+because DuskCrayfish is structurally blind to a sensor that stops moving. Where
+DuskCrayfish treats a monitoring site as one object carrying a vector of
+readings, CobbleShoal treats each individual sensor as its own node in a nested
+graph, so a conductivity probe and the depth probe beside it are separate nodes
+that talk to each other through a learned variable graph and to the rest of the
+creek through a directed flow graph. On top of that shared trunk it runs four
+detection channels rather than one, each answering a different question about
+the same window, and it turns each channel into a right-tail probability
+against that channel's own fault-free distribution before combining them. No
+labelled anomalies exist for this creek and none will, so nothing here is
+tuned against a fault: the alerting threshold comes from Extreme Value Theory
+at a false alarm rate chosen in advance. This document sets out the
+mathematics of the encoder, the four channels, the calibration, and the
+reasoning behind each choice.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+DuskCrayfish learns what the creek normally looks like and flags what it cannot
+predict. That works well for an onset, a spill arriving and pushing
+conductivity somewhere the model did not expect. It fails for a fault that
+stops the reading moving at all. If a probe freezes, the model's one-step
+forecast is anchored on the frozen reading, it predicts the frozen number, the
+reading is the frozen number, and the residual is zero. A frozen sensor is
+therefore invisible to a forecast residual, not approximately but exactly, and
+no threshold on that residual can recover it.
+
+CobbleShoal is built around that gap. Everything below follows from two ideas.
+The first is that a sensor, not a site, is the right unit: the creek is a graph
+of individual probes, and a probe that has stopped reporting is a different
+object from the site it sits at. The second is that one number cannot answer
+every question about a window, so the model produces several, each anchored
+somewhere different, and combines them only after each has been made
+comparable.
+
+\subsection{The deployed configuration}
+\label{sec:configuration}
+
+The values in Table~\ref{tab:config} are the settings the shipped checkpoint
+runs with, read from the model definition and the calibration artifact beside
+the weights. They are referred to throughout the mathematics that follows so
+the general equations stay tied to this specific model.
+
+\begin{table}[t]
+  \centering
+  \caption{The deployed configuration. These are the settings the current
+    checkpoint and its calibration artifact carry, not defaults or
+    recommendations.}
+  \label{tab:config}
+  \begin{tabular}{ll}
+    \toprule
+    Setting & Value \\
+    \midrule
+    Sites $S$ & 5 \\
+    Canonical variables $V$ & 5 \\
+    Sensor nodes $N$ & 17 \\
+    Window $T$ & 24 timesteps (6 hours at 15 min sampling) \\
+    Context features & 2 (hour sine and cosine) \\
+    Hidden dimension $d$ & 64 \\
+    Variable embedding & 8 \\
+    Site and node embedding & 12 \\
+    Transport hops $K$ & 2 \\
+    Leave-one-out weight $\lambda_{\mathrm{loo}}$ & 0.5 \\
+    Reconstruction weight $\lambda_{\mathrm{rec}}$ & 0.5 \\
+    Node dropout $p$ & 0.15 \\
+    Scale floor & $10^{-2}$ \\
+    Anchor staleness limit & 4 timesteps \\
+    Dispersion window & 8 timesteps \\
+    Trainable parameters & 63{,}605 \\
+    Null tail percentile & 95 \\
+    POT initial threshold percentile & 98 \\
+    Operating false alarm rate $q$ & $10^{-4}$ \\
+    Calibrated threshold $z_q$ & 39.130 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Sixty-three thousand parameters is small by the standards of the architectures
+this design borrows from, and it is small for the same reason DuskCrayfish is
+small. The corpus is a rolling window of one creek's recent behavior, not an
+archive, and a larger model on that much data memorizes the recent past rather
+than learning the creek's rhythm. The parameter count is dominated by the
+hidden dimension of 64, which is what the sibling and transport graphs need in
+order to carry a useful message, rather than by depth.
+
+\section{Data and Notation}
+\label{sec:data}
+
+\subsection{The nested node graph}
+\label{sec:nested}
+
+DuskCrayfish's graph has one node per monitoring site, carrying a vector of
+that site's readings. CobbleShoal splits that apart. A node is a
+$(\text{site}, \text{variable})$ pair, so the conductivity probe at
+north\_fork\_0 and the temperature probe at north\_fork\_0 are two different
+nodes. The site inventory says which pairs exist, and it is uneven by design:
+footbridge carries five variables because it has a dissolved oxygen and
+floating conductivity sensor the other four sites do not, so the deployed graph
+has $N = 17$ nodes over $S = 5$ sites rather than $S \times V = 25$. Nodes that
+do not exist are not modelled as missing; they are absent from the registry.
+
+This is the structural choice the rest of the design rests on, and it is worth
+being explicit about what it buys. A frozen conductivity probe is now a node
+whose own readings have stopped while its siblings at the same site, and its
+neighbours downstream, keep moving. That contrast is measurable. In a
+site-level graph the frozen probe is one component of one node's feature
+vector, averaged in with the readings that are still fine, and the contrast has
+nowhere to appear. The nested formulation follows the same idea as graph
+architectures that propagate over variables and locations
+separately~\citep{defelice2024ggnet}.
+
+Two graphs connect the nodes. The variable graph $A_{\mathrm{var}}$ joins nodes
+that sit at the same site, so a probe can hear its own siblings. The flow graph
+joins sites in the direction water actually moves, and is described in
+Section~\ref{sec:tailup}.
+
+\begin{table}[t]
+  \centering
+  \caption{Notation.}
+  \label{tab:notation}
+  \begin{tabular}{lll}
+    \toprule
+    Symbol & Meaning & Dimension \\
+    \midrule
+    $S$ & monitoring sites & scalar, $S = 5$ \\
+    $V$ & canonical variables & scalar, $V = 5$ \\
+    $N$ & sensor nodes, one per (site, variable) that exists & scalar, $N = 17$ \\
+    $T$ & timesteps in the input window & scalar, $T = 24$ \\
+    $d$ & hidden dimension & scalar, $d = 64$ \\
+    $K$ & transport hops & scalar, $K = 2$ \\
+    $x_{t}$ & node readings at step $t$ & $N$ \\
+    $\delta_{t}$ & staleness, steps since this node last reported & $N$ \\
+    $\bm{h}_{t}$ & node hidden state & $N \times d$ \\
+    $A_{\mathrm{var}}$ & same-site adjacency over nodes & $N \times N$ \\
+    $W$ & junction share matrix over sites & $S \times S$ \\
+    $P$ & receive matrix, $W^{\top}$ & $S \times S$ \\
+    $\mu, \sigma$ & predicted mean and scale & $N$ \\
+    $c_{j}$ & channel $j$'s score & $N$ \\
+    $p_{j}$ & channel $j$'s right-tail probability & $N$ \\
+    $\Lambda$ & combined Fisher statistic & $N$ \\
+    $q$ & false alarm rate chosen in advance & scalar, $10^{-4}$ \\
+    $z_{q}$ & alerting threshold at rate $q$ & scalar, 39.130 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Staleness, and what is deliberately not an input}
+\label{sec:staleness}
+
+Readings arrive on a 15 minute grid, but loggers do not respect it. A reading
+within half a grid step of a grid point is that grid point's target, which
+recovered six times footbridge's usable supervision, because its logger reports
+at :17 and :28 rather than :15. Between reports the last value is carried
+forward, and $\delta_t$ counts how many steps have passed since the node
+actually reported. The model reads $\log(1 + \delta_t)$ as a feature.
+
+The binary observation mask is deliberately not an input. Feeding the mask in
+lets a model exploit informative missingness, which is the right move where a
+missing measurement is itself a decision, as in clinical
+records~\citep{che2018grud}. Here missingness is flat batteries and network
+outages. A model given the mask learns that offline implies anomalous, and
+then every power failure in the catchment arrives as a spill alert. The
+elapsed time is a feature; the fact of absence is not.
+
+\section{Model Architecture}
+\label{sec:architecture}
+
+All of the scoring heads sit on one shared encoder. Per timestep, a node's
+value is decayed by its variable's learned half life and masked if the node is
+hidden, concatenated with log staleness, the clock context and the variable,
+site and node embeddings, projected to $d$ dimensions, multiplied by a static
+gate built from the site inventory and the site embedding, passed through the
+decay LSTM, normalized, and exchanged with its siblings. Once at the end of the
+window, node states are pooled to sites, transported downstream, and mixed back
+into the nodes.
+
+\subsection{The decay LSTM}
+\label{sec:decay}
+
+Recurrent cells assume evenly spaced observations. These are not evenly spaced,
+so both the incoming value and the carried state decay with elapsed
+time~\citep{hochreiter1997lstm}. For a node of variable $v$ with staleness
+$\delta$,
+\begin{equation}
+  \gamma^{x}_{v}(\delta) = 2^{-\delta / \tau^{x}_{v}},
+  \qquad
+  \gamma^{h}(\delta) = 2^{-\delta / \tau^{h}},
+\end{equation}
+where $\tau^{x}_{v}$ is a learned half life per variable and $\tau^{h}$ a
+learned half life per hidden unit. The state update is the ordinary LSTM cell
+applied to the decayed state,
+\begin{equation}
+  (\bm{h}_{t}, \bm{c}_{t}) = \mathrm{LSTMCell}\big(\bm{u}_{t},\ (\bm{h}_{t-1} \odot \gamma^{h},\ \bm{c}_{t-1})\big).
+\end{equation}
+
+The parameterisation matters more than it looks. Both half lives are stored as
+$\log \tau$ and exponentiated. An earlier form used $\exp(-\delta \cdot |w|)$
+initialised at $w = 0$, where the absolute value has no gradient at zero, so
+nothing ever moved $w$ off it and the decay was not merely inert but dead. A
+log half life is positive everywhere, differentiable everywhere, and
+initialises to a stated prior: four hours for conductivity, one hour for stage,
+three for temperature. Those priors are starting points the loss is free to
+move, not claims about the creek.
+
+\subsection{The sibling exchange}
+\label{sec:siblings}
+
+After the recurrent step, each node hears the other probes at its own site. For
+node states $\bm{h}$ and a liveness vector $\ell$,
+\begin{equation}
+  \bm{m}_{i} = \frac{\sum_{j} (A_{\mathrm{var}})_{ij}\, \ell_{j}\, \bm{W}_{\!s} \bm{h}_{j}}
+                    {\max\big(\sum_{j} (A_{\mathrm{var}})_{ij}\, \ell_{j},\ \epsilon\big)},
+  \qquad
+  \bm{h}'_{i} = \bm{W}_{\!x}\,[\,\bm{h}_{i} \,\|\, \bm{m}_{i}\,].
+\end{equation}
+The denominator is the count of live senders, and where a node has none the
+message is exactly zero rather than a small number, so a node whose whole site
+is offline is not fed an average of nothing.
+
+Liveness gates who talks, not what is said. It is read from raw staleness,
+which is timing rather than measurement, and that distinction is what lets the
+leave-one-out channel in Section~\ref{sec:channels} be honest: hiding a node
+removes every path to its own readings while leaving intact the question of
+whether its neighbours are currently reporting.
+
+The exchange runs at every timestep rather than once at the end. It costs about
+1.4 times the epoch time, it does not improve mean error, and it was the more
+reliable configuration on every seed tried, which is the only reason it is the
+one that ships.
+
+\subsection{Directed downstream transport}
+\label{sec:tailup}
+
+Node states are pooled to their sites, and site states are moved downstream
+along the creek's flow edges. Transport is forward only. Writing $W$ for the
+matrix whose entry $W_{ab}$ is the share of site $b$'s inflow contributed by
+site $a$, and $P = W^{\top}$ for the receive matrix, the transported context is
+\begin{equation}
+  \bm{z} = \sum_{k=1}^{K} \theta_{k} \, \widetilde{P^{k}} \, \bm{W}_{\!m} \bm{g},
+\end{equation}
+where $\bm{g}$ are the pooled site states and $\widetilde{\cdot}$ denotes the
+same live-sender normalization used for siblings. This is the discrete analogue
+of tail-up weighting on a stream network, where influence moves with the water
+and splits at junctions~\citep{verhoef2010tailup}.
+
+The junction split is learned, not assumed. Tail-up weighting properly wants a
+discharge ratio; nothing in this data measures discharge, and a hardcoded even
+split is an assumption the model then has to work around. A softmax over each
+junction's contributors makes the split something the data fits, and the fitted
+value becomes a physical claim a field survey can go and check.
+
+The reverse path was removed. It had a real argument behind it, that an
+upstream site and its downstream neighbour share a storm and a baseflow regime,
+so a downstream reading is informative about an upstream one even though water
+does not flow that way. The measurement settled it: detection was bit-identical
+with the reverse weights zeroed, so the reverse path was carrying nothing the
+forward path and the sibling graph did not already carry.
+
+Forward-only transport has a property worth checking on the trained weights.
+The forward matrix is nonzero only along downstream paths, so on a tree it
+never connects the north fork to the south fork at any number of hops, and
+cross-fork response is exactly zero rather than merely small.
+
+\subsection{Local effects}
+\label{sec:embeddings}
+
+Each node, site and variable carries a learned embedding. These are what let one
+shared trunk represent five sites that behave differently without a separate
+model per site, which is the role trainable node embeddings play in graph-based
+spatiotemporal forecasting generally~\citep{cini2023local}. A masked node keeps
+its embeddings and its clock context, so it still knows which sensor at which
+site it is and what time it is; what it loses is every path to its own readings.
+
+\section{Training}
+\label{sec:training}
+
+Every head is trained under a Gaussian negative log likelihood rather than
+squared error. For a prediction $\mu$, a predicted scale $\sigma$, a target $y$
+and a mask $M$ marking the entries where the term can honestly be computed,
+\begin{equation}
+  \mathcal{L}(\mu, \sigma, y) = \frac{1}{|M|} \sum_{i \in M}
+    \left[ \tfrac{1}{2} \left( \frac{y_i - \mu_i}{\sigma_i} \right)^{2} + \log \sigma_i \right].
+\end{equation}
+
+The $\log \sigma$ term is what stops the model claiming certainty everywhere,
+and it is what makes the dispersion channel in Section~\ref{sec:channels} mean
+anything at all. The scale is floored at $10^{-2}$, because without a floor the
+likelihood rewards driving $\sigma$ toward zero on any node the model happens
+to fit well, which then blows up the dispersion channel that the stuck-sensor
+detector depends on.
+
+The full objective has three terms,
+\begin{equation}
+  \mathcal{L} = \mathcal{L}_{\mathrm{forecast}}
+              + \lambda_{\mathrm{loo}} \, \mathcal{L}_{\mathrm{loo}}
+              + \lambda_{\mathrm{rec}} \, \mathcal{L}_{\mathrm{rec}},
+  \qquad \lambda_{\mathrm{loo}} = \lambda_{\mathrm{rec}} = 0.5 .
+\end{equation}
+Combining a forecasting objective with a reconstruction objective follows the
+same reasoning as multivariate anomaly detectors that train both
+heads~\citep{zhao2020mtadgat}: the two disagree in different ways, and a fault
+that hides from one need not hide from the other.
+
+The forecast and leave-one-out terms are computed on two separate forward
+passes, and the separation is not cosmetic. The leave-one-out term hides each
+node with probability $p = 0.15$ and asks the model to predict it from its
+siblings, its flow neighbours and the clock. Applying that node dropout to a
+single shared pass moved nominal 68/95 interval coverage from 71/94 to 90/100,
+because the model hedged its forecast scale against inputs that might be
+masked. Two passes and two scale heads keep the forecast scale answering how
+wrong the next-step forecast is, and the leave-one-out scale answering how
+wrong the model is about a node it cannot see. Those are different questions
+with different answers, and one head cannot hold both.
+
+The leave-one-out term is scored only where a node was actually hidden.
+Scoring the visible ones would be the forecast objective again under a second
+head.
+
+\section{Detection}
+\label{sec:detection}
+
+\subsection{Four channels, anchored differently}
+\label{sec:channels}
+
+The model produces four numbers per node per window. What separates them is
+what each is anchored on, and that is the whole design.
+
+\textbf{Excursion} is the standardised one-step forecast residual,
+$|y - \mu| / \sigma$, computed only where the target is observed and the
+anchor is fresh. Scoring a graph model's forecast residual is the usual
+construction for detecting a multivariate series that has left its normal
+relationship with its neighbours~\citep{deng2021gdn}. It catches a reading
+that moved when it should not have. It is
+structurally blind to a frozen sensor, for the reason given in
+Section~\ref{sec:introduction}, and that blindness is why the other three
+exist.
+
+\textbf{Leave-one-out} is $|y - \mu_{\mathrm{loo}}| / \sigma_{\mathrm{loo}}$,
+where the prediction is made with the node's own input removed. With the node
+hidden the prediction comes from its siblings, its flow neighbours and the
+clock, all of which are still moving, so a frozen reading stands out by exactly
+as much as the creek has moved since it froze. Anchor freshness is not a
+condition here, because the leave-one-out prediction never touches the node's
+anchor.
+
+\textbf{Reconstruction} is the mean standardised error between the encoder's
+reconstruction of the input window and the window itself, over observed steps.
+It is anchored on neither the last value nor the neighbours, which makes it the
+only channel that can see a window whose shape is wrong while its level is
+right and the network agrees.
+
+\textbf{Dispersion} asks how much flatter the sensor is than the model expected,
+\begin{equation}
+  c_{\mathrm{disp}} = \max\!\left(0,\ \log \frac{\max(\sigma, \phi)}{\max(\hat{s}, \phi)}\right),
+\end{equation}
+where $\hat{s}$ is the observed standard deviation over the last 8 steps and
+$\phi = 10^{-3}$ is a floor. It costs nothing, it has no head of its own, and it
+is what a bit-exact freeze trips: the residual goes to zero, which is what
+blinds excursion, but the observed dispersion goes to zero while the predicted
+scale does not.
+
+Dispersion requires real observations in its window, and that requirement was
+learned the hard way. Values are carried forward, so a node that is simply
+offline is flat for exactly the same arithmetic reason a frozen one is. Without
+the observation requirement, ordinary outages sat in this channel's fault-free
+null at the same magnitude as the faults, the null's tail swallowed them, and
+detection at the operating threshold on stuck faults measured 0.0\% while the
+same channel was still ranking the frozen node first.
+
+\subsection{Nulls and p-values}
+\label{sec:nulls}
+
+Raw channel scores are not comparable. An excursion of 3 and a dispersion of 3
+mean different things, and a maximum over raw magnitudes lets an uninformative
+channel outrank an informative one. This is not a hypothetical: a measured run
+scored the maximum rule at 68.6\% where a single channel alone reached 92.2\%.
+
+Each channel is therefore turned into a right-tail probability against its own
+fault-free distribution. Below the 95th percentile the empirical distribution
+is used directly,
+\begin{equation}
+  p = \frac{1 + \#\{s_{i} \ge s\}}{1 + n} .
+\end{equation}
+The $+1$ keeps a score above every null sample from reading as exactly zero,
+which would dominate any combination rule outright. Above the 95th percentile
+the tail is a fitted Generalised Pareto, so two scores that both sit past every
+observed sample still order against each other rather than both saturating at
+the $1/(n+1)$ floor. Fitting the excesses over a high threshold with a
+Generalised Pareto is the standard limit result for
+tails~\citep{pickands1975gpd}, and the fit uses a one-dimensional profile
+likelihood~\citep{grimshaw1993gpd}.
+
+The tail used for p-values clamps the shape parameter $\gamma$ at zero, and
+this is deliberate. A negative $\gamma$ is a finite upper endpoint, the maximum
+likelihood estimate puts that endpoint at the largest observed excess, and every
+score past it collapses to $p = 0$. That is not a small p-value, it is a tie:
+the largest fault-free sample and a sensor frozen for six hours both land on the
+floor, the combined score saturates for both, and no threshold can separate
+them. Clamping to the exponential limit keeps the tail unbounded, keeps the
+ordering the combination rule needs, and is conservative, since it assigns a
+larger $p$ than the unconstrained fit. The unconstrained $\gamma$ is still
+stored and reported.
+
+\subsection{Combination}
+\label{sec:combine}
+
+The per-channel probabilities are combined into one statistic per
+node~\citep{fisher1925methods},
+\begin{equation}
+  \Lambda = -2 \sum_{j} \log p_{j} .
+\end{equation}
+
+Fisher's method assumes the channels are independent, and these are not.
+Dispersion and leave-one-out both fire on a frozen sensor, so an agreeing pair
+overstates its significance. The consequence is bounded and worth stating
+precisely: the statistic is still monotone in the evidence, and the degrees of
+freedom are constant across nodes for a given model, so the ranking is
+unaffected. Only the absolute p-value is optimistic. That is exactly why the
+alerting threshold does not come from the chi-squared tail.
+
+\subsection{The threshold}
+\label{sec:threshold}
+
+The threshold is fitted to the combined statistic's own fault-free
+distribution by peaks over threshold~\citep{siffer2017spot}. An initial
+threshold $u$ sits at the 98th percentile of the fault-free statistics, a
+Generalised Pareto is fitted by maximum likelihood to the $N_u$ exceedances
+above it, and
+\begin{equation}
+  z_{q} = u + \frac{\sigma}{\gamma}\left[\left(\frac{q\,n}{N_{u}}\right)^{-\gamma} - 1\right],
+  \qquad
+  z_{q} = u - \sigma \log\!\left(\frac{q\,n}{N_{u}}\right) \ \text{ as } \gamma \to 0 .
+\end{equation}
+
+The deployed fit has $u = 19.860$, $N_u = 68$ exceedances out of $n = 3400$
+fault-free windows, $\sigma = 3.637$, $\gamma = 0$, and therefore
+$z_q = 39.130$ at $q = 10^{-4}$.
+
+The value of $q$ is chosen in advance and the false alarm rate follows by
+construction, with no labels anywhere in the procedure. This is the property
+the whole calibration exists to preserve, and it is why the nulls and the
+threshold are fitted once at calibration time, written to an artifact beside
+the weights, and loaded unchanged at inference. A detector that refits its null
+on the window it is judging does not have a null; it has a description of the
+data it just saw.
+
+\subsection{What the alerting path can see}
+\label{sec:interface}
+
+The detector is handed one number per node and nothing else. Channels are an
+implementation detail of how that number is built, and every caller that
+learned their names became a place the model could not change. Diagnostics that
+genuinely want the per-channel scores can ask for them explicitly, and nothing
+on the alerting path does.
+
+Rain is handled outside this model entirely. The rain gate moves the alerting
+threshold and never the score, for the reason set out in that component's own
+documentation: the threshold was fitted against the fault-free distribution of
+the combined statistic, and a statistic scaled by a rain factor is no longer a
+draw from the distribution that fit was made on. CobbleShoal declares no
+built-in support behaviour, and it declares it as an empty list rather than
+omitting the declaration, so the record says the question was asked.
+
+\section{Limitations and Future Work}
+\label{sec:limitations}
+
+The four channels are not independent and the combination rule assumes they
+are. The ranking survives this, as argued in Section~\ref{sec:combine}, and the
+threshold is fitted to the statistic's own null rather than to a chi-squared
+tail precisely so the dependence does not reach the alerting decision. What is
+still unavailable is any statement about how much evidence a combined score
+represents, as opposed to how it ranks against other nodes.
+
+The measured alarm rate at the operating $q$ ran above nominal on the
+calibration corpus. The calibration artifact records this. Whether that is
+finite-sample noise in the tail fit, dependence between channels leaking into
+the combined null, or a genuine mismatch between the fault-free corpus and the
+verification set is open, and it is a question for the group rather than a
+defect in any one file.
+
+The junction split is learned but has never been checked against a field
+survey. Its value is a physical claim about how much of oxford's inflow arrives
+from each fork, and it is currently unverified.
+
+The site inventory is uneven, and the two channels that only footbridge carries
+are the two that would separate pollutant types. Dissolved oxygen and floating
+conductivity exist at exactly one of five sites, so any downstream reasoning
+that needs them can be attempted at one site and nowhere else.
+
+Finally, every number in this document describes the shipped checkpoint and the
+calibration artifact fitted alongside it. The nulls and the threshold are
+fitted quantities, and they will move when the model is refitted.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

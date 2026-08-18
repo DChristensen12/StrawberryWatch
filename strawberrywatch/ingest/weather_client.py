@@ -24,7 +24,7 @@ def fetch_nws_weather(
     station_id: str | None = None,
 ) -> pd.DataFrame:
     """
-    Fetches air temperature from the NWS station over [start_time, end_time].
+    Fetch air temperature from the NWS station over [start_time, end_time].
 
     Returns a DataFrame with a UTC DatetimeIndex and an air_temp_c column, or
     an empty DataFrame on failure.

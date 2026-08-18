@@ -6,21 +6,9 @@ score() returns one number per node, the combined Fisher statistic. Channels
 are how that number gets built, not something the alerting path should know
 about, so channels() is there for diagnostics and nothing downstream calls it.
 
-Prior art:
-  GRU-D decay between irregular observations, Che et al, Scientific Reports 2018
-    https://www.nature.com/articles/s41598-018-24271-9
-    Adapted: GRU-D feeds the observation mask in as a feature to exploit
-    informative missingness, which suits health records. Here missingness is
-    flat batteries, and a model that learns "offline implies anomalous" turns
-    every power cut into an alert, so the mask is not an input.
-  tail-up stream models, Ver Hoef and Peterson, JASA 2010
-    https://doi.org/10.1198/jasa.2009.ap08248
-  nested variable/location graph, De Felice et al, ICLR 2024
-    https://openreview.net/forum?id=3vGRuqPfSN
-  node embeddings for local effects, Cini et al, NeurIPS 2023
-  forecast plus reconstruction objective, MTAD-GAT, Zhao et al, ICDM 2020
-    https://arxiv.org/abs/2009.02040, reference implementation
-    https://github.com/ML4ITS/mtad-gat-pytorch
+The hidden state decays between irregular observations. The observation mask
+is deliberately not an input: missingness here is flat batteries, and a model
+that learns "offline implies anomalous" turns every power cut into an alert.
 """
 
 from __future__ import annotations
@@ -36,7 +24,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from strawberrywatch.anomalies import channel_scoring as scoring
-from strawberrywatch.models import contracts
+from strawberrywatch.models import model_calls
 
 # Graph structure and canonical variables
 
@@ -115,7 +103,7 @@ def normalize_site_code(value):
     "North Fork #0" for the first 15,825 rows and "north_fork_0" after, which is
     a rename mid deployment, not two sites. Stripping to alphanumerics makes
     both "northfork0" and lets the multi site guard stay strict about the case
-    it actually cares about.
+    it is there for.
     """
     return re.sub(r"[^a-z0-9]", "", str(value).lower())
 
@@ -211,8 +199,9 @@ def masked_message(weights, messages):
 
 class DecayLSTMCell(nn.Module):
     """
-    LSTM with the GRU-D decay idea ported over, since the rest of the system is
-    LSTM shaped. Both decays are driven only by elapsed time.
+    LSTM whose state and input decay with elapsed time between observations,
+    since the rest of the system is LSTM shaped. Both decays are driven only by
+    elapsed time.
 
     Parameterised as log half life rather than a raw rate. The previous form
     used exp(-clamp(delta * w.abs())) initialised at w = 0, where the absolute
@@ -220,10 +209,11 @@ class DecayLSTMCell(nn.Module):
     dead rather than merely inert. Half life is always positive and
     differentiable everywhere, and it initialises to a stated prior.
 
-    The observation mask is deliberately not an input. GRU-D exploits
-    informative missingness, which is right for health records. Here missingness
-    is flat batteries and network outages, and a model that learns "offline
-    implies anomalous" turns every power failure into an alert.
+    The observation mask is deliberately not an input. Feeding it in exploits
+    informative missingness, which is right where a missing measurement is a
+    clinical decision. Here missingness is flat batteries and network outages,
+    and a model that learns "offline implies anomalous" turns every power
+    failure into an alert.
     """
 
     def __init__(self, input_dim, hidden_dim, prior_hours):
@@ -381,10 +371,10 @@ class NestedEncoder(nn.Module):
     node_mask is (B, N) bool, True where the node's own reading is hidden. For a
     hidden node BOTH the value channel and the staleness channel are zeroed at
     every timestep, and the anchor is zeroed too. Embeddings and context stay,
-    so a masked node still knows which sensor at which site it is and what time
+    so a masked node still carries which sensor at which site it is and what time
     it is; what it loses is every path to its own readings. Freshness gating of
     the sibling and site graphs still reads the raw staleness, which is timing
-    rather than measurement: it decides who talks, not what is said, and the
+    rather than measurement: it gates who talks, not what is said, and the
     leak assertion below holds because of it, not in spite of it.
     """
 
@@ -494,11 +484,10 @@ class NestedEncoder(nn.Module):
 
         mixed = self.site_mix(torch.cat([h, site_ctx], dim=-1))
 
-        # The anchor has to be masked too. Leaving it would hand a hidden node
-        # its own last reading through the residual connection, so the whole
-        # leave-one-out prediction would ride the very value it is supposed to
-        # be reconstructing. A masked node anchors at 0, the post-scaling mean,
-        # which makes the head predict its level outright rather than a delta.
+        # The anchor has to be masked too, or a hidden node gets its own last
+        # reading back through the residual connection and the leave-one-out
+        # prediction rides the value it is meant to reconstruct. A masked node
+        # anchors at 0, the post-scaling mean.
         anchor = values[:, -1] if keep is None else values[:, -1] * keep
         return EncoderOut(mixed, site_ctx, anchor, live.bool())
 
@@ -769,7 +758,7 @@ class _ForecastLooBase(_Nested):
         return chans
 
 
-class RiffleDarner(_ForecastLooBase):
+class CobbleShoal(_ForecastLooBase):
     """
     Everything in ModelB plus a reconstruction head.
 
@@ -789,7 +778,12 @@ class RiffleDarner(_ForecastLooBase):
     Channels: excursion, loo, reconstruction, dispersion.
     """
 
-    INPUT_CONTRACT = contracts.NESTED_NODE_BATCH
+    INPUT_CONTRACT = model_calls.NESTED_NODE_BATCH
+
+    # Nothing. Rain is handled outside this model by anomalies/rain_gate.py,
+    # which moves the threshold and never the score. Empty rather than omitted:
+    # an empty tuple says this was checked.
+    BUILTIN_SUPPORT = ()
 
     channel_names = ("excursion", "loo", "reconstruction", "dispersion")
 
@@ -874,9 +868,9 @@ class RiffleDarner(_ForecastLooBase):
         return (combined, chans) if return_channels else combined
 
 
-def build_riffle_darner(num_sites, num_vars, num_context, num_nodes, seed, window):
+def build_cobble_shoal(num_sites, num_vars, num_context, num_nodes, seed, window):
     """
     Construct with the same argument order the comparison harness used, so a
     checkpoint from that harness loads into this class without a shim.
     """
-    return RiffleDarner(num_sites, num_vars, num_context, num_nodes, seed, window=window)
+    return CobbleShoal(num_sites, num_vars, num_context, num_nodes, seed, window=window)

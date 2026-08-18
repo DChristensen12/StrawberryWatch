@@ -4,7 +4,7 @@ applied. Unlike full_creek_gnn.csv (long format: one row per site per
 timestep), this is WIDE: one row per 15-minute grid step, with per-site
 sensor columns plus a per-site {site}_valid flag. That shape is what lets a
 bad node get masked out for a timestep while its neighbors keep their data
-in the same row -- Part 3 turns these _valid columns directly into the model's
+in the same row. Part 3 turns these _valid columns directly into the model's
 node_mask.
 
 Does not touch full_creek_gnn.csv, which stays the rolling 90-day inference

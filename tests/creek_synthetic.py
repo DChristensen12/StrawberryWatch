@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from strawberrywatch.models.Riffle_Darner import (
+from strawberrywatch.models.Cobble_Shoal import (
     CONTEXT_FEATURES,
     FLOW_EDGES,
     GRID_FREQ,

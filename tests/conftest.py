@@ -29,12 +29,12 @@ def _build_model(model_name, metadata):
         pytest.skip(f"No {model_name}_weights.pt found.")
 
     import main
-    from strawberrywatch.models import contracts
+    from strawberrywatch.models import model_calls
 
     model_cls = main._MODEL_REGISTRY.get(model_name)
     if model_cls is None:
         pytest.skip(f"'{model_name}' is not in main._MODEL_REGISTRY.")
-    model = contracts.build_from_metadata(model_cls, metadata, device=Config.DEVICE)
+    model = model_calls.build_from_metadata(model_cls, metadata, device=Config.DEVICE)
 
     model.load_state_dict(torch.load(weights_path, map_location=Config.DEVICE, weights_only=True))
     model.eval()
@@ -46,7 +46,7 @@ def _build_model(model_name, metadata):
 # pooling and feature propagation switch on.
 #
 # Only sequence-contract models belong here. The event tests drive the model
-# with (batch, seq_len, sites, features) windows, and Riffle Darner reads
+# with (batch, seq_len, sites, features) windows, and Cobble Shoal reads
 # per-node series off the node registry instead, so adding it would not fail on
 # a keyword argument, it would have nothing to read. It needs the ingestion
 # adapter described in PORT_PROGRESS.md first. _build_model itself is generic,

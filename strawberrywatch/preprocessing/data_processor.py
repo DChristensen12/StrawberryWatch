@@ -71,17 +71,16 @@ def prepare_sequences_normalized(
     scaler_feature_cols=None,
 ):
     """
-    Normalizes and slices df_featured into (sequences, targets) for training.
+    Normalize and slice df_featured into (sequences, targets) for training.
 
-    Missing data comes in three flavors:
-      1. Permanently absent: an (node, feature) cell has no valid values across
-         the whole loaded window. Covers fully-offline sensors and sites that
-         never had a given feature (e.g. footbridge fully down, or oxford
-         lacking a sensor installed elsewhere).
-      2. Transiently absent: cell is NaN at some timesteps but valid at others.
-         Includes sites that came online mid-window, calibration blackouts,
-         and outages longer than the short-gap imputation limit.
-      3. Present: a real value, or one filled in by short-gap imputation.
+    Missing data comes in three flavors. Permanently absent means an (node,
+    feature) cell has no valid values across the whole loaded window, which
+    covers fully-offline sensors and sites that never had a given feature (e.g.
+    footbridge fully down, or oxford lacking a sensor installed elsewhere).
+    Transiently absent means the cell is NaN at some timesteps but valid at
+    others, which includes sites that came online mid-window, calibration
+    blackouts, and outages longer than the short-gap imputation limit. Present
+    means a real value, or one filled in by short-gap imputation.
 
     All three are zero-filled before the model sees them. Timestep validity is
     checked only against cells that are actually present.
@@ -134,15 +133,12 @@ def prepare_sequences_normalized(
 
     reuse_scaler = scaler is not None
     if reuse_scaler:
-        # Inference has to normalize with the exact stats the model trained on.
-        # Refitting on a live window silently moves the goalposts: live
-        # conductivity averages ~602 vs the trained ~497, so every input lands
-        # ~105 uS/cm outside the space the model learned, and Rule 2 ends up
-        # comparing live-space levels against a trained-space cond_median.
+        # Refitting on a live window moves the goalposts: live conductivity
+        # averages ~602 against the trained ~497, so every input lands ~105
+        # uS/cm outside the space the model learned.
         #
-        # Lined up BY NAME rather than position, because the live feature order
-        # isn't guaranteed to match the trained one (air_temp_c and rain_mm
-        # swap depending on which weather path filled them in).
+        # Lined up by name, not position: air_temp_c and rain_mm swap depending
+        # on which weather path filled them in.
         src_cols = list(scaler_feature_cols) if scaler_feature_cols else list(feature_cols)
         stats = {
             name: (float(scaler.mean_[i]), float(scaler.scale_[i]))
@@ -198,14 +194,9 @@ def prepare_sequences_normalized(
     print("building 3D array...")
     timestamps_all = sorted(df_normalized.index.unique())
     data_3d = np.full((len(timestamps_all), num_nodes, num_features), np.nan)
-    # node_mask[t, n] = True where node n is trustworthy at timestep t. Starts
-    # all-True, the QC loop below fills it in when a 'valid' column exists.
-    # If there's no 'valid' column this gets replaced wholesale further down,
-    # see the disambiguation right after nan_mask is built.
-    # QC verdicts only. A node with no row at this timestep never gets written
-    # here, which is why this cannot be the mask on its own: absence and
-    # "nothing flagged it" are different things and this array only knows the
-    # second one. Presence gets ANDed in below, once nan_mask exists.
+    # QC verdicts only, which is why this cannot be the mask on its own:
+    # absence and "nothing flagged it" are different things and this array
+    # carries only the second. Presence gets ANDed in once nan_mask exists.
     qc_valid_3d = np.ones((len(timestamps_all), num_nodes), dtype=bool)
 
     for t_idx, timestamp in enumerate(tqdm(timestamps_all, desc="Pivoting data")):
@@ -226,23 +217,13 @@ def prepare_sequences_normalized(
     for node_idx, feat_idx in permanent_absent:
         permanent_mask[node_idx, feat_idx] = True
 
-    # node_mask disambiguation. The wide training corpus carries a real QC
-    # 'valid' column (sentinel/streak/duplicate checks from
-    # build_training_corpus.py). Use it, unchanged from before. A live API
-    # pull never has one, so valid_3d was defaulting to all-True for
-    # everything, including a node with zero rows this window, which meant
-    # masked pooling and feature propagation never actually engaged live, and
-    # a fully offline node's zero-filled values got fed to its graph
-    # neighbors as if real. Same notion as anomaly_detector.py's
-    # _extract_real_mask (real conductivity presence = trustworthy), computed
-    # locally here off nan_mask instead of re-deriving it from df_original,
-    # since nan_mask already has everything this needs.
-    # A node is trustworthy at a timestep only if it actually reported there AND
-    # QC did not flag it. Presence has to come from the data; QC alone used to
-    # be the whole mask on the corpus path, and because a missing node has no
-    # row to flag, it stayed marked valid while its target was zero-filled.
-    # That put 11,709 fabricated zeros, 10.05% of corpus target cells, into the
-    # MSE loss and the threshold calibration as if they were real readings.
+    # node_mask disambiguation. The wide corpus carries a real QC 'valid'
+    # column; a live API pull does not, so valid_3d defaulted to all-True and
+    # masked pooling never engaged live.
+    #
+    # A node is trustworthy only if it reported AND QC did not flag it. QC alone
+    # was the whole mask once, and a missing node has no row to flag: 11,709
+    # fabricated zeros, 10.05% of target cells, reached the loss as real.
     if "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
         present_3d = ~nan_mask[:, :, cond_idx]

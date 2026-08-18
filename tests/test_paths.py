@@ -102,7 +102,8 @@ def test_missing_root_raises_actionable_error(tmp_path):
     [
         "strawberrywatch",
         "strawberrywatch.config",
-        "strawberrywatch.anomalies.metrics",
+        "strawberrywatch.support_modules.spill_signatures",
+        "strawberrywatch.support_modules.trial_bed",
         "strawberrywatch.utils.notifier",
     ],
 )
