@@ -15,6 +15,35 @@
 This repository is the research and development counterpart to the production monitoring platform. It is where anomaly detection models are built, tested against historical events, and validated!
 
 
+## The Creek
+
+The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
+
+### Sensors + Measured Metrics
+
+Every site runs an [EnviroDIY Mayfly Data Logger](https://www.envirodiy.org/mayfly/),
+sampling every 15 minutes. Which sensors are present at which site varies, and
+that is recorded in the inventory config instead of being inferred from the data, so
+it is able to tell when a sensor is down and when a sensor was never installed.
+
+| Metric | Probe | Protocol |
+|---|---|---|
+| Conductivity, temperature, depth | METER HYDROS 21 CTD | SDI-12 |
+| Dissolved oxygen | AtlasScientific DO | analog or I2C, depending on probe generation |
+| Floating conductivity | AtlasScientific Mini Conductivity K 1.0 | I2C |
+| pH | AtlasScientific pH | I2C |
+
+Conductivity, temperature and depth come from one probe, so a site has all three
+or none. The rest are installed separately.
+
+Floating conductivity sits in a sealed float inside a perforated housing and
+reads the top of the water column, which is what separates a surface
+contaminant like oil from one that mixes through.
+
+Three legacy Balance Hydrologics sites are read from a separate system and serve
+only the past seven days.
+
+
 ## Models
 
 <table align="center">
@@ -74,9 +103,6 @@ so switching one on makes the model slightly less sensitive elsewhere).
   </tr>
 </table>
 
-## The Creek
-
-The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
 
 ## What the deployed Model does
 
