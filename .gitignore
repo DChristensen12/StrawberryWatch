@@ -4,7 +4,7 @@ data/processed_data/
 *.csv
 !data/raw_data.csv
 !data/raw_data/*.csv
-!data/anomalies/*.csv
+!data/anomalies/**/*.csv
 !data/normal/*.csv
 *.ipynb_checkpoints
 

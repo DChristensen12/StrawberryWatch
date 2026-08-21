@@ -1,0 +1,635 @@
+# ================================================================== #
+# WHAT IS RUNNING WHERE
+#
+#   yes  installed and in service
+#   no   installed, switched off right now
+#   -    no such probe at this site
+#
+# Change yes to no to take a sensor out of service, no to yes to put it back.
+# A site with every sensor set to no is out of service. Lower case only:
+# true, 1, On and "yes" in quotes are all refused.
+#
+# New probe fitted? Change - to yes here, then add its install date in that
+# site's block below. Forget the date and the error tells you what to write.
+#
+# Check your edit:  python -m strawberrywatch.inventory
+# =================================================================== #
+in_service:
+  botanical_garden:  {ctd: yes, do: -,   fc: -,   ph: -}
+  south_fork_0:      {ctd: yes, do: -,   fc: -,   ph: -}
+  south_fork_1:      {ctd: yes, do: -,   fc: -,   ph: -}
+  south_fork_2:      {ctd: yes, do: -,   fc: -,   ph: -}
+  south_fork_3:      {ctd: yes, do: yes, fc: yes, ph: -}
+  kingman_hall:      {ctd: yes, do: -,   fc: -,   ph: -}
+  north_fork_0:      {ctd: yes, do: -,   fc: -,   ph: -}
+  scnf010:           {ctd: yes, do: yes, fc: yes, ph: -}
+  university_house:  {stage: yes, balance_feed: yes}
+  oxford:            {stage: yes, balance_feed: yes}
+  codornices:        {stage: yes, balance_feed: yes}
+
+
+# ======================================================================== #
+# IN SERVICE IS NOT THE SAME AS INSTALLED
+#
+#   install   the date the probe went into the creek, or null. History. It
+#             does not change when you switch a probe off, and it decides
+#             which past readings were real.
+#   yes / no  whether we are using the probe right now. Decides what gets
+#             scored live.
+#
+# A probe pulled off the footbridge for cleaning: leave install alone, set it
+# to no here. A probe that was never fitted at a site: install stays null and
+# the grid says -.
+#
+# Setting a probe to no drops it from live scoring and from the state table,
+# exactly as if it had never been fitted. Readings from before you switched
+# it off are still used to train the models.
+# ====================================================================== #
+
+
+# Below here is detail. You do not need to touch it to switch a sensor on or off.
+#
+#   removed      the date a probe came out of the creek for good
+#   inferred     the install date is a guess from the first reading; replace it
+#                with the real date when you know it, then delete the line
+#   unconfirmed  a question only a person can answer, never settled from data
+
+# The allowed data gap, in hours. The group's own number, used by the daily
+# Slack outage bot. One definition of down, not two.
+staleness_hours: 2
+
+# Balance Hydrologics sites are webscraped and serve only the past 7 days, so
+# an absence older than this at a balance_hydrologics site is expected.
+balance_service_days: 7
+
+# Readings stamped before this are logger clock resets, not measurements.
+# kingman_hall has one row stamped 2000-06-17, which is a Mayfly that came up
+# with no time set. The loader drops rows older than this and says how many.
+earliest_plausible_reading: '2020-01-01'
+
+# -9999 in a CTD channel is a wrong SDI-12 channel address, field fixable.
+sentinel_values: [-9999]
+
+# Fraction of coincident readings that must match exactly before two sites
+# are called one duplicated feed. From ingest/quality_control.py.
+duplicate_match_fraction: 0.25
+
+# How many consecutive identical readings count as flat. The existing
+# max_streak from ingest/quality_control.py is the fail level.
+flat_line_suspect_count: 24
+flat_line_fail_count: 96
+
+# Window, in timesteps, that the flat line, attenuation and rate of change
+# tests look back over. 24 steps is six hours at 15 minute posting.
+window_steps: 24
+
+# Which variables each probe yields. CTD is one METER HYDROS 21 over SDI-12
+# reporting three channels together, so the three share one install date.
+sensor_variables:
+  ctd: [conductivity, temperature, depth]
+  do: [dissolved_oxygen]
+  fc: [floating_conductivity]
+  ph: [ph]
+  stage: [depth]
+  balance_feed: [conductivity, temperature]
+
+# The columns the grid at the top uses, one set per kind of station. A row has
+# to carry every column for its source, so nothing can be quietly left out.
+sensor_columns:
+  mayfly: [ctd, do, fc, ph]
+  balance_hydrologics: [stage, balance_feed]
+
+sites:
+  botanical_garden:
+    name: 'Botanical Gardens'
+    table: botanical_garden
+    source: mayfly
+    downstream: 'south_fork_0'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-12-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-12-04T09:14Z, conductivity 10.2'
+      do:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, not installed, but the archive carries 52 AtlasSci_DO readings between 2025-12-04T06:53Z and 2025-12-19T22:23Z; a person must say whether a probe was fitted and removed'
+      fc:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; the archive carries 14 AtlasSci_FloatCond readings on 2025-12-04, all 0.0'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; no pH channel exists in the archive'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-144.024, 1049.324]
+        suspect_range: [179.864, 739.136]
+        spike: 96.159
+        rate_of_change: 171.804
+        attenuation_std: 1.13932
+      temperature:
+        derived: true
+        fail_range: [4.0, 20.8]
+        suspect_range: [8.2, 16.0]
+        spike: 0.694
+        rate_of_change: 1.2
+        attenuation_std: 0.02616
+      depth:
+        derived: true
+        fail_range: [-31.665, 440.194]
+        suspect_range: [94.064, 278.224]
+        spike: 29.456
+        rate_of_change: 60.96
+        attenuation_std: 0.12618
+
+  south_fork_0:
+    name: "South Fork 0, Women's Faculty Club"
+    table: south_fork_0
+    source: mayfly
+    downstream: 'south_fork_1'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-06-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-06-04T03:10Z, conductivity 761.2'
+      do:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; the AtlasSci_DO column exists in the table and has never carried a value'
+      fc:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; the AtlasSci_FloatCond column exists and has never carried a value'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; no pH channel exists in the archive'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-211.295, 1662.032]
+        suspect_range: [448.8, 1180.777]
+        spike: 145.977
+        rate_of_change: 342.468
+        attenuation_std: 0.18097
+      temperature:
+        derived: true
+        fail_range: [13.4, 20.6]
+        suspect_range: [15.4, 18.6]
+        spike: 0.6
+        rate_of_change: 0.813
+        attenuation_std: 0.0093
+      depth:
+        derived: true
+        fail_range: [65.612, 362.365]
+        suspect_range: [140.5, 247.8]
+        spike: 48.277
+        rate_of_change: 86.521
+        attenuation_std: 0.07791
+
+  south_fork_1:
+    name: 'South Fork 1, Stephens Hall'
+    table: south_fork_1
+    source: mayfly
+    downstream: 'south_fork_2'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-06-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-06-04T03:24Z, conductivity 675.7'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-253.893, 1134.519]
+        suspect_range: [140.25, 782.5]
+        spike: 131.543
+        rate_of_change: 277.794
+        attenuation_std: 0.50041
+      temperature:
+        derived: true
+        fail_range: [4.019, 25.594]
+        suspect_range: [10.1, 19.7]
+        spike: 0.7
+        rate_of_change: 1.297
+        attenuation_std: 0.01803
+      depth:
+        derived: true
+        fail_range: [-94.566, 486.898]
+        suspect_range: [52.0, 271.25]
+        spike: 72.546
+        rate_of_change: 148.934
+        attenuation_std: 0.12548
+
+  south_fork_2:
+    name: 'South Fork 2, downstream of Sather Gate'
+    table: south_fork_2
+    source: mayfly
+    downstream: 'south_fork_3'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive.
+        install: '2025-06-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-06-04T03:32Z, conductivity 648.5'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-258.096, 1176.428]
+        suspect_range: [182.572, 809.2]
+        spike: 98.28
+        rate_of_change: 256.015
+        attenuation_std: 0.27211
+      temperature:
+        derived: true
+        fail_range: [5.151, 24.946]
+        suspect_range: [10.5, 19.5]
+        spike: 0.329
+        rate_of_change: 0.8
+        attenuation_std: 0.01421
+      depth:
+        derived: true
+        fail_range: [342.713, 936.661]
+        suspect_range: [493.2, 696.2]
+        spike: 82.75
+        rate_of_change: 164.569
+        attenuation_std: 0.1161
+
+  south_fork_3:
+    name: 'South Fork 3, Weill Hall'
+    table: south_fork_3
+    source: mayfly
+    downstream: 'oxford'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        install: '2025-06-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-06-04T04:30Z, conductivity 577.8'
+      do:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2026-02-20'
+        removed: null
+        inferred: true
+        evidence: 'first AtlasSci_DO reading 2026-02-20T12:16Z, value 346.91'
+        unconfirmed: 'an older analog DO probe was here and nothing records whether the I2C probe replaced it'
+      fc:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2026-02-20'
+        removed: null
+        inferred: true
+        evidence: 'first AtlasSci_FloatCond reading 2026-02-20T12:16Z, value 157.3'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as installed here, but no pH channel exists in the archive at all; either the probe is not reporting or the table has no column for it'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-224.549, 1067.431]
+        suspect_range: [136.02, 739.698]
+        spike: 177.308
+        rate_of_change: 240.907
+        attenuation_std: 0.71979
+      temperature:
+        derived: true
+        fail_range: [10.816, 21.488]
+        suspect_range: [13.7, 18.4]
+        spike: 2.08
+        rate_of_change: 1.283
+        attenuation_std: 0.02143
+      depth:
+        derived: true
+        fail_range: [-124.435, 425.304]
+        suspect_range: [14.7, 237.947]
+        spike: 110.967
+        rate_of_change: 156.762
+        attenuation_std: 0.10578
+      dissolved_oxygen:
+        derived: true
+        fail_range: [-171.137, 518.629]
+        suspect_range: [1.863, 235.745]
+        spike: 280.192
+        rate_of_change: 251.971
+        attenuation_std: 0.10538
+      floating_conductivity:
+        derived: true
+        fail_range: [-287.415, 1107.618]
+        suspect_range: [98.743, 752.575]
+        spike: 171.656
+        rate_of_change: 336.825
+        attenuation_std: 0.80566
+
+  kingman_hall:
+    name: 'Kingman Hall Garden'
+    table: kingman_hall
+    source: mayfly
+    downstream: 'university_house'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-08-28'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2025-08-28T01:47Z, conductivity 659.5'
+      do:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, with the summer 2026 install believed to have happened; the archive ends 2026-05-08 and cannot show it'
+      fc:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, with the summer 2026 install believed to have happened; the archive ends 2026-05-08 and cannot show it'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, with the summer 2026 install believed to have happened; the archive ends 2026-05-08 and cannot show it'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-380.187, 1146.56]
+        suspect_range: [2.0, 764.2]
+        spike: 158.267
+        rate_of_change: 512.611
+        attenuation_std: 0.23847
+      temperature:
+        derived: true
+        fail_range: [8.95, 20.75]
+        suspect_range: [12.2, 17.6]
+        spike: 0.837
+        rate_of_change: 1.885
+        attenuation_std: 0.01103
+      depth:
+        derived: true
+        fail_range: [-65.193, 164.778]
+        suspect_range: [-5.2, 99.466]
+        spike: 28.397
+        rate_of_change: 50.148
+        attenuation_std: 0.08956
+
+  north_fork_0:
+    name: 'North Fork 0, Giannini Hall'
+    table: north_fork_0
+    source: mayfly
+    downstream: 'scnf010'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2024-08-30'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2024-08-30T13:17Z, conductivity 111.8'
+      do:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, not installed'
+      fc:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned, not installed'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as planned; no pH channel exists in the archive'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-334.4, 1003.2]
+        suspect_range: [0.0, 663.8]
+        spike: 148.385
+        rate_of_change: 287.806
+        attenuation_std: 0.30798
+      temperature:
+        derived: true
+        fail_range: [5.121, 24.56]
+        suspect_range: [10.9, 19.0]
+        spike: 0.9
+        rate_of_change: 1.7
+        attenuation_std: 0.01353
+      depth:
+        derived: true
+        fail_range: [-549.765, 1096.342]
+        suspect_range: [-58.276, 516.684]
+        spike: 196.148
+        rate_of_change: 325.242
+        attenuation_std: 0.1191
+
+  scnf010:
+    # >>> LIKELY WRONG, FIX THIS ONE FIRST.
+    # >>> The ctd install date below (2021-05-04) is a guess taken from a single
+    # >>> reading in May 2021. Treating the probe as deployed continuously ever
+    # >>> since manufactures 117,882 MISSING steps, by far the largest count in
+    # >>> the network. If you know when this probe actually went into the creek,
+    # >>> correct the install date below and delete the inferred line under it.
+    name: 'North Fork 1, Wickson Footbridge'
+    table: scnf010
+    source: mayfly
+    downstream: 'oxford'
+    sensors:
+      ctd:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2021-05-04'
+        removed: null
+        inferred: true
+        evidence: 'first Meter_Hydros21 reading 2021-05-04T15:50Z, conductivity 118.2'
+      do:
+        install: '2026-03-05'
+        removed: null
+        inferred: false
+        evidence: 'DO first reported 2026-03-05; archive agrees, first reading 2026-03-05T03:30Z'
+        unconfirmed: 'an older analog DO probe was here and nothing records whether the I2C probe replaced it'
+      fc:
+        install: '2026-03-05'
+        removed: null
+        inferred: false
+        evidence: 'floating conductivity first reported 2026-03-05; archive agrees, first reading 2026-03-05T03:30Z'
+      ph:
+        install: null
+        removed: null
+        unconfirmed: 'listed as installed here, but no pH channel exists in the archive at all; either the probe is not reporting or the table has no column for it'
+    thresholds:
+      conductivity:
+        derived: true
+        fail_range: [-327.537, 1024.568]
+        suspect_range: [72.5, 608.0]
+        spike: 483.265
+        rate_of_change: 340.838
+        attenuation_std: 2.94404
+      temperature:
+        derived: true
+        fail_range: [0.7, 45.1]
+        suspect_range: [13.2, 32.8]
+        spike: 6.836
+        rate_of_change: 5.3
+        attenuation_std: 0.0284
+      depth:
+        derived: true
+        fail_range: [-2559.03, 2138.503]
+        suspect_range: [-1343.34, 668.305]
+        spike: 601.356
+        rate_of_change: 414.78
+        attenuation_std: 0.74761
+      dissolved_oxygen:
+        derived: true
+        fail_range: [-23.343, 130.136]
+        suspect_range: [15.941, 90.916]
+        spike: 29.277
+        rate_of_change: 11.945
+        attenuation_std: null
+      floating_conductivity:
+        derived: true
+        fail_range: [-125.668, 838.191]
+        suspect_range: [129.042, 586.935]
+        spike: 249.398
+        rate_of_change: 20.155
+        attenuation_std: null
+
+  university_house:
+    name: 'University House'
+    table: university_house
+    source: balance_hydrologics
+    downstream: 'north_fork_0'
+    sensors:
+      stage:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-22'
+        removed: null
+        inferred: true
+        evidence: 'first depth reading 2025-05-22T14:45Z, value -2.996184'
+      balance_feed:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-22'
+        removed: null
+        inferred: true
+        evidence: 'first conductivity reading 2025-05-22T14:45Z, value 349.8'
+        unconfirmed: 'stage is the only sensor listed here, but the table also carries a year of conductivity and temperature; nobody has said what instrument produces them'
+    thresholds:
+      depth:
+        derived: true
+        fail_range: [-4895.088, 2225.04]
+        suspect_range: [-3105.912, 362.712]
+        spike: 121.92
+        rate_of_change: 222.504
+        attenuation_std: 0.1993
+      conductivity:
+        derived: true
+        fail_range: [72.7, 592.7]
+        suspect_range: [211.7, 457.4]
+        spike: 14.951
+        rate_of_change: 54.215
+        attenuation_std: 0.15506
+      temperature:
+        derived: true
+        fail_range: [0.7, 26.3]
+        suspect_range: [7.8, 19.6]
+        spike: 0.6
+        rate_of_change: 1.4
+        attenuation_std: 0.01245
+
+  oxford:
+    name: 'Oxford Street'
+    table: oxford
+    source: balance_hydrologics
+    downstream: null
+    sensors:
+      stage:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-22'
+        removed: null
+        inferred: true
+        evidence: 'first BalanceHydro_Stage2_m reading 2025-05-22T14:00Z, value 0.115824'
+      balance_feed:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-22'
+        removed: null
+        inferred: true
+        evidence: 'first conductivity reading 2025-05-22T14:00Z, value 341.3'
+        unconfirmed: 'stage is the only sensor listed here, but the table also carries a year of conductivity and temperature, and the deployed model scores both'
+    thresholds:
+      depth:
+        derived: true
+        fail_range: [-222.702, 668.545]
+        suspect_range: [0.113, 338.328]
+        spike: 103.632
+        rate_of_change: 213.36
+        attenuation_std: 0.20056
+      conductivity:
+        derived: true
+        fail_range: [78.888, 552.812]
+        suspect_range: [209.072, 426.028]
+        spike: 24.128
+        rate_of_change: 56.5
+        attenuation_std: 0.1805
+      temperature:
+        derived: true
+        fail_range: [1.402, 24.333]
+        suspect_range: [7.8, 18.2]
+        spike: 0.6
+        rate_of_change: 1.667
+        attenuation_std: 0.01865
+
+  codornices:
+    name: 'Codornices Creek'
+    table: codornices
+    source: balance_hydrologics
+    downstream: null
+    sensors:
+      stage:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-24'
+        removed: null
+        inferred: true
+        evidence: 'first depth reading 2025-05-24T00:45Z, value 0.295656'
+      balance_feed:
+        # GUESSED from the first reading in the archive. Replace with the
+        # real date when you know it, then delete the inferred line below.
+        install: '2025-05-22'
+        removed: null
+        inferred: true
+        evidence: 'first temperature reading 2025-05-22T14:00Z, value 15.36; conductivity does not start until 2025-05-24T00:45Z'
+        unconfirmed: 'stage is the only sensor listed here, but the table also carries a year of conductivity and temperature'
+    thresholds:
+      depth:
+        derived: true
+        fail_range: [-345.04, 1036.29]
+        suspect_range: [0.293, 539.496]
+        spike: 127.08
+        rate_of_change: 322.186
+        attenuation_std: 0.12645
+      conductivity:
+        derived: true
+        fail_range: [-19.358, 453.919]
+        suspect_range: [113.954, 332.746]
+        spike: 16.4
+        rate_of_change: 59.641
+        attenuation_std: 0.06665
+      temperature:
+        derived: true
+        fail_range: [5.94, 22.74]
+        suspect_range: [10.37, 18.35]
+        spike: 0.31
+        rate_of_change: 0.491
+        attenuation_std: 0.00642

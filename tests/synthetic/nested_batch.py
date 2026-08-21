@@ -17,7 +17,7 @@ from strawberrywatch.models.Cobble_Shoal import (
     build_variable_adjacency,
     inventory_matrix,
 )
-from tests import creek_synthetic
+from tests.synthetic import creek_synthetic
 
 # Window length the reconstruction head was built for. A batch whose time axis
 # disagrees with it does not fail loudly, it fails at the matmul, so it is

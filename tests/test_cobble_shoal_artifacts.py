@@ -13,7 +13,7 @@ import pytest
 import torch
 
 from strawberrywatch.anomalies import cobble_calibration
-from tests import nested_batch
+from tests.synthetic import nested_batch
 
 
 @pytest.fixture(scope="module")
@@ -71,7 +71,7 @@ def test_a_faulted_node_outscores_the_clean_window(model, calibration):
     Not a detection claim, just evidence the score responds to the input at
     all. A frozen node against the same window it was frozen out of.
     """
-    from tests import creek_synthetic
+    from tests.synthetic import creek_synthetic
 
     clean = nested_batch.build_batch()
     win = creek_synthetic.make_synthetic_creek(

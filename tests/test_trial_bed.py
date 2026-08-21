@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from strawberrywatch import inventory as inv
 from strawberrywatch.anomalies.rain_gate import RainGate
 from strawberrywatch.models.Cobble_Shoal import CobbleShoal
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
@@ -232,8 +233,8 @@ def test_flipping_one_direction_in_the_table_changes_the_answer():
     assert classify(observed)["cause"] == "sewage"
 
     mutated = copy.deepcopy(sig.SIGNATURES)
-    direction, magnitude = mutated["sewage"]["conductivity"]
-    mutated["sewage"]["conductivity"] = (OPPOSITE[direction], magnitude)
+    direction, magnitude, why = mutated["sewage"]["conductivity"]
+    mutated["sewage"]["conductivity"] = (OPPOSITE[direction], magnitude, why)
 
     after = classify(observed, table=mutated)
     assert after["cause"] != "sewage" or after["ranked"][0]["score"] < 1.0
@@ -319,3 +320,170 @@ def test_the_account_names_the_cause_the_evidence_and_the_confidence():
     assert entry["confidence"].startswith("good")
     for phrase in ("conductivity up", "temperature up", "dissolved oxygen down"):
         assert phrase in entry["explanation"]
+
+
+# The table itself
+
+
+def test_every_cell_carries_its_mechanism():
+    """
+    Item 16. A direction with no mechanism is a claim nobody can argue with, so
+    the table is refused rather than shipped half sourced.
+    """
+    for pollutant, row in sig.SIGNATURES.items():
+        for param, cell in row.items():
+            assert len(cell) == 3, f"{pollutant}.{param} has no mechanism"
+            _direction, _magnitude, why = cell
+            assert isinstance(why, str) and len(why.split()) >= 3, (
+                f"{pollutant}.{param} mechanism is too thin to be sourcing: {why!r}"
+            )
+
+
+def test_the_table_holds_the_directions_it_should():
+    """The five rows, spelled out, so any drift in the table trips here."""
+    expected = {
+        "rain": (sig.INDET, sig.UP, sig.DOWN, sig.DOWN, sig.DOWN),
+        "tapwater": (sig.DOWN, sig.DOWN, sig.UP, sig.DOWN, sig.DOWN),
+        "oil": (sig.UP, sig.DOWN, sig.DOWN, sig.DOWN, sig.DOWN),
+        "sewage": (sig.UP, sig.DOWN, sig.INDET, sig.UP, sig.UP),
+        "fertilizer": (sig.FLAT, sig.DOWN, sig.INDET, sig.UP, sig.UP),
+    }
+    assert set(expected) == set(sig.SIGNATURES)
+    for pollutant, directions in expected.items():
+        actual = tuple(sig.direction(pollutant, p) for p in sig.PARAMETERS)
+        assert actual == directions, pollutant
+
+
+def test_oil_marks_the_two_major_moves():
+    assert sig.SIGNATURES["oil"]["dissolved_oxygen"][1] == sig.MAJOR
+    assert sig.SIGNATURES["oil"]["floating_conductivity"][1] == sig.MAJOR
+
+
+def test_the_tapwater_constants_are_numbers_and_are_testable():
+    """Item 17. Berkeley tap water, encoded rather than left as a direction."""
+    assert sig.TAPWATER_TEMP_C == 13.0
+    assert sig.TAPWATER_PH == 9.4
+
+    assert sig.looks_like_tapwater_temperature(13.2)
+    assert not sig.looks_like_tapwater_temperature(18.0)
+    assert sig.looks_like_tapwater_ph(9.2)
+    assert not sig.looks_like_tapwater_ph(7.0)
+
+
+def test_the_hydrant_event_is_recorded_as_an_exception_and_the_row_is_unchanged():
+    """
+    Item 20. The March 2026 break showed no temperature move, which contradicts
+    the tapwater row. That is a finding for the group, not an edit.
+    """
+    exceptions = [e for e in sig.KNOWN_EXCEPTIONS if e["row"] == "tapwater"]
+    assert exceptions, "the hydrant contradiction is not recorded anywhere"
+
+    hydrant = exceptions[0]
+    assert hydrant["parameter"] == "temperature"
+    assert hydrant["site"] == "north_fork_0"
+    assert "2026-03-20" in hydrant["event"]
+    assert hydrant["expected"] == sig.DOWN and hydrant["observed"] == sig.FLAT
+
+    # the row itself still says the same thing
+    assert sig.direction("tapwater", "temperature") == sig.DOWN
+
+
+# Degrading honestly
+
+
+def test_how_many_signatures_each_site_can_evaluate_today():
+    """
+    Item 18 and 33. No site has a pH probe reporting, and rain, tapwater and oil
+    all assert a pH direction, so only the two rows with an indeterminate pH can
+    be judged anywhere.
+    """
+    bed = TrialBed()
+    per_site = bed.evaluable_per_site()
+
+    assert set(per_site) == set(inv.load().tables)
+    for site, rows in per_site.items():
+        assert set(rows) <= set(sig.SIGNATURES)
+        if site in ("south_fork_3", "scnf010"):
+            assert sorted(rows) == ["fertilizer", "sewage"], site
+        else:
+            assert rows == [], site
+
+
+def test_a_row_needing_ph_is_never_scored_without_ph():
+    """Never a partial match and never a default."""
+    observed = {
+        "temperature": sig.DOWN,
+        "dissolved_oxygen": sig.DOWN,
+        "conductivity": sig.DOWN,
+        "floating_conductivity": sig.DOWN,
+    }
+    result = classify(observed)
+    assert "tapwater" in result["unevaluable"]
+    assert "ph" in result["unevaluable"]["tapwater"]
+    assert result["cause"] != "tapwater"
+
+
+def test_a_probe_never_fitted_and_a_probe_gone_silent_read_differently():
+    """
+    Item 19. Both are the same silence in the data. They are different problems
+    and they get different sentences.
+    """
+    from strawberrywatch.support_modules.trial_bed import (
+        INSTALLED_NO_DATA,
+        NEVER_INSTALLED,
+        absence_reasons,
+    )
+
+    never = absence_reasons("south_fork_3", {})
+    assert never["ph"] == NEVER_INSTALLED
+
+    # south_fork_3 has a DO probe fitted since 2026-02-20, so a window with no
+    # DO reading is a silent probe rather than an absent one
+    assert never["dissolved_oxygen"] == INSTALLED_NO_DATA
+
+    silent_sentence = classify({}, reasons=never)["explanation"]
+    absent_sentence = classify({}, reasons={"ph": NEVER_INSTALLED})["explanation"]
+    assert "never installed here" in silent_sentence
+    assert "installed but reporting nothing" in silent_sentence
+    assert silent_sentence != absent_sentence
+
+
+def test_an_unevaluable_site_says_what_was_missing_rather_than_going_quiet():
+    result = classify({"conductivity": sig.DOWN}, reasons={"ph": "never_installed"})
+    assert result["verdict"] == "cannot_evaluate"
+    assert result["cause"] is None
+    assert "pH" in result["note"] or "pH" in result["explanation"]
+
+
+# It cannot move a detection
+
+
+@pytest.mark.parametrize(
+    "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
+)
+def test_it_spends_no_false_alarm_budget_on_either_model(model):
+    """Item 21. Same firings with the explainer attached and without it."""
+    import numpy as np
+
+    from strawberrywatch.anomalies.rain_gate import RainGate
+    from strawberrywatch.support_modules import SupportStack, base
+
+    nodes = ["south_fork_1", "south_fork_2", "oxford"]
+    steps = 24
+    rng = np.random.default_rng(11)
+    scores = rng.normal(40, 5, (steps, len(nodes)))
+    pvalues = rng.uniform(0, 1, (steps, len(nodes)))
+    rain = np.zeros(steps)
+
+    gate = RainGate(base_threshold=39.13047989749433)
+    without = SupportStack([]).decisions(gate, scores, pvalues, rain, nodes, window={})
+    with_bed = SupportStack.load(["trial_bed"], model).decisions(
+        gate, scores, pvalues, rain, nodes, window={}
+    )
+
+    fired_without = {(r["timestep"], r["node"]) for r in without if r["verdict"] == base.FIRED}
+    fired_with = {(r["timestep"], r["node"]) for r in with_bed if r["verdict"] == base.FIRED}
+    assert fired_without == fired_with
+
+    for record in with_bed:
+        assert record["verdict_without"]["trial_bed"] == record["verdict"]

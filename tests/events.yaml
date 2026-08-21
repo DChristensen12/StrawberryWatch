@@ -1,0 +1,140 @@
+# ==================================================================
+# LABELLED EVENTS
+#
+# Real things that happened in the creek, and what the detector is
+# expected to say about each one. This file is the evidence base. The
+# synthetic sweep under tests/synthetic/ is the controlled complement
+# to it, not a substitute.
+#
+# To add an event you need two things:
+#
+#   1. A folder under data/anomalies/ holding one CSV per site, named
+#      by the site. Cut it out of data/raw_data/ with:
+#
+#        python scripts/rebuild_fixture.py --folder <folder> --site <site> --output <path>
+#
+#   2. One entry below. Nothing else. No test code changes.
+#
+# Check your edit:  python -m pytest tests/test_event_catalog.py -q
+# ==================================================================
+#
+# Each entry:
+#
+#   folder   the directory name under data/anomalies/
+#   group    a short handle used in test names and reports
+#   site     the node whose conductivity error is scored, in the
+#            model's vocabulary (north_fork_0, footbridge,
+#            south_fork_1, south_fork_2, oxford)
+#   label    what the detector must say, one of:
+#
+#              anomaly        must cross the threshold
+#              true_negative  must stay below it
+#              relative_only  known event, not graded. Nothing
+#                             consumes this label yet, so it is a
+#                             record of an event we know about rather
+#                             than coverage of it.
+#
+#   note     why the event is in the list and anything odd about it
+#
+# One event scored at two sites is two entries with the same folder.
+# ==================================================================
+
+events:
+  - folder: anomaly_2025_06_12_spill_sf
+    group: jun25_spill
+    site: south_fork_1
+    label: anomaly
+    note: >
+      June 2025 south-fork spill, propagating downstream.
+      Confirmed real by SCMG.
+
+  - folder: anomaly_2025_06_12_spill_sf
+    group: jun25_spill
+    site: south_fork_2
+    label: relative_only
+    note: The downstream half of the June spill, judged by comparison rather than threshold.
+
+  - folder: anomaly_2025_08_sprinklers_nf0
+    group: aug25_sprinklers
+    site: north_fork_0
+    label: relative_only
+    note: >
+      August 2025 sprinkler runoff at north_fork_0. The fixture has been on disk
+      since the folder was built and has never been graded. It is judgeable:
+      206 rows at nf0 on a clean 15-minute cadence, 182 scorable steps after the
+      sequence window, well past MIN_TIMESTEPS_TO_JUDGE. Scored through the
+      event path on 2026-08-21 it peaks at 70.80 against a base threshold of
+      12.09, so the signal is there and is 5.9x the bar, but only 2 points clear
+      it and flagging needs 3. Promoting it to anomaly today would add a fourth
+      failure with the same cause as the other three, so it is left ungraded
+      until MIN_TIMESTEPS_OVER_THRESHOLD is settled. Change relative_only to
+      anomaly to grade it; nothing else has to change.
+
+  - folder: anomaly_2025_09_10_overnight_sf
+    group: sep25_overnight
+    site: south_fork_1
+    label: anomaly
+    note: September overnight conductivity spike across the south fork.
+
+  - folder: anomaly_2025_09_10_overnight_sf
+    group: sep25_overnight
+    site: south_fork_2
+    label: anomaly
+    note: >
+      The same overnight spike at the downstream node. Known failure: the peak
+      clears the threshold but only on one timestep, and flagging needs three.
+
+  - folder: anomaly_2025_11_05_foam_nf1
+    group: nov25_foam
+    site: north_fork_0
+    label: relative_only
+    note: >
+      November foam event. Footbridge is the labelled site but its sensor is
+      broken for this window, so the target falls back to north_fork_0 as the
+      nearest live north-fork node, judged relative since nf0 was the contrast.
+
+  - folder: anomaly_2025_11_13_rain_nf1
+    group: nov25_rain
+    site: north_fork_0
+    label: relative_only
+    note: November storm, same footbridge problem, nf0 as the live north stand-in.
+
+  - folder: anomaly_2026_04_01_rainfall
+    group: apr26_rainfall
+    site: north_fork_0
+    label: true_negative
+    note: >
+      April rainfall, confirmed heavy rain. Known failure: five points cross the
+      rain-adjusted threshold where at most two are allowed.
+
+  - folder: anomaly_2026_04_01_rainfall
+    group: apr26_rainfall
+    site: south_fork_2
+    label: true_negative
+    note: The same rainfall at the downstream south node. sf1 is absent this window.
+
+  - folder: anomaly_2026_03_20_hydrant_nf0
+    group: mar26_hydrant
+    site: north_fork_0
+    label: anomaly
+    note: >
+      Euclid Avenue fire-hydrant break running into the North Fork. Confirmed
+      real; sf1 absent this window. Known failure: two points cross the
+      threshold and flagging needs three. See KNOWN_EXCEPTIONS in
+      support_modules/spill_signatures.py for the temperature anomaly.
+
+
+# ==================================================================
+# EVENTS ON DISK THAT ARE DELIBERATELY NOT LISTED
+#
+# anomaly_2026_01_botanical_actuator
+#   The botanical-garden actuator malfunction, January to February 2026. It was
+#   scored against oxford and has been removed. The malfunction is at
+#   botanical_garden, which is not a graph node, so the label was attached to
+#   oxford downstream, and oxford shows no corresponding signal in its own
+#   conductivity trace. The span is also 55 days, which is a period of interest
+#   rather than an event: as a point label it marks 5,279 steps, 16.89% of
+#   oxford's record, so any detector that stays on through February scores well
+#   on it for no reason. The fixture stays in data/anomalies/ in case botanical
+#   is ever wired in as a real node. See TRAIN_SERVE_AUDIT.md.
+# ==================================================================

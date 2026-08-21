@@ -9,6 +9,7 @@ from strawberrywatch.anomalies import anomaly_detector as _ad
 from strawberrywatch.anomalies.anomaly_detector import _rain_multipliers
 from strawberrywatch.config import Config
 from strawberrywatch.models import model_calls
+from tests import event_catalog
 
 ROOT = Path(__file__).parent.parent
 ANOMALY_DIR = ROOT / "data" / "anomalies"
@@ -41,45 +42,23 @@ MIN_TIMESTEPS_TO_JUDGE = _ad.MIN_TIMESTEPS_TO_JUDGE
 MIN_TIMESTEPS_OVER_THRESHOLD = _ad.MIN_TIMESTEPS_OVER_THRESHOLD
 
 
-# (event_folder, target_site, label)
-# label: "anomaly" must flag, "true_negative" must not flag, "relative_only"
-# judged by comparison rather than absolute threshold. target_site is the node
-# whose conductivity error we score, named in the model's vocabulary.
+# The catalog moved out to tests/events.yaml. It used to be this list, plus a
+# drifting second copy of it in scripts/run_audit_comparison.py, which made
+# adding an event a code edit in two places and made the two able to disagree
+# about what a label meant. Both now read tests/event_catalog.py.
+#
+# Still four-tuples of (event_folder, target_site, label, group), because that
+# is what the two parametrize blocks below want. label: "anomaly" must flag,
+# "true_negative" must not flag, "relative_only" judged by comparison rather
+# than absolute threshold. target_site is the node whose conductivity error we
+# score, named in the model's vocabulary.
 #
 # Heads up: nothing consumes "relative_only". Only test_anomaly_detected and
 # test_true_negative_not_flagged parametrize off this list, and they filter to
-# their own labels, so the three relative_only rows below are documentation of
-# events we know about, not coverage. Writing the comparison test would turn
-# them back into real cases.
-EVENT_CATALOG = [
-    # June 2025 south-fork spill, propagating downstream. Confirmed real by SCMG.
-    ("anomaly_2025_06_12_spill_sf", "south_fork_1", "anomaly", "jun25_spill"),
-    ("anomaly_2025_06_12_spill_sf", "south_fork_2", "relative_only", "jun25_spill"),
-    # September overnight conductivity spike across the south fork.
-    ("anomaly_2025_09_10_overnight_sf", "south_fork_1", "anomaly", "sep25_overnight"),
-    ("anomaly_2025_09_10_overnight_sf", "south_fork_2", "anomaly", "sep25_overnight"),
-    # November foam event. Footbridge is the labeled site but its sensor is
-    # broken for this window, so the target falls back to north_fork_0 as the
-    # nearest live north-fork node, judged relative since nf0 was the contrast.
-    ("anomaly_2025_11_05_foam_nf1", "north_fork_0", "relative_only", "nov25_foam"),
-    # November storm, same footbridge problem, nf0 as the live north stand-in.
-    ("anomaly_2025_11_13_rain_nf1", "north_fork_0", "relative_only", "nov25_rain"),
-    # April rainfall, confirmed heavy rain. True negatives under rain-adjusted
-    # threshold. sf1 is absent this window so it is not listed.
-    ("anomaly_2026_04_01_rainfall", "north_fork_0", "true_negative", "apr26_rainfall"),
-    ("anomaly_2026_04_01_rainfall", "south_fork_2", "true_negative", "apr26_rainfall"),
-    # Botanical actuator malfunction Jan to Feb 2026 was scored here against
-    # oxford and has been removed. The malfunction is at botanical_garden, which
-    # is not a graph node, so the label was attached to oxford downstream, and
-    # oxford shows no corresponding signal in its own conductivity trace. The
-    # span is also 55 days, which is a period of interest rather than an event:
-    # as a point label it marks 5,279 steps, 16.89% of oxford's record, so any
-    # detector that stays on through February scores well on it for no reason.
-    # The fixture stays in data/anomalies/ in case botanical is ever wired in as
-    # a real node. See TRAIN_SERVE_AUDIT.md.
-    # Fire-hydrant spill at north fork 0. Confirmed real. sf1 absent this window.
-    ("anomaly_2026_03_20_hydrant_nf0", "north_fork_0", "anomaly", "mar26_hydrant"),
-]
+# their own labels, so the relative_only rows are documentation of events we
+# know about, not coverage. Writing the comparison test would turn them back
+# into real cases.
+EVENT_CATALOG = [e.as_tuple() for e in event_catalog.load()]
 
 
 def _load_threshold(model_metadata, target_site):

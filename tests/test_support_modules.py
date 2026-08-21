@@ -1,11 +1,9 @@
 """
 The registry, the kinds, the stack, the budget split and the audit record.
 
-Newtwork Run and Settling Pool are placeholders and every method raises.
-Reaching the raise is the point: it proves the call got all the way to the
-module. Trial Bed is implemented, so it is exercised for real, and what it
-says is pinned in tests/test_trial_bed.py. Anything needing a number uses a
-stub defined here.
+All three modules answer for real now. What each one says is pinned in its
+own file: tests/test_trial_bed.py, tests/test_settling_pool.py and
+tests/test_newtwork_run.py. Anything needing a number uses a stub defined here.
 """
 
 from __future__ import annotations
@@ -13,6 +11,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from strawberrywatch.anomalies.rain_gate import RainGate, fired
@@ -30,6 +29,17 @@ from strawberrywatch.support_modules.settling_pool import SettlingPool
 from strawberrywatch.support_modules.trial_bed import TrialBed
 
 BASE_THRESHOLD = 39.13047989749433
+
+# What each explainer says about the same two firings. Written down rather than
+# recomputed, so a module that changes its mind has to change this too.
+_VERDICTS_BY_MODULE = {
+    "newtwork_run": [
+        "consistent_with_transport",
+        "consistent_with_transport",
+        "nothing_to_explain",
+    ],
+    "trial_bed": ["cannot_evaluate"] * 3,
+}
 NODES = ["n1", "n2", "n3"]
 T = 12
 
@@ -172,21 +182,27 @@ def test_every_module_exposes_name_describe_and_validate():
         module.validate(CobbleShoal)
 
 
-def test_placeholders_raise_and_say_what_they_will_do():
+def test_every_module_answers_rather_than_raising():
     """
-    Each placeholder raises from its one required method, and the message names
-    the job. A bare NotImplementedError would leave the next person reading the
-    class name to guess.
+    All three are implemented. Each returns its own kind's shape for real sites.
+
+    Real site names, because every module now reads the inventory and a made up
+    node is a different test (that one lives further down).
     """
-    window, nodes = {}, NODES
+    sites = ["south_fork_1", "south_fork_2", "oxford"]
+    fired = np.zeros((T, len(sites)), dtype=bool)
 
-    with pytest.raises(NotImplementedError) as exc:
-        NewtworkRun().score(window, nodes)
-    assert "downstream" in str(exc.value) and "budget" in str(exc.value)
+    accounts = NewtworkRun().explain({}, sites, fired)
+    assert len(accounts) == len(sites)
+    assert all(a["verdict"] == "nothing_to_explain" for a in accounts)
 
-    with pytest.raises(NotImplementedError) as exc:
-        SettlingPool().admit(window, nodes)
-    assert "before the model" in str(exc.value)
+    index = pd.date_range("2026-03-01", periods=T, freq="15min", tz="UTC")
+    flags = SettlingPool().flags({"raw": None, "timestamps": index}, sites)
+    assert set(k[0] for k in flags) == set(sites)
+    assert all(len(v) == T for v in flags.values())
+
+    accounts = TrialBed().explain({}, sites, fired)
+    assert len(accounts) == len(sites)
 
 
 def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
@@ -571,23 +587,26 @@ def test_one_record_per_timestep_per_node():
 @pytest.mark.parametrize(
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
-@pytest.mark.parametrize("name,phrase", [("newtwork_run", "Newtwork Run")])
-def test_the_same_module_reaches_both_models(model, name, phrase):
+@pytest.mark.parametrize("name", ["newtwork_run", "trial_bed"])
+def test_the_same_module_reaches_both_models(model, name):
     """
     The point of the framework: one module, two models with different input
-    contracts, one path to the module's method.
+    contracts, one path to the module's method, and the same answer out.
 
-    NotImplementedError is the pass condition. It is raised by the placeholder
-    itself, which means the call travelled from the stack through the module
-    and arrived, and it arrived identically for a sequence-contract model and a
-    nested-node-contract one. The message is matched so that the raise is known
-    to come from the module rather than from anything on the way.
+    Arriving is not enough now that the modules are implemented, so the answers
+    are compared across the two models rather than just checked for shape.
     """
+    sites = ["south_fork_1", "south_fork_2", "oxford"]
+    fired = np.zeros((T, len(sites)), dtype=bool)
+    fired[3, 0] = True
+    fired[5, 1] = True
+
     stack = SupportStack.load([name], model)
     assert stack.names == [name]
 
-    with pytest.raises(NotImplementedError, match=phrase):
-        stack.detector_results({}, NODES)
+    accounts = stack.explanations({}, sites, fired)[name]
+    assert len(accounts) == len(sites)
+    assert [a["verdict"] for a in accounts] == _VERDICTS_BY_MODULE[name]
 
 
 @pytest.mark.parametrize(
@@ -614,9 +633,19 @@ def test_the_explainer_reaches_both_models_too(model):
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_the_screen_reaches_both_models_too(model):
+    """
+    The screen answers for both models, and the grid it returns is the model's
+    FLAG_POLICY applied to the same flags. Both models exclude FAIL and MISSING
+    today, so both grids match; the flags underneath are identical regardless.
+    """
+    sites = ["south_fork_1", "south_fork_2", "oxford"]
+    index = pd.date_range("2026-03-01", periods=T, freq="15min", tz="UTC")
+    window = {"raw": None, "timestamps": index, "model": model}
+
     stack = SupportStack.load(["settling_pool"], model)
-    with pytest.raises(NotImplementedError, match="Settling Pool"):
-        stack.admit({}, NODES, (T, len(NODES)))
+    admitted = stack.admit(window, sites, (T, len(sites)))
+    assert admitted.shape == (T, len(sites))
+    assert admitted.dtype == bool
 
 
 def test_the_framework_names_no_model():
@@ -733,3 +762,69 @@ def test_a_module_that_needs_a_contract_is_checked_against_it():
     NestedOnly().validate(CobbleShoal)
     with pytest.raises(base.SupportError, match="nested_node_batch"):
         NestedOnly().validate(DuskCrayfish)
+
+
+def test_no_module_names_a_model():
+    """
+    Item 26. Every module attaches to both models, so none of them may name one,
+    import one, or branch on one.
+    """
+    import ast
+    import inspect
+
+    from strawberrywatch import inventory
+    from strawberrywatch.support_modules import (
+        newtwork_run,
+        qc_tests,
+        settling_pool,
+        spill_signatures,
+        trial_bed,
+    )
+
+    forbidden = ("DuskCrayfish", "CobbleShoal", "Dusk_Crayfish", "Cobble_Shoal", "dusk_crayfish")
+    modules = (
+        inventory,
+        qc_tests,
+        spill_signatures,
+        settling_pool,
+        trial_bed,
+        newtwork_run,
+    )
+
+    for module in modules:
+        src = inspect.getsource(module)
+        for token in forbidden:
+            assert token not in src, f"{module.__name__} names the model {token}"
+
+        tree = ast.parse(src)
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+        # settling_pool reaches contracts for the reshape, which is the contract
+        # layer rather than a model, and it does so inside the function
+        assert not any(m.startswith("strawberrywatch.models.") for m in imported), (
+            f"{module.__name__} imports a model module: {sorted(imported)}"
+        )
+
+
+def test_the_inventory_describes_more_of_the_creek_than_the_graph_builds():
+    """
+    Item 3. The inventory has to carry the full topology while the deployed
+    model keeps running on its four nodes, so the gap is pinned rather than
+    left to be noticed later.
+    """
+    from strawberrywatch import inventory
+    from strawberrywatch.config import Config
+
+    inv = inventory.load()
+    assert len(inv.sites) == 11
+    assert set(Config.LOCATIONS) < set(inv.sites)
+    assert len(Config.LOCATIONS) == 4
+
+    # every deployed node is described, and the inventory adds seven more
+    missing = sorted(set(inv.sites) - set(Config.LOCATIONS))
+    assert len(missing) == 7
+    assert "south_fork_3" in missing and "university_house" in missing

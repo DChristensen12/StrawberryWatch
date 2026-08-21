@@ -29,7 +29,7 @@ dev = ["ruff", "pre-commit", "pytest"]
 include = ["strawberrywatch*"]
 
 [tool.setuptools.package-data]
-strawberrywatch = ["settings.yaml"]
+strawberrywatch = ["settings.yaml", "inventory.yaml"]
 
 [tool.ruff]
 line-length = 100
@@ -56,6 +56,9 @@ ignore = ["E501"]
 # Stranded until --visualize is ported to the per-node shape, see main.py. The
 # unused arguments are the old collapsed-scalar signature.
 "strawberrywatch/utils/visualizations.py" = ["ARG001"]
+
+# explain() takes the standard window and reads only the fired grid.
+"strawberrywatch/support_modules/newtwork_run.py" = ["ARG002"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["strawberrywatch"]

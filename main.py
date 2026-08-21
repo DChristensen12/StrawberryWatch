@@ -74,12 +74,15 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
     return aligned_seq, aligned_tgt, report
 
 
-def _support_window(sequences, targets, timestamps, node_mask, df_original):
+def _support_window(sequences, targets, timestamps, node_mask, df_original, model=None):
     """
     What a support module is handed as its window.
 
     A dict and not a class: the three kinds read different parts of it, and
     fixing a structure now would be guessing at modules nobody has written yet.
+
+    model is the class, not an instance, and it is here so a screen can read the
+    FLAG_POLICY it declares. Nothing reads which model it is.
     """
     return {
         "sequences": sequences,
@@ -87,6 +90,7 @@ def _support_window(sequences, targets, timestamps, node_mask, df_original):
         "timestamps": timestamps,
         "node_mask": node_mask,
         "raw": df_original,
+        "model": model,
     }
 
 
@@ -236,7 +240,9 @@ def main(
     # Node names in the order the score columns come out in, which is what
     # every support module is handed alongside its window.
     site_order = [site for site, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
-    support_window = _support_window(sequences, targets, timestamps, node_mask_seq, df_original)
+    support_window = _support_window(
+        sequences, targets, timestamps, node_mask_seq, df_original, model=ModelClass
+    )
 
     # Screens run here, before the model sees anything, which is the whole
     # reason they are a separate kind. node_mask_seq is what carries "this
@@ -244,7 +250,12 @@ def main(
     # narrows that mask rather than editing the readings themselves.
     if stack.screens:
         admitted = stack.admit(support_window, site_order, (len(sequences), len(site_order)))
+        withheld = int((~admitted).sum())
         node_mask_seq = node_mask_seq & admitted[:, None, :]
+        print(
+            f"screens withheld {withheld} of {admitted.size} node-timesteps "
+            f"({100 * withheld / admitted.size:.2f}%)"
+        )
 
     num_node_features = len(feature_cols)
 

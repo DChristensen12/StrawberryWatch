@@ -138,7 +138,7 @@ def load_and_preprocess_data(
                     sys.exit(1)
                 print("Falling back to existing local file.")
             else:
-                # Rename raw MMW column names to internal ones. API exposes 3 features
+                # Rename raw logger column names to internal ones. API exposes 3 features
                 # (cond, depth, temp) plus battery; SQL may have more. Extra columns pass
                 # through with their raw names and get picked up as model features.
                 column_mapping = {

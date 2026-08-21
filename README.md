@@ -14,10 +14,12 @@
 
 This repository is the research and development counterpart to the production monitoring platform. It is where anomaly detection models are built, tested against historical events, and validated!
 
+New here? Start with the [User Manual](USER_MANUAL.md). Currently deployed: Dusk Crayfish (as of 2026-08-20).
+
 
 ## The Creek
 
-The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weil Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
+The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weill Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), Oxford Street, and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
 
 ### Sensors + Measured Metrics
 
@@ -104,11 +106,22 @@ so switching one on makes the model slightly less sensitive elsewhere).
 </table>
 
 
-## What the deployed Model does
+## What is deployed
 
-The currently depoloyed model, Dusk Crayfish, learns the creek's normal behavior from sensor data and flags deviations that look like spills or contamination events, without being trained on labeled anomalies. It treats the creek as a connected graph of sensor sites and combines a graph neural network with an Long Short Term Memory architecture to reason about both where a sensor sits in the flow and how its readings change over time.
+**Dusk Crayfish** is the model currently running, as of 2026-08-20. Update the
+date whenever the deployment changes. Nothing else in the code records which
+model is live.
 
-The map below shows these sensors on the actual creek, with each fork tracing the real water flow down to the Oxford Street confluence.
+Dusk Crayfish learns the creek's normal behavior from sensor data and flags
+deviations that look like spills or contamination events, without being trained
+on labeled anomalies. It treats the creek as a connected graph of sensor sites
+and combines a graph neural network with a Long Short Term Memory architecture
+to reason about both where a sensor sits in the flow and how its readings change
+over time.
+
+The map below shows the sensors on the actual creek, with each fork tracing the
+real water flow down to the Oxford Street confluence. To see the creek in more
+detail, view the map on the Strawberry Creek website.
 
 <p align="center">
   <img src="assets/diagrams/Strawberry_Creek_Physical_Graph_Topology.png" width="80%">
@@ -116,62 +129,11 @@ The map below shows these sensors on the actual creek, with each fork tracing th
 
 <p align="center"><i>The physical sensor network along Strawberry Creek, overlaid on the creek's real flow. Both forks converge at the Oxford Street confluence. This is the full field deployment, not the modeled graph: four of these sites are modeled, north_fork_0, south_fork_1, south_fork_2, and Oxford.</i></p>
 
-To see the entire creek in more detail, you can view the map on the Strawberry Creek website. The same network, expressed as the directed flow graph the system reasons over, looks like this.
-
-```mermaid
-graph LR
-    %% Main Horizontal Network Layout with non-breaking spaces
-    subgraph ST_Backbone [Strawberry&nbsp;Creek&nbsp;Network&nbsp;Topology]
-        %% South Fork Path
-        BG([Botanical Garden]) --> SF0([South Fork 0])
-        SF0 --> SF1([South Fork 1])
-        SF1 --> SF2([South Fork 2])
-        SF2 --> SF3([South Fork 3])
-
-        %% North Fork Path
-        KH([Kingman Garden]) --> UH([University House])
-        UH --> NF0([North Fork 0])
-        NF0 --> NF1([North Fork 1])
-
-        %% Convergence Sink
-        SF3 --> OX{Oxford Street}
-        NF1 --> OX
-
-        %% Isolated Node kept inline horizontally
-        CC[[Codornices Creek]]
-    end
-
-    %% Invisible anchor point to snap legend cleanly underneath without lines
-    link_spacer[ ]
-    style link_spacer fill:none,stroke:none;
-
-    SF2 ~~~ link_spacer
-    link_spacer ~~~ Legend
-
-    %% Compact Legend Box
-    subgraph Legend [Diagram Legend]
-        direction LR
-        L1([Nodes: Sensors]) ~~~ L2{Sink: Convergence} ~~~ L3[[Isolated Node]] ~~~ L4_Start[ ] -->|Edges: Flow Path| L4_End[ ]
-    end
-
-    %% Tighten layout constraints inside the legend elements
-    style L4_Start width:0px,height:0px,fill:none,stroke:none;
-    style L4_End width:0px,height:0px,fill:none,stroke:none;
-
-    %% Color Palette Configurations
-    classDef nodeStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    classDef targetStyle fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
-    classDef controlStyle fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#cbd5e1,stroke-dasharray: 5 5;
-    classDef legendStyle fill:none,stroke:#64748b,stroke-width:1px;
-
-    class BG,SF0,SF1,SF2,SF3,KH,UH,NF0,NF1,L1 nodeStyle;
-    class OX,L2 targetStyle;
-    class CC,L3 controlStyle;
-    class Legend legendStyle;
-```
-<p align="center"><i>Full Graph Topology: Complete physical watershed sensor footprint of the Strawberry Creek monitoring network.</i></p>
-
-The model is trained and validated on a four-node core of this network, the main flow path where conductivity data is reliable. That active subgraph is shown below, with the remaining sites slated to be brought in as their data ingestion is completed. The north path runs straight from north_fork_0 to Oxford because the footbridge node between them was retired; the water still flows that way, there is just no sensor reporting in between.
+The model is trained and validated on a four-node core of that network, the main
+flow path where conductivity data is reliable. The remaining sites are brought in
+as their data ingestion is completed. The north path runs straight from
+north_fork_0 to Oxford because the footbridge node between them was retired; the
+water still flows that way, there is just no sensor reporting in between.
 
 ```mermaid
 graph LR
@@ -201,141 +163,38 @@ graph LR
     class OX targetStyle;
     class CC controlStyle;
 ```
+
 <p align="center"><i>Dusk Crayfish Active Graph Topology: the 4-node subnetwork the model actually trains and serves on.</i></p>
 
-The system pulls sensor readings, merges in weather, learns what normal looks like across the whole network, and then scores new data by how badly the model fails to predict it. A large, sustained prediction error on conductivity that shows up across connected sites is the signature of a real event.
+The system pulls sensor readings, merges in weather, learns what normal looks
+like across the whole network, and then scores new data by how badly the model
+fails to predict it. A large, sustained prediction error on conductivity that
+shows up across connected sites is the signature of a real event.
 
-The model is unsupervised. It is trained only to predict the next reading from recent history. Anything it cannot predict well is, by definition, something it has not seen before, which is what an anomaly is.
+The model is unsupervised. It is trained only to predict the next reading from
+recent history. Anything it cannot predict well is, by definition, something it
+has not seen before, which is what an anomaly is.
 
-## Setup
+## Learning to use StrawberryWatch
 
-Clone the repository and create a virtual environment using Python 3.12, then install the package in editable mode.
+Everything about installing, running and changing this system lives in the
+**[User Manual](USER_MANUAL.md)**. It is the place to start, and it is beginner friendly
+(including to those who have never written in Python and/or have never used a terminal before).
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-```
+It covers setting up Python and a virtual environment from scratch, running each
+mode with the output you should expect on your screen, editing the sensor
+inventory, running the tests, and what to do when something goes wrong. Work
+through it in order the first time.
 
-The editable install is not optional. Everything imports from the `strawberrywatch` package, so without it a fresh clone will fail on the first import. It also means the scripts and tests work from any directory rather than only from the repository root.
-
-The system needs environment variables for data and weather access. Copy `.env.example` to `.env` in the repository root and fill in what applies to your setup.
-
-### Layout and imports
-
-All library code lives in one package, `strawberrywatch/`. Everything else stays at the repository root and is not part of the installable package.
-
-```
-strawberrywatch/        the importable package
-  config.py             settings, loaded from settings.yaml next to it
-  paths.py              locates data/ and checkpoints/ relative to the project root
-  ingest/  preprocessing/  models/  training/  anomalies/  utils/
-main.py                 pipeline entry point
-scripts/                operational and verification scripts
-assets/                 logos/, biota/ (creek life), diagrams/ (graphs and maps)
-tests/  data/  checkpoints/  integrations/  notebooks/
-```
-
-Imports use the package path:
-
-```python
-from strawberrywatch.config import Config
-from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
-from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
-```
-
-Trained weights and metadata live in `checkpoints/` at the repository root, renamed from `models/` so it no longer collides with `strawberrywatch.models`, which is code. Data and checkpoints deliberately sit outside the package so they are never bundled into a wheel.
-
-`paths.py` finds them by checking `STRAWBERRYWATCH_ROOT` first, then walking up from the package looking for `pyproject.toml` or `.git`. If there is no project root it returns `None` and the function that needed a file raises an error naming both the environment variable and the explicit argument, rather than guessing at the current directory. Nothing resolves a path or creates a directory at import time, so `import strawberrywatch` works with no data present.
-
-```
-# Public API (the token field is optional; the API currently requires no auth)
-SCMG_API_TOKEN=
-SCMG_API_BASE_URL=https://www.strawberrycreek.org/api/creek-data/
-
-# NWS weather station -- no API key required, but NWS requires a contact email
-# in the User-Agent string
-NWS_STATION_ID=LBNL1
-NWS_USER_AGENT=SCMG-AnDeSys/1.0 (your.email@example.com)
-USE_NWS_WEATHER=true
-
-# MySQL -- only needed with --data-source sql
-MYSQL_HOST=
-MYSQL_DATABASE_USER=
-MYSQL_DATABASE_PASSWORD=
-MYSQL_DATABASE_NAME=
-MYSQL_PORT=3306
-
-# Email alerts -- only needed if you want spill notifications
-ALERT_EMAIL_SENDER=your_email@gmail.com
-ALERT_EMAIL_PASSWORD=your_app_password
-ALERT_EMAIL_RECEIVER=who_to_notify@gmail.com
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
-
-# How many days of data to keep in the rolling local cache
-ROLLING_WINDOW_DAYS=90
-```
-
-The MySQL variables are only needed if you run with `--data-source sql`. Weather from NWS and Open-Meteo needs no key, but the NWS user-agent string must include a contact email per NWS requirements.
-
-One network note. The Open-Meteo historical archive must be reachable for long-window weather fetches. If your machine restricts outbound traffic, the host `archive-api.open-meteo.com` needs to be allowed, or the pipeline will fall back to running without weather features.
-
-## Development
-
-Install the dev dependencies and the git hooks:
-
-    pip install -e ".[dev]"
-    pre-commit install
-
-Formatting and linting run on commit. To run them by hand:
-
-    ruff format .
-    ruff check .
-
-## How to use Dusk Crayfish
-
-The main entry point is `main.py`. It has three modes.
-
-Once the package is installed with `pip install -e .`, these commands work from any directory, not just the repository root. Paths are resolved from the project root rather than the working directory.
-
-**Train** builds a fresh model on thirty days of data, computes a detection threshold from a validation split, and saves the weights and metadata into `checkpoints/` at the repository root.
-
-```bash
-python main.py --mode train --data-source api
-```
-
-**Inference** loads the saved model, pulls a short recent window (two days), and reports any anomalies. It falls back to training if no saved model exists.
-
-```bash
-python main.py --mode inference --data-source api
-```
-
-**Update** retrains on a fresh thirty-day window while reusing the existing setup, for keeping the model current as new data arrives. This is the default mode when `--mode` is not specified.
-
-```bash
-python main.py --mode update --data-source api
-```
-
-The `--data-source` flag chooses between the public API, which provides the three core sensor features, and the production SQL database, which provides more. The `--model` flag selects the architecture, defaulting to the validated one.
-
-```bash
-python main.py --mode train --data-source sql --model dusk_crayfish
-```
-
-Adding `--visualize` after any run produces a static dashboard and an interactive plot of the scores, thresholds, and flagged events.
-
-To start the continuous monitoring loop, run `scripts/run_live.py` directly. It blocks indefinitely, calling `main.py --mode inference` via subprocess every 15 minutes, and exits cleanly on Ctrl-C. It resolves `main.py` relative to its own location, so it can be launched from any directory.
-
-```bash
-python scripts/run_live.py
-```
-
-To validate the model against the labeled historical events, run the test suite. The `-s` flag shows the per-case diagnostic output, which is worth reading because each case prints its error curve and how many timesteps crossed the threshold.
-
-```bash
-pytest tests/test_anomaly_detection.py -v -s
-```
+| I want to | Go to |
+|---|---|
+| Install it for the first time | [Getting set up](USER_MANUAL.md#1-getting-set-up) |
+| Run it and understand what it prints | [Running the system](USER_MANUAL.md#2-running-the-system) |
+| Know what each model does | [The models](USER_MANUAL.md#3-the-models) |
+| Take a sensor out of service | [The inventory](USER_MANUAL.md#5-the-inventory) |
+| Change some code and commit it | [Making a change to the code](USER_MANUAL.md#6-making-a-change-to-the-code) |
+| Run the tests | [Running the tests](USER_MANUAL.md#7-running-the-tests) |
+| Fix an error I am seeing | [Common problems](USER_MANUAL.md#9-common-problems) |
 
 ---
 

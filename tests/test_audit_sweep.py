@@ -261,7 +261,7 @@ def test_synthetic_generator_never_refits_a_supplied_scaler():
 
     Object identity, so a silent refit cannot pass as merely equal.
     """
-    from tests import creek_synthetic
+    from tests.synthetic import creek_synthetic
 
     train = creek_synthetic.make_synthetic_creek(n_steps=120, seed=1)
     assert train["scaler"] is not None

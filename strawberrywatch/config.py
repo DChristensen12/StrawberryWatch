@@ -23,8 +23,7 @@ class Config:
     USE_NWS_RAIN = os.getenv("USE_NWS_RAIN", "true").lower() == "true"
     USE_NWS_WEATHER = os.getenv("USE_NWS_WEATHER", "true").lower() == "true"
 
-    # Only needed with --data-source sql. Variable names match Night Heron's .env
-    # so the same credentials work for both. Schema is one table per site (lowercased
+    # Only needed with --data-source sql. Schema is one table per site (lowercased
     # site_code); sql_client uses SHOW COLUMNS, so no column overrides needed.
     MYSQL_HOST = os.getenv("MYSQL_HOST")
     MYSQL_USER = os.getenv("MYSQL_DATABASE_USER")

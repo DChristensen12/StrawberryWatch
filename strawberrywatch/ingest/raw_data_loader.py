@@ -11,7 +11,7 @@ import pandas as pd
 
 from strawberrywatch import paths
 
-# scnf010 is the Wickson Footbridge site under its old MMW code (see README);
+# scnf010 is the Wickson Footbridge site under its old site code;
 # university_house's filename carries a device id suffix. Every other site
 # maps straight off its filename stem.
 _FILENAME_TO_SITE_OVERRIDES = {
@@ -81,6 +81,85 @@ def load_all_raw_sites(raw_dir=None):
         site = _site_name_for_file(path)
         sites[site] = load_raw_site(path)
     return sites
+
+
+# Every channel the raw tables carry, including the ones the corpus does not use.
+# Keyed the way the inventory names variables, so a caller can join the two.
+_ALL_CHANNEL_MAPPING = {
+    "Meter_Hydros21_Cond": "conductivity",
+    "Meter_Hydros21_Depth": "depth",
+    "Meter_Hydros21_Temp": "temperature",
+    "AtlasSci_DO": "dissolved_oxygen",
+    "AtlasSci_FloatCond": "floating_conductivity",
+    "AtlasSci_pH": "ph",
+    "BalanceHydro_Stage2_m": "stage",
+}
+
+
+def _table_name_for_file(path):
+    """
+    Map a raw filename to its SQL table name, which is what the inventory keys on.
+
+    Deliberately not _site_name_for_file. That one renames scnf010 to footbridge
+    for the corpus; the inventory speaks table names, and renaming here would
+    make every lookup miss.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if stem.startswith("university_house"):
+        return "university_house"
+    return stem
+
+
+def load_archive_by_table(raw_dir=None, earliest=None, with_report=False):
+    """
+    Return {sql table name: DataFrame} carrying every channel the file has.
+
+    Sentinels stay in. Naming a sentinel is a quality test's job, and dropping
+    them here would hide the wrong SDI-12 address the test exists to report.
+
+    Rows stamped before `earliest` are dropped as logger clock resets rather
+    than kept as readings. kingman_hall has one stamped 2000-06-17, which is a
+    Mayfly that booted with no time set, and keeping it stretches that site's
+    history back 25 years. Nothing is dropped quietly: pass with_report=True to
+    get (tables, dropped) and say what went and why.
+    """
+    raw_dir = raw_dir or paths.raw_data_dir()
+    earliest = pd.Timestamp(earliest, tz="UTC") if isinstance(earliest, str) else earliest
+    tables = {}
+    dropped = []
+
+    for path in sorted(glob.glob(os.path.join(raw_dir, "*.csv"))):
+        df = _read_flexible_csv(path)
+        time_col = next((c for c in _TIME_CANDIDATES if c in df.columns), None)
+        if time_col is None:
+            raise ValueError(f"{path}: no recognizable timestamp column")
+        df["datetime"] = pd.to_datetime(df[time_col], utc=True, errors="coerce")
+        df = df.dropna(subset=["datetime"])
+        df = df.rename(columns=_ALL_CHANNEL_MAPPING)
+        cols = [c for c in _ALL_CHANNEL_MAPPING.values() if c in df.columns]
+        for col in cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.set_index("datetime").sort_index()
+        df = df[~df.index.duplicated(keep="first")]
+
+        table = _table_name_for_file(path)
+        if earliest is not None:
+            too_old = df.index < earliest
+            if too_old.any():
+                dropped.append(
+                    {
+                        "table": table,
+                        "rows": int(too_old.sum()),
+                        "worst": f"{df.index[too_old].min():%Y-%m-%dT%H:%MZ}",
+                        "earliest": f"{earliest:%Y-%m-%d}",
+                        "reason": "logger clock reset, not a measurement",
+                    }
+                )
+                df = df[~too_old]
+
+        tables[table] = df[cols]
+
+    return (tables, dropped) if with_report else tables
 
 
 def load_raw_long(raw_dir=None):

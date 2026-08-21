@@ -2,8 +2,7 @@
 Detection channels, per-channel nulls, p-value combination and the POT
 threshold, for the Cobble Shoal detector.
 
-Ported from the comparison harness that selected this detection objective. The
-arithmetic is deliberately unchanged: the calibrated artifacts shipped beside
+The arithmetic here is deliberately frozen: the calibrated artifacts shipped beside
 the weights (channel nulls, POT threshold z_q) were fitted against exactly
 these functions, so an edit here silently invalidates them.
 

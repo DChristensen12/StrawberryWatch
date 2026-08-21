@@ -51,10 +51,10 @@ def _connect() -> Iterator[mysql.connector.MySQLConnection]:
             pass
 
 
-# Site-to-table-name resolution (mirrors creek_data.py lines 483-489)
+# Site-to-table-name resolution.
 
 # Sites whose production table names preserve capitalization. Extend if
-# more MMW sites come online.
+# more sites come online.
 _SITE_TABLE_OVERRIDES = {
     "scnf010": "SCNF010",
 }
@@ -80,7 +80,7 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
     Pull all sensor columns for one site from MySQL over [start_time, end_time].
 
     Returns a DataFrame with 'timestamp' plus every sensor column the table
-    exposes (raw MMW codes like 'Meter_Hydros21_Cond'). Column renaming to
+    exposes (raw logger codes like 'Meter_Hydros21_Cond'). Column renaming to
     internal names happens in data_loader, same as the API path.
     """
     table = _table_name_for_site(site)

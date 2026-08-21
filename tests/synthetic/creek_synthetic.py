@@ -1,17 +1,20 @@
 """
-Synthetic creek generator with known ground truth: the project's only test set.
+Synthetic creek generator with known ground truth.
 
-There are no labelled anomalies in the real data and there never will be, so
-injected faults with known truth are the whole basis for measuring detection.
-That makes this test infrastructure rather than scratch, which is why it lives
-under tests/ and not beside the prototypes it was written next to.
+Injected faults with known truth are how detection gets measured where no label
+exists. That makes this test infrastructure rather than scratch, which is why it
+lives under tests/ and not beside the prototypes it was written next to. It sits
+in tests/synthetic/ rather than tests/ proper because it generates data and
+asserts nothing: the six labelled events in tests/events.yaml are the real
+evidence, and this is the controlled complement to them.
 
 Faults: stuck, stale, partial, drift, spike, decouple, slow_all.
 
-The window pipeline pieces below (NodeScaler, regrid_to_nodes,
-add_context_features) moved with it. Generated series are pushed through the
-same regridding the real ingestion path uses, so cadence and dropout exercise
-that path rather than bypassing it.
+The window pipeline (NodeScaler, regrid_to_nodes, add_context_features) moved
+on into the package, at preprocessing/node_windows.py, once the real corpus
+needed it too. It is imported back here rather than reimplemented: the whole
+claim that a synthetic window and a real one are the same shape rests on there
+being one regrid, not two that look alike.
 
 Graph structure and canonical variables are imported from the model, so the
 generator and the model cannot disagree about the creek.
@@ -19,148 +22,22 @@ generator and the model cannot disagree about the creek.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
 from strawberrywatch.models.Cobble_Shoal import (
-    CONTEXT_FEATURES,
     FLOW_EDGES,
     GRID_FREQ,
     GRID_MINUTES,
     SITE_INVENTORY,
     SITE_ORDER,
-    TARGET_TOLERANCE,
     build_node_registry,
 )
-
-# Window pipeline, moved with the generator
-
-
-class NodeScaler:
-    """
-    Per node z-score, fitted on observed values only and saved alongside the
-    weights. Carried forward values are excluded from the fit because a node
-    that reports rarely would otherwise have its own stale readings dominate
-    its own statistics.
-
-    Refitting this at inference is the failure that silently shifted the
-    conductivity mean out of training space last time. Fit once, save, load.
-    """
-
-    def __init__(self, mean=None, std=None):
-        self.mean = mean
-        self.std = std
-
-    def fit(self, values, observed, min_std=1e-3):
-        n = values.shape[1]
-        self.mean = np.zeros(n, dtype=np.float32)
-        self.std = np.ones(n, dtype=np.float32)
-        for i in range(n):
-            v = values[observed[:, i], i]
-            if v.size >= 2:
-                self.mean[i] = float(np.mean(v))
-                self.std[i] = max(float(np.std(v)), min_std)
-        return self
-
-    def transform(self, values):
-        return ((values - self.mean) / self.std).astype(np.float32)
-
-    def inverse(self, scaled):
-        return scaled * self.std + self.mean
-
-    def to_dict(self):
-        return {"mean": self.mean.tolist(), "std": self.std.tolist()}
-
-    @classmethod
-    def from_dict(cls, d):
-        return cls(np.array(d["mean"], np.float32), np.array(d["std"], np.float32))
-
-    def save(self, path):
-        Path(path).write_text(json.dumps(self.to_dict()))
-        return path
-
-    @classmethod
-    def load(cls, path):
-        return cls.from_dict(json.loads(Path(path).read_text()))
-
-
-def regrid_to_nodes(site_frames, grid, nodes):
-    """
-    Build node level arrays. Three outputs where there used to be two, because
-    "can this step be a model input" and "can this step be a scoring target" are
-    different questions:
-
-      values       (T, N) last observation carried forward, backward only, so
-                          the model never sees the future
-      staleness    (T, N) grid steps since that observation
-      target_val   (T, N) nearest observation within half a grid step, NaN
-                          otherwise, which is what a prediction is scored against
-      target_mask  (T, N) whether target_val exists
-
-    Scoring against the carried forward value instead of the real one would let
-    a model score perfectly by copying its own anchor.
-    """
-    t, n = len(grid), len(nodes)
-    values = np.zeros((t, n), dtype=np.float32)
-    staleness = np.full((t, n), float(t), dtype=np.float32)
-    target_val = np.full((t, n), np.nan, dtype=np.float32)
-    target_mask = np.zeros((t, n), dtype=bool)
-
-    gf = pd.DataFrame({"grid_time": grid}).sort_values("grid_time")
-
-    for i, node in enumerate(nodes):
-        df = site_frames.get(node.site)
-        if df is None or node.var not in df.columns:
-            continue
-        obs = df[[node.var]].dropna().reset_index()
-        if obs.empty:
-            continue
-        obs = obs.rename(columns={"datetime": "obs_time"}).sort_values("obs_time")
-
-        back = pd.merge_asof(
-            gf, obs, left_on="grid_time", right_on="obs_time", direction="backward"
-        )
-        have = back["obs_time"].notna().to_numpy()
-        age = (
-            (back["grid_time"] - back["obs_time"]).dt.total_seconds() / 60.0 / GRID_MINUTES
-        ).to_numpy()
-        vals = back[node.var].to_numpy(dtype=float)
-        fill = float(np.nanmean(vals[have])) if have.any() else 0.0
-        values[:, i] = np.where(have, vals, fill)
-        staleness[:, i] = np.where(have, age, float(t))
-
-        near = pd.merge_asof(
-            gf,
-            obs,
-            left_on="grid_time",
-            right_on="obs_time",
-            direction="nearest",
-            tolerance=TARGET_TOLERANCE,
-        )
-        hit = near["obs_time"].notna().to_numpy()
-        target_mask[:, i] = hit
-        target_val[hit, i] = near.loc[hit, node.var].to_numpy()
-
-    return values, staleness, target_val, target_mask
-
-
-def add_context_features(grid):
-    """
-    Shared exogenous channels, present at every step, so no mask.
-
-    Two features, both clock. The weather arguments this function used to take
-    are gone: rain handling moved to the web application, so rain, air
-    temperature and shortwave radiation are not available to the model at
-    inference and must not be available to it in training either.
-    """
-    ctx = pd.DataFrame(index=grid, columns=CONTEXT_FEATURES, dtype=float)
-    ha = 2 * np.pi * (grid.hour + grid.minute / 60.0) / 24.0
-    ctx["hour_sin"], ctx["hour_cos"] = np.sin(ha), np.cos(ha)
-    return ctx.ffill().fillna(0.0)
-
+from strawberrywatch.preprocessing.node_windows import (
+    NodeScaler,
+    add_context_features,
+    regrid_to_nodes,
+)
 
 # Fault generator
 
