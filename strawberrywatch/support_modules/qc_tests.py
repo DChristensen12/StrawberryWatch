@@ -35,8 +35,10 @@ def _array(values):
 def _base(values):
     """Start every test at UNKNOWN, with the gaps already marked MISSING."""
     v = _array(values)
-    flags = np.full(v.shape, UNKNOWN, dtype=np.uint8)
-    flags[np.isnan(v)] = MISSING
+    flags = np.empty(v.shape, dtype=np.uint8)
+    flags.fill(UNKNOWN)
+    missing = np.isnan(v)
+    flags[missing] = MISSING
     return v, flags
 
 
