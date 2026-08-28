@@ -61,7 +61,7 @@ only the past seven days.
   </tr>
   <tr>
     <td align="center"><img src="assets/biota/Crayfish.jpeg" width="351"></td>
-    <td align="center"><img src="assets/biota/WaterStrider.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Aquarius_remigis.jpeg" width="351"></td>
     <td align="center"><img src="assets/biota/Flame_Skimmer.jpeg" width="351"></td>
   </tr>
    <tr>
