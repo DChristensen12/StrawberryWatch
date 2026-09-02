@@ -5,14 +5,13 @@
 #   no   installed, switched off right now
 #   -    no such probe at this site
 #
-# Change yes to no to take a sensor out of service, no to yes to put it back.
-# A site with every sensor set to no is out of service. Lower case only:
-# true, 1, On and "yes" in quotes are all refused.
+# do = dissolved oyxgen
+# fc = floating conductivity
+# ph is ph
+# ctd means you have depth, temperature, and battery voltage. Though, battery voltage is not a metric we use for anomaly detection.
 #
-# New probe fitted? Change - to yes here, then add its install date in that
-# site's block below. Forget the date and the error tells you what to write.
 #
-# Check your edit:  python -m strawberrywatch.inventory
+#
 # =================================================================== #
 in_service:
   botanical_garden:  {ctd: yes, do: -,   fc: -,   ph: -}
