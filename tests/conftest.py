@@ -48,9 +48,15 @@ def _build_model(model_name, metadata):
 # Only sequence-contract models belong here. The event tests drive the model
 # with (batch, seq_len, sites, features) windows, and Cobble Shoal reads
 # per-node series off the node registry instead, so adding it would not fail on
-# a keyword argument, it would have nothing to read. It needs the ingestion
-# adapter described in PORT_PROGRESS.md first. _build_model itself is generic,
-# so once that lands this list is the only thing that changes.
+# a keyword argument, it would have nothing to read.
+#
+# The adapter it was waiting on landed as preprocessing/node_windows.py, so the
+# blocker is no longer ingestion. What is left is that these tests score one
+# node's conductivity against a per-node threshold out of a metadata pickle,
+# and Cobble Shoal has neither: it scores every node at once against the POT
+# threshold in its calibration artifact. Grading it belongs in a test that
+# speaks that contract, which is what scripts/run_audit_comparison.py does by
+# hand today.
 _MODELS = [
     ("dusk_crayfish", True),
 ]

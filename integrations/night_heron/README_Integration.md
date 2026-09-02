@@ -1,5 +1,10 @@
 # Night Heron integration
 
+The live code now lives in `strawberrywatch/integrations/night_heron/`, inside the
+package, so it installs with `pip install strawberrywatch` and imports cleanly on
+their side. This folder keeps the alert delivery reference code below, which is
+still a description of how their daemon sends things, not something we run.
+
 This folder is not part of StrawberryWatch's runtime. Nothing here is imported
 or run by the detector, the pipeline, or the tests. It exists to version and
 document the code that would be added to the Night Heron production system if

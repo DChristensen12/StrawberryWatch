@@ -19,7 +19,15 @@ from tests.synthetic import nested_batch
 @pytest.fixture(scope="module")
 def calibration():
     try:
-        return cobble_calibration.load_calibration()
+        return cobble_calibration.load_calibration(cobble_calibration.SYNTHETIC)
+    except cobble_calibration.CalibrationError as exc:
+        pytest.skip(str(exc))
+
+
+@pytest.fixture(scope="module")
+def real_calibration():
+    try:
+        return cobble_calibration.load_calibration(cobble_calibration.REAL)
     except cobble_calibration.CalibrationError as exc:
         pytest.skip(str(exc))
 
@@ -85,3 +93,50 @@ def test_a_faulted_node_outscores_the_clean_window(model, calibration):
     before = model.score(clean, calibration.nulls).ravel()[truth["nodes"][0]]
     after = model.score(faulted, calibration.nulls).ravel()[truth["nodes"][0]]
     assert after > before, f"freezing {truth['node_keys'][0]} did not raise its score"
+
+
+def test_the_real_calibration_carries_the_scaler_its_nulls_were_fitted_in(real_calibration):
+    """
+    The whole point of recording it. A null is fitted in a normalization space
+    and only means anything applied in that space, so the space has to travel
+    with the null rather than being refitted by whoever scores next.
+    """
+    scaler = real_calibration.window_scaler()
+    assert len(scaler.mean) == len(nested_batch.node_keys())
+    assert len(scaler.std) == len(nested_batch.node_keys())
+    assert np.all(scaler.std > 0), "a zero scale would divide every reading to infinity"
+    assert real_calibration.is_real
+
+
+def test_the_synthetic_calibration_refuses_to_supply_a_scaler(calibration):
+    """
+    It never recorded one, and returning None would let build_window fit a
+    fresh scaler and score real data against nulls from another space. That
+    failure produces finite, plausible numbers, so it has to raise.
+    """
+    assert calibration.node_scaler is None
+    assert not calibration.is_real
+    with pytest.raises(cobble_calibration.CalibrationError, match="no node_scaler"):
+        calibration.window_scaler()
+
+
+def test_the_two_calibrations_are_not_interchangeable(calibration, real_calibration, model):
+    """
+    Close thresholds, different score scales. This is why load_calibration
+    takes the filename rather than picking one, and why nothing falls back
+    from one to the other.
+    """
+    batch = nested_batch.build_batch()
+    synthetic = model.score(batch, calibration.nulls).ravel()
+    real = model.score(batch, real_calibration.nulls).ravel()
+
+    assert abs(calibration.z_q - real_calibration.z_q) < 5.0, "thresholds drifted apart"
+    assert synthetic.max() > 5 * real.max(), (
+        "the two nulls now agree about scale; if that is genuine, the warning in "
+        "cobble_calibration's docstring needs rewriting"
+    )
+
+
+def test_loading_an_absent_calibration_names_the_file(tmp_path):
+    with pytest.raises(cobble_calibration.CalibrationError, match="no calibration artifact"):
+        cobble_calibration.load_calibration(cobble_calibration.REAL, checkpoint_dir=tmp_path)

@@ -5,8 +5,41 @@ import torch.nn as nn
 from torch_geometric.data import Batch, Data
 from torch_geometric.nn import GATConv, GCNConv
 
-from strawberrywatch.config import Config
 from strawberrywatch.models import model_calls
+
+# What settings.yaml said when the shipped weights were trained. A checkpoint
+# that records its own architecture beats these, and an explicit argument beats
+# both. They live here so someone loading a checkpoint from another repo can
+# rebuild the model without a copy of our config.
+ARCHITECTURE_DEFAULTS = {
+    "hidden_dim": 16,
+    "gnn_type": "GCN",
+    "gnn_layers": 1,
+    "temporal_layers": 1,
+    "dropout": 0.1,
+    "node_embed_dim": 8,
+}
+
+ARCHITECTURE_KEYS = tuple(ARCHITECTURE_DEFAULTS)
+
+
+def _from_settings_yaml(name):
+    # Imported in here, not at the top, because importing Config pulls in torch
+    # and reads settings.yaml. Serving passes every value explicitly and should
+    # not pay for that or care what our yaml currently says.
+    from strawberrywatch.config import Config
+
+    return getattr(Config, name.upper())
+
+
+def _pick(value, name):
+    if value is not None:
+        return value
+    # node_embed_dim never made it into settings.yaml, it was a constructor
+    # default. Nothing to look up, so take the recorded one.
+    if name == "node_embed_dim":
+        return ARCHITECTURE_DEFAULTS[name]
+    return _from_settings_yaml(name)
 
 
 def build_symmetric_norm_adjacency(edge_index, num_nodes, device):
@@ -113,20 +146,56 @@ class DuskCrayfish(nn.Module):
 
     @classmethod
     def from_metadata(cls, metadata):
-        """Rebuild from a trained metadata blob, for loading a checkpoint."""
+        """
+        Rebuild from a trained metadata blob, for loading a checkpoint.
+
+        Sizes come from the feature and node lists the checkpoint carries. The
+        architecture comes from an "architecture" dict if training wrote one.
+        Older checkpoints predate that, so anything missing falls through to
+        ARCHITECTURE_DEFAULTS, which is what those runs used anyway. Getting this
+        wrong is worse than it sounds: a bad hidden_dim raises a size mismatch you
+        cannot miss, but a bad dropout loads clean and quietly behaves differently.
+        """
+        architecture = metadata.get("architecture") or {}
         return cls(
             num_node_features=len(metadata["feature_cols"]),
             num_nodes=len(metadata["location_to_idx"]),
+            **{k: architecture.get(k, ARCHITECTURE_DEFAULTS[k]) for k in ARCHITECTURE_KEYS},
         )
 
-    def __init__(self, num_node_features, num_nodes, node_embed_dim=8):
+    def __init__(
+        self,
+        num_node_features,
+        num_nodes,
+        node_embed_dim=None,
+        hidden_dim=None,
+        gnn_type=None,
+        gnn_layers=None,
+        temporal_layers=None,
+        dropout=None,
+    ):
         super().__init__()
 
-        self.hidden_dim = Config.HIDDEN_DIM
-        self.gnn_type = Config.GNN_TYPE
-        gnn_layers = Config.GNN_LAYERS
-        temporal_layers = Config.TEMPORAL_LAYERS
-        dropout = Config.DROPOUT
+        # None means "whatever settings.yaml says", which is what a training run
+        # wants. Every one of these used to be read straight off Config, so a
+        # checkpoint could not describe the model that produced it.
+        node_embed_dim = _pick(node_embed_dim, "node_embed_dim")
+        hidden_dim = _pick(hidden_dim, "hidden_dim")
+        gnn_type = _pick(gnn_type, "gnn_type")
+        gnn_layers = _pick(gnn_layers, "gnn_layers")
+        temporal_layers = _pick(temporal_layers, "temporal_layers")
+        dropout = _pick(dropout, "dropout")
+
+        self.hidden_dim = hidden_dim
+        self.gnn_type = gnn_type
+        self.architecture = {
+            "hidden_dim": hidden_dim,
+            "gnn_type": gnn_type,
+            "gnn_layers": gnn_layers,
+            "temporal_layers": temporal_layers,
+            "dropout": dropout,
+            "node_embed_dim": node_embed_dim,
+        }
 
         # How many diffusion steps feature propagation runs. Small graph, cheap.
         self.fp_iters = 40

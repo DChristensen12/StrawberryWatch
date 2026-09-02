@@ -174,7 +174,12 @@ def _longest_run(bool_array):
 
 
 def _rule1_forecast_residual(
-    errors_node, error_median, error_iqr, node_threshold, rain_multipliers
+    errors_node,
+    error_median,
+    error_iqr,
+    node_threshold,
+    rain_multipliers,
+    min_timesteps_over=MIN_TIMESTEPS_OVER_THRESHOLD,
 ):
     """
     Ported from tests/test_anomaly_detection.py: robust-normalized reconstruction
@@ -189,7 +194,7 @@ def _rule1_forecast_residual(
     over = normalized > thresholds
     n_over = int(over.sum())
     return {
-        "flagged": n_over >= MIN_TIMESTEPS_OVER_THRESHOLD,
+        "flagged": n_over >= min_timesteps_over,
         "n_over_threshold": n_over,
         "longest_run": _longest_run(over),
         "peak_deviation": float(normalized.max()) if len(normalized) else float("nan"),
@@ -199,7 +204,9 @@ def _rule1_forecast_residual(
     }
 
 
-def _rule2_level_shift(level_node, cond_median, cond_iqr, k):
+def _rule2_level_shift(
+    level_node, cond_median, cond_iqr, k, min_timesteps_over=MIN_TIMESTEPS_OVER_THRESHOLD
+):
     """
     Level-shift rule: how far the node's actual normalized conductivity sits
     from where it normally sits, in robust deviations, sustained over multiple
@@ -211,7 +218,7 @@ def _rule2_level_shift(level_node, cond_median, cond_iqr, k):
     over = np.abs(deviation) > k
     n_over = int(over.sum())
     return {
-        "flagged": n_over >= MIN_TIMESTEPS_OVER_THRESHOLD,
+        "flagged": n_over >= min_timesteps_over,
         "n_over_threshold": n_over,
         "longest_run": _longest_run(over),
         "peak_deviation": float(np.abs(deviation).max()) if len(deviation) else float("nan"),
@@ -229,7 +236,9 @@ def detect_anomalies(
     metadata,
     df_original=None,
     locations=None,
-    device=Config.DEVICE,
+    device=None,
+    operating_point=None,
+    rain_params=None,
 ):
     """
     Production detection, per node, never averaged. Runs the model with
@@ -255,12 +264,34 @@ def detect_anomalies(
     everything as real, the unsafe direction is assuming real, not the other
     way around.
 
+    operating_point and rain_params override the module constants and the Config
+    values. Both default to None, meaning use ours. They are arguments because
+    these numbers were fitted on our data and our validation split, so a caller
+    running this against a different feed has every right to bring its own
+    without editing this file.
+
     Returns a dict keyed by site name. A node that never got real data this
     window: {"judged": False, "reason": "insufficient_real_data", ...}. A node
     that did: {"judged": True, "flagged": bool, "rules_fired": [...],
     "rule1": {...}, "rule2": {...}, "n_real": int}. Plus rain_flags, the
     per-timestep bool array of whether rain was pushing Rule 1's threshold up.
     """
+    if device is None:
+        device = Config.DEVICE
+    op = {
+        "min_timesteps_over": MIN_TIMESTEPS_OVER_THRESHOLD,
+        "min_timesteps_to_judge": MIN_TIMESTEPS_TO_JUDGE,
+        "level_shift_k": LEVEL_SHIFT_K,
+        **(operating_point or {}),
+    }
+    rain = {
+        "rain_window_hours": Config.RAIN_WINDOW_HOURS,
+        "rain_threshold_multiplier": Config.RAIN_THRESHOLD_MULTIPLIER,
+        "rain_amount_threshold": Config.RAIN_AMOUNT_THRESHOLD,
+        "post_rain_decay_hours": Config.POST_RAIN_DECAY_HOURS,
+        **(rain_params or {}),
+    }
+
     feature_cols = metadata["feature_cols"]
     location_to_idx = metadata["location_to_idx"]
     error_median = metadata.get("error_median", {})
@@ -286,14 +317,7 @@ def detect_anomalies(
     real_mask = _extract_real_mask(df_original, timestamps, location_to_idx)  # (T, num_nodes)
 
     rain_series = _extract_rain_series(df_original, locations) if df_original is not None else None
-    rain_multipliers, rain_flags = _rain_multipliers(
-        timestamps,
-        rain_series,
-        Config.RAIN_WINDOW_HOURS,
-        Config.RAIN_THRESHOLD_MULTIPLIER,
-        Config.RAIN_AMOUNT_THRESHOLD,
-        Config.POST_RAIN_DECAY_HOURS,
-    )
+    rain_multipliers, rain_flags = _rain_multipliers(timestamps, rain_series, **rain)
 
     results = {}
     for node_idx in range(errors.shape[1]):
@@ -308,13 +332,13 @@ def detect_anomalies(
 
         real = real_mask[:, node_idx]
         n_real = int(real.sum())
-        if n_real < MIN_TIMESTEPS_TO_JUDGE:
+        if n_real < op["min_timesteps_to_judge"]:
             results[site] = {"judged": False, "reason": "insufficient_real_data", "n_real": n_real}
             continue
 
         real_ts = timestamps[real]
         rain_mult_real = rain_multipliers[real]
-        level_k_real = _rain_adjust_level_k(LEVEL_SHIFT_K, real_ts, rain_series)
+        level_k_real = _rain_adjust_level_k(op["level_shift_k"], real_ts, rain_series)
 
         rule1 = _rule1_forecast_residual(
             errors[real, node_idx],
@@ -322,6 +346,7 @@ def detect_anomalies(
             error_iqr[site],
             node_thresholds[site],
             rain_mult_real,
+            min_timesteps_over=op["min_timesteps_over"],
         )
 
         rule2 = {
@@ -333,7 +358,11 @@ def detect_anomalies(
         }
         if cond_median.get(site) is not None and cond_iqr.get(site) is not None:
             rule2 = _rule2_level_shift(
-                levels[real, node_idx], cond_median[site], cond_iqr[site], level_k_real
+                levels[real, node_idx],
+                cond_median[site],
+                cond_iqr[site],
+                level_k_real,
+                min_timesteps_over=op["min_timesteps_over"],
             )
 
         rules_fired = []
@@ -346,6 +375,13 @@ def detect_anomalies(
         # this node's real timesteps and a caller holds every timestep.
         over_timesteps = np.zeros(len(timestamps), dtype=bool)
         over_timesteps[real] = rule1["over"] | rule2["over"]
+
+        # Same scatter per rule, so an alert can say when each one crossed
+        # instead of only when either did.
+        for rule in (rule1, rule2):
+            per_rule = np.zeros(len(timestamps), dtype=bool)
+            per_rule[real] = rule["over"]
+            rule["over_timesteps"] = per_rule
 
         results[site] = {
             "judged": True,

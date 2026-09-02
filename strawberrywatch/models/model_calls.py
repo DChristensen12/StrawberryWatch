@@ -67,7 +67,8 @@ def sequence_forward_kwargs(model, seq_tensor, node_mask=None):
             f"{type(model).__name__} speaks {contract!r} and cannot be driven from "
             f"sequence tensors. It needs per-node series built from the node "
             f"registry, which prepare_sequences_normalized does not produce. "
-            f"See PORT_PROGRESS.md for the missing ingestion adapter."
+            f"Build them with preprocessing.node_windows.build_window instead, "
+            f"passing the scaler off the calibration artifact."
         )
     kwargs = {"batch_size": len(seq_tensor), "num_nodes": seq_tensor.shape[2]}
     if node_mask is not None and accepts_node_mask(model):

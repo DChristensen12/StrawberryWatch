@@ -85,12 +85,44 @@ def _diagnosis_line(classification):
     )
 
 
-def send_anomaly_alert(location, score, threshold, event_time, classification=None):
+# Two alerts for the same site otherwise look identical apart from the numbers,
+# so each rule gets its own label and its own sentence.
+_RULE_LABELS = {
+    "forecast_residual": "forecast residual",
+    "level_shift": "level shift",
+}
+
+_RULE_LINES = {
+    "forecast_residual": (
+        "Conductivity kept landing away from what the model expected, step after "
+        "step. That is what an onset or a ramp looks like."
+    ),
+    "level_shift": (
+        "Conductivity sat well off this site's normal level and stayed there. The "
+        "model stops being surprised by a step within a timestep or two, so this "
+        "is the rule that catches one that persists."
+    ),
+}
+
+_GENERIC_RULE_LINE = (
+    "This detection is based on a sudden deviation in conductivity relative to "
+    "the model's prediction of normal creek behavior at this location."
+)
+
+
+def _rule_line(rule):
+    """Plain sentence for whichever rule fired, or the generic one if unnamed."""
+    return _RULE_LINES.get(rule, _GENERIC_RULE_LINE)
+
+
+def send_anomaly_alert(location, score, threshold, event_time, classification=None, rule=None):
     """
     Send one alert email for a single detected anomaly event.
 
     classification is the support_modules.trial_bed account for this event, or
-    None if nothing classified it. Credential handling mirrors send_spill_alert.
+    None if nothing classified it. rule is which detection rule fired, so a site
+    that trips both gets two distinguishable emails. Credential handling mirrors
+    send_spill_alert.
     """
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
@@ -107,18 +139,20 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
     else:
         time_str = str(event_time)
 
-    subject = f" ALERT: Anomaly Detected at {location} in Strawberry Creek"
+    tag = f" ({_RULE_LABELS[rule]})" if rule in _RULE_LABELS else ""
+    subject = f" ALERT: Anomaly Detected at {location}{tag} in Strawberry Creek"
     body = f"""
     The SCMG Anomaly Detection System has detected an anomaly.
     Location: {location}
     Time: {time_str}
+    Rule fired: {_RULE_LABELS.get(rule, "unspecified")}
     Anomaly score: {score:.4f} (threshold {threshold:.4f})
 
     {diagnosis}
 
-    This detection is based on a sudden deviation in conductivity relative to
-    the model's prediction of normal creek behavior at this location. Please
-    check the latest dashboard visualization for details.
+    {_rule_line(rule)}
+
+    Check the latest dashboard visualization for details.
     """
 
     msg = MIMEMultipart()
@@ -143,7 +177,8 @@ def fire_anomaly_alerts(events):
     Send one detailed email per event and one system summary for the full batch.
 
     Each event dict needs: location, score, threshold, event_time, and
-    optionally classification (one support_modules.trial_bed account, or None).
+    optionally rule (which detection rule fired) and classification (one
+    support_modules.trial_bed account, or None).
     """
     if not events:
         print("No anomaly events to alert on.")
@@ -156,6 +191,7 @@ def fire_anomaly_alerts(events):
             threshold=ev.get("threshold", float("nan")),
             event_time=ev.get("event_time", datetime.now(UTC)),
             classification=ev.get("classification"),
+            rule=ev.get("rule"),
         )
 
     locations = sorted({ev.get("location", "unknown") for ev in events})

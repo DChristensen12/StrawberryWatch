@@ -7,9 +7,10 @@ import numpy as np
 import torch
 
 from strawberrywatch import paths
-from strawberrywatch.anomalies.anomaly_detector import detect_anomalies
+from strawberrywatch.anomalies.anomaly_detector import LEVEL_SHIFT_K, detect_anomalies
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import load_and_preprocess_data
+from strawberrywatch.models import model_calls
 from strawberrywatch.models.Cobble_Shoal import CobbleShoal
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
@@ -110,6 +111,57 @@ def _fired_grid(node_results, site_order, shape):
     return grid
 
 
+def _anomaly_events(node_results, timestamps, metadata, accounts, site_order):
+    """
+    One alert event per (site, rule) that fired, shaped the way notifier wants.
+
+    Rule 1 and Rule 2 go out separately on purpose. An onset and a sustained
+    abnormal level mean different things to whoever reads the email, and
+    blending them into one number would lose that. Trial Bed's account rides
+    along when that explainer ran.
+    """
+    node_thresholds = metadata.get("node_thresholds", {})
+    trial_bed = accounts.get("trial_bed", [])
+    site_pos = {site: i for i, site in enumerate(site_order)}
+
+    events = []
+    for site, result in node_results.items():
+        if not result.get("judged") or not result.get("flagged"):
+            continue
+
+        pos = site_pos.get(site)
+        classification = trial_bed[pos] if pos is not None and pos < len(trial_bed) else None
+
+        for rule_name in result["rules_fired"]:
+            rule = result["rule1"] if rule_name == "forecast_residual" else result["rule2"]
+            # Rule 1's bar is the node's calibrated threshold, Rule 2's is the flat
+            # k. Rain pushes Rule 1's up per timestep, so this reports the
+            # calibrated bar rather than whatever it was at the peak.
+            threshold = (
+                node_thresholds.get(site, float("nan"))
+                if rule_name == "forecast_residual"
+                else LEVEL_SHIFT_K
+            )
+            crossed = rule.get("over_timesteps")
+            # First crossing, since that's when the thing started, not when we noticed.
+            when = (
+                timestamps[int(np.argmax(crossed))]
+                if crossed is not None and crossed.any()
+                else timestamps[-1]
+            )
+            events.append(
+                {
+                    "location": site,
+                    "rule": rule_name,
+                    "score": rule["peak_deviation"],
+                    "threshold": threshold,
+                    "event_time": when,
+                    "classification": classification,
+                }
+            )
+    return events
+
+
 def main(
     mode="update",
     data_source="api",
@@ -135,6 +187,32 @@ def main(
         print(f"ERROR: Unknown model '{model_name}'. Available: {list(_MODEL_REGISTRY)}")
         sys.exit(1)
     ModelClass = _MODEL_REGISTRY[model_name]
+
+    # Everything below this line is the sequence-tensor pipeline:
+    # prepare_sequences_normalized builds (batch, seq_len, sites, features)
+    # windows, the model is constructed with num_node_features, trained with
+    # masked MSE and scored on reconstruction error against a per-node
+    # threshold out of the metadata pickle.
+    #
+    # A nested-node-batch model shares none of that. It reads per-node series
+    # off the node registry, scores every node at once through channels and a
+    # fitted null, and thresholds against the POT z_q in its calibration
+    # artifact. Constructing it here raises TypeError on num_node_features,
+    # several hundred lines after the download, which says nothing about why.
+    # Refuse it up front and name the path that does work.
+    if model_calls.input_contract(ModelClass) != model_calls.SEQUENCE_TENSOR:
+        print(
+            f"ERROR: '{model_name}' speaks the "
+            f"{model_calls.input_contract(ModelClass)} contract, which main.py "
+            f"does not drive. This pipeline builds sequence tensors; that model "
+            f"needs per-node windows from preprocessing.node_windows."
+        )
+        print()
+        print("       Score it on the labelled events with:")
+        print("           python scripts/run_audit_comparison.py")
+        print("       Refit its calibration against the archive with:")
+        print("           python scripts/refit_cobble_calibration.py")
+        sys.exit(1)
 
     # Resolved before anything is downloaded, so an unknown name, a module that
     # cannot attach, a builtin collision or an impossible budget split all fail
@@ -337,6 +415,11 @@ def main(
                     "scaler": scaler,
                     "feature_cols": feature_cols,
                     "location_to_idx": location_to_idx,
+                    # So a checkpoint says what shape of model to rebuild instead
+                    # of leaving the loader to guess from whatever settings.yaml
+                    # happens to say later. Models that do not report one get
+                    # nothing here and fall back the way they always did.
+                    "architecture": getattr(model, "architecture", None),
                     # old scalar threshold, kept so nothing depending on it hard
                     # crashes, but detection should use node_thresholds now
                     "threshold": trained_threshold,
@@ -409,6 +492,7 @@ def main(
 
     # Explainers run last, on firings the primary has already made. They add no
     # test and take no budget, so every site above fired without them.
+    accounts = {}
     if stack.explainers:
         fired_grid = _fired_grid(node_results, site_order, shape)
         accounts = stack.explanations(support_window, site_order, fired_grid)
@@ -419,11 +503,17 @@ def main(
                 print(f"  {name} at {site}: {account['explanation']}")
                 print(f"    confidence: {account['confidence']}")
 
-    if mode == "inference" and flagged_sites:
+    # Every anomaly emails out, whatever mode turned it up. This used to fire only
+    # in inference, so a train or update run could find a spill and tell nobody.
+    # One email per rule per site plus a batch summary, all to ALERT_EMAIL_RECEIVER.
+    events = _anomaly_events(
+        node_results, test_timestamps, detection_metadata, accounts, site_order
+    )
+    if events:
         try:
-            from strawberrywatch.utils.notifier import send_spill_alert
+            from strawberrywatch.utils.notifier import fire_anomaly_alerts
 
-            send_spill_alert(len(flagged_sites), flagged_sites)
+            fire_anomaly_alerts(events)
         except Exception as e:
             print(f"Alerting failed: {e}")
 
