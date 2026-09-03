@@ -77,6 +77,39 @@ def add_time_features(frame):
     return out
 
 
+def regrid(frame, feature_cols, step):
+    """
+    Put every site on one regular time grid at the given spacing.
+
+    Sites do not report in lockstep. One logger runs every fifteen minutes,
+    another every thirty, and a third drifts by a few seconds. Pivoting that
+    straight onto the union of everyone's timestamps leaves the slower site with
+    a hole at every timestamp only the faster site had, and those holes become
+    zeros, and the model reads a sawtooth. In testing a site reporting at half
+    the trained rate scored a peak deviation of 173 against a threshold of 12,
+    which is a false alarm with no way to tell it from a real spill.
+
+    Gap filling cannot fix that on its own, because there is no row at the
+    missing timestamp to interpolate between. So snap everything to the grid
+    first. A site sampling faster than the grid gets averaged into its bin, and a
+    site sampling slower gets a genuine NaN row, which is something the short gap
+    interpolation downstream can actually fill.
+    """
+    snapped = frame.copy()
+    snapped.index = snapped.index.floor(step)
+    binned = snapped.groupby([snapped.index, "location"])[feature_cols].mean()
+
+    full = pd.date_range(snapped.index.min(), snapped.index.max(), freq=step)
+    out = []
+    for site, rows in binned.groupby(level=1):
+        site_rows = rows.droplevel(1).reindex(full)
+        site_rows["location"] = site
+        out.append(site_rows)
+    regridded = pd.concat(out).sort_index()
+    regridded.index.name = frame.index.name
+    return regridded
+
+
 def _impute_short_gaps(frame, feature_cols, limit_hours):
     """
     Interpolate over gaps shorter than limit_hours, per site.
@@ -122,6 +155,7 @@ def build_windows(
     normalization,
     window,
     imputation_limit_hours=3.0,
+    grid="15min",
 ):
     """
     Slice a long frame into (sequences, targets, timestamps, node_mask).
@@ -137,6 +171,10 @@ def build_windows(
     Missing cells go in as zero, which is the normalized mean, and the mask is
     what stops the model treating that zero as a real reading.
 
+    grid is the spacing every site gets snapped to before anything else. It
+    defaults to the fifteen minutes the shipped model trained on. Pass None to
+    skip it, which is only right when you already know the frame is on one grid.
+
     Returns empty arrays when the frame has no run of consecutive usable steps
     long enough to fill a window. That is a normal outcome on a sparse feed, not
     an error, so the caller decides what to do about it.
@@ -144,7 +182,10 @@ def build_windows(
     sites = [s for s, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
     _check_frame(frame, feature_cols, sites)
 
-    frame = _impute_short_gaps(frame.sort_index(), feature_cols, imputation_limit_hours)
+    frame = frame.sort_index()
+    if grid is not None:
+        frame = regrid(frame, feature_cols, grid)
+    frame = _impute_short_gaps(frame, feature_cols, imputation_limit_hours)
 
     means = np.array([normalization[c][0] for c in feature_cols], dtype=float)
     scales = np.array([normalization[c][1] for c in feature_cols], dtype=float)

@@ -53,6 +53,7 @@ class DuskCrayfishDetector:
         operating_point=None,
         rain_params=None,
         imputation_limit_hours=3.0,
+        grid="15min",
     ):
         self.model = model
         self.checkpoint = checkpoint
@@ -61,6 +62,7 @@ class DuskCrayfishDetector:
         self.operating_point = operating_point
         self.rain_params = rain_params
         self.imputation_limit_hours = imputation_limit_hours
+        self.grid = grid
         self._normalization = checkpoint.normalization()
 
     @classmethod
@@ -73,6 +75,7 @@ class DuskCrayfishDetector:
         operating_point=None,
         rain_params=None,
         imputation_limit_hours=3.0,
+        grid="15min",
     ):
         """
         Build the model and load its weights.
@@ -104,7 +107,14 @@ class DuskCrayfishDetector:
         model.to(device).eval()
 
         return cls(
-            model, checkpoint, device, window, operating_point, rain_params, imputation_limit_hours
+            model,
+            checkpoint,
+            device,
+            window,
+            operating_point,
+            rain_params,
+            imputation_limit_hours,
+            grid,
         )
 
     @classmethod
@@ -164,6 +174,7 @@ class DuskCrayfishDetector:
             self._normalization,
             self.window,
             self.imputation_limit_hours,
+            self.grid,
         )
 
         if len(sequences) == 0:
