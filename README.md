@@ -201,7 +201,7 @@ through it in order the first time.
 ## Thank you to our contributors!
 
 <a href="https://github.com/DChristensen12/StrawberryWatch/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=DChristensen12/StrawberryWatch" width="65" alt="Contributors" />
+  <img src="https://contrib.rocks/image?repo=DChristensen12/StrawberryWatch&v=2" width="65" alt="Contributors" />
 </a>
 
 See [CONTRIBUTORS.md](CONTRIBUTORS.md) for everyone who has helped, including
