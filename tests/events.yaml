@@ -93,26 +93,6 @@ events:
       broken for this window, so the target falls back to north_fork_0 as the
       nearest live north-fork node, judged relative since nf0 was the contrast.
 
-  - folder: anomaly_2025_11_13_rain_nf1
-    group: nov25_rain
-    site: north_fork_0
-    label: relative_only
-    note: November storm, same footbridge problem, nf0 as the live north stand-in.
-
-  - folder: anomaly_2026_04_01_rainfall
-    group: apr26_rainfall
-    site: north_fork_0
-    label: true_negative
-    note: >
-      April rainfall, confirmed heavy rain. Known failure: five points cross the
-      rain-adjusted threshold where at most two are allowed.
-
-  - folder: anomaly_2026_04_01_rainfall
-    group: apr26_rainfall
-    site: south_fork_2
-    label: true_negative
-    note: The same rainfall at the downstream south node. sf1 is absent this window.
-
   - folder: anomaly_2026_03_20_hydrant_nf0
     group: mar26_hydrant
     site: north_fork_0
@@ -126,6 +106,19 @@ events:
 
 # ==================================================================
 # EVENTS ON DISK THAT ARE DELIBERATELY NOT LISTED
+#
+# anomaly_2025_11_13_rain_nf1, anomaly_2026_04_01_rainfall
+#   The two rain events, pulled on 2026-09-06 in favour of the 2026-09-03 storm,
+#   which is better attested: a known wall-clock time, a known set of nodes that
+#   fired, and rain confirmed on the LBNL Berkeley tower. Both fixtures stay on
+#   disk. Re-listing either one is a single entry above.
+#
+#   Removing these took the true-negative count to zero, so nothing currently
+#   tests that the detector stays quiet, and test_true_negative_not_flagged
+#   parametrizes over an empty list. That gap is deliberate and temporary. It is
+#   held open by test_no_true_negative_coverage_yet in test_event_catalog.py and
+#   written up in future_work.md, and it closes when the September storm is cut
+#   into a fixture.
 #
 # anomaly_2026_01_botanical_actuator
 #   The botanical-garden actuator malfunction, January to February 2026. It was

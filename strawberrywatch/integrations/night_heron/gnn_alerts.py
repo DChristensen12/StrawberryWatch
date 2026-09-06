@@ -33,17 +33,43 @@ from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+
+def _env_number(name, default, cast):
+    """
+    Read a numeric setting, falling back to the default if it is unusable.
+
+    These run at import, and their daemon imports us inside a try/except
+    ImportError. A ValueError out of int() sails straight past that and takes the
+    whole daemon down, static and moving threshold alerts included, over a typo in
+    a .env file. Nothing here is worth that, so a bad value gets logged and
+    ignored. Blank counts as unset, since that is what an empty .env line means.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return cast(default)
+    try:
+        return cast(raw)
+    except ValueError:
+        logger.warning("gnn: %s=%r is not a number, using %s instead", name, raw, default)
+        return cast(default)
+
+
 # How often to actually run the model, whatever the caller's loop does.
-SCORE_INTERVAL = timedelta(minutes=int(os.getenv("GNN_SCORE_INTERVAL_MINUTES", "15")))
+SCORE_INTERVAL = timedelta(minutes=_env_number("GNN_SCORE_INTERVAL_MINUTES", 15, int))
 
 # How long a site stays quiet after it alerts. Long enough that a real event that
 # lasts all afternoon sends one email, not eighty.
-COOLDOWN = timedelta(hours=float(os.getenv("GNN_ALERT_COOLDOWN_HOURS", "6")))
+COOLDOWN = timedelta(hours=_env_number("GNN_ALERT_COOLDOWN_HOURS", 6, float))
 
 # How much history to pull. The model needs 24 rows for one window, and the
 # detection rules need 30 real readings before they will judge a site at all, so
 # two days at a fifteen minute cadence leaves plenty of headroom.
-LOOKBACK = timedelta(days=int(os.getenv("GNN_LOOKBACK_DAYS", "2")))
+LOOKBACK = timedelta(days=_env_number("GNN_LOOKBACK_DAYS", 2, int))
+
+# The off switch. Without one the only way to quiet the model is to uninstall the
+# package, which also takes away the checkpoint and 800MB of torch, and their
+# daemon has no other way to skip us.
+ENABLED = os.getenv("GNN_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
 CHECKPOINT_DIR = os.getenv("GNN_CHECKPOINT_DIR")
 MODEL_NAME = os.getenv("GNN_MODEL_NAME", "dusk_crayfish")
@@ -62,6 +88,12 @@ COLUMNS = {
 # Which sensor the alert is about, for their email subject and their unit lookup.
 # Both rules score conductivity, so this is always conductivity today.
 ALERT_SENSOR = "conductivity"
+
+# Prefix, not the whole type. The rule that fired gets appended, because a site
+# can trip both in one pass and two alerts that differ in nothing are two
+# identical emails and two AlertEvent rows nobody can tell apart. Their
+# AlertEvent.event_type is a CharField(max_length=50) and the longest this makes
+# is gnn_anomaly_forecast_residual, at 29.
 ALERT_TYPE = "gnn_anomaly"
 
 _state = {"last_scored": None, "sent": {}}
@@ -206,14 +238,17 @@ def pending_alerts(now=None):
 
     Returns a list of dicts with values, site, sensor, alert_type, emails and
     phones. An empty list is the normal answer and means one of: nothing fired,
-    what fired is still in cooldown, it is not time to score again, or the pass
-    is still running.
+    what fired is still in cooldown, it is not time to score again, the pass is
+    still running, or GNN_ENABLED is off.
 
     Returns immediately. The model runs on a background thread, so a slow load or
     a slow weather fetch cannot stall the caller's loop. Call it as often as you
     like.
     """
     global _worker
+    if not ENABLED:
+        return []
+
     now = now or datetime.now(UTC)
 
     with _lock:
@@ -246,7 +281,13 @@ def _run_pass(now):
 
 
 def _score(now):
+    import torch
+
     from strawberrywatch.serving import DuskCrayfishDetector
+
+    # A pass is a tenth of a second either way, and torch otherwise sizes its
+    # thread pool to the whole box. We are a guest in their daemon, so take one.
+    torch.set_num_threads(1)
 
     detector = DuskCrayfishDetector.cached(_checkpoint_dir(), MODEL_NAME, device="cpu")
 
@@ -295,7 +336,7 @@ def _score(now):
                     "values": [float(v) for v in readings.tail(200)],
                     "site": site,
                     "sensor": ALERT_SENSOR,
-                    "alert_type": ALERT_TYPE,
+                    "alert_type": f"{ALERT_TYPE}_{rule}",
                     "emails": emails,
                     "phones": phones,
                 }

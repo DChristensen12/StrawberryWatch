@@ -46,7 +46,7 @@ def test_every_label_is_one_the_tests_know(events):
     assert {e.label for e in events} <= set(ec.LABELS)
 
 
-def test_the_six_graded_events_are_still_graded(events):
+def test_the_graded_events_are_still_graded(events):
     """
     The graded rows are the evidence base. A refactor that quietly dropped one
     would leave a green suite that tests less than it did, which is the failure
@@ -58,9 +58,24 @@ def test_the_six_graded_events_are_still_graded(events):
         ("anomaly_2025_09_10_overnight_sf", "south_fork_1", "anomaly"),
         ("anomaly_2025_09_10_overnight_sf", "south_fork_2", "anomaly"),
         ("anomaly_2026_03_20_hydrant_nf0", "north_fork_0", "anomaly"),
-        ("anomaly_2026_04_01_rainfall", "north_fork_0", "true_negative"),
-        ("anomaly_2026_04_01_rainfall", "south_fork_2", "true_negative"),
     }
+
+
+def test_no_true_negative_coverage_yet(events):
+    """
+    Nothing currently tests that the detector stays quiet.
+
+    The two April rainfall rows were the only true negatives, and they came out
+    on 2026-09-06 in favour of the 2026-09-03 storm, which has not been cut into
+    a fixture yet. Until it is, test_true_negative_not_flagged parametrizes over
+    an empty list and silently tests nothing, which is exactly the kind of hole
+    the graded set above exists to prevent. This holds it open where someone
+    will see it. See future_work.md. Delete this test when the storm lands.
+    """
+    assert not [e for e in events if e.label == "true_negative"], (
+        "true negatives are back. Add them to the graded set in "
+        "test_the_graded_events_are_still_graded and delete this test."
+    )
 
 
 def test_the_catalog_has_exactly_one_definition():

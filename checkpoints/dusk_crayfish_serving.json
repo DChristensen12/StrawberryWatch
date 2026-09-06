@@ -1,5 +1,12 @@
 {
-  "architecture": {},
+  "architecture": {
+    "dropout": 0.1,
+    "gnn_layers": 1,
+    "gnn_type": "GCN",
+    "hidden_dim": 16,
+    "node_embed_dim": 8,
+    "temporal_layers": 1
+  },
   "cond_iqr": {
     "north_fork_0": 0.25213077664375305,
     "oxford": 0.2035616636276245,

@@ -768,28 +768,32 @@ python -m pytest tests/test_inventory.py -q
 23 passed in 0.46s
 ```
 
-### The three known failures
+### The two known failures
 
 The full suite currently ends like this:
 
 ```
 FAILED tests/test_anomaly_detection.py::test_anomaly_detected[dusk_crayfish-sep25_overnight/anomaly_2025_09_10_overnight_sf1]
 FAILED tests/test_anomaly_detection.py::test_anomaly_detected[dusk_crayfish-mar26_hydrant/anomaly_2026_03_20_hydrant_nf0]
-FAILED tests/test_anomaly_detection.py::test_true_negative_not_flagged[dusk_crayfish-apr26_rainfall/anomaly_2026_04_01_rainfall0]
-3 failed, 344 passed, 7 warnings in 400.96s (0:06:40)
 ```
 
-**These three are expected. You didn't break them.** They are:
+**These two are expected. You didn't break them.** They are:
 
 | Test | Event | What it means |
 |---|---|---|
 | `sep25_overnight` at south_fork_2 | September 2025 overnight conductivity spike | The model should flag it and does not |
 | `mar26_hydrant` at north_fork_0 | March 2026 fire hydrant spill | The model should flag it and does not |
-| `apr26_rainfall` at north_fork_0 | April 2026 heavy rain | The model should stay quiet and does not |
 
 They are open problems with the detection, recorded as failing tests rather than
-hidden. If you see exactly these three, the suite is in its expected state. If
+hidden. If you see exactly these two, the suite is in its expected state. If
 you see a different one, that's worth investigating.
+
+There was a third, `apr26_rainfall` at north_fork_0, where the model should have
+stayed quiet during April 2026 rain and did not. That event came out of
+`tests/events.yaml` on 2026-09-06 in favour of the better attested 2026-09-03
+storm, so the failure is gone because the test is gone, not because the
+behaviour changed. It was also the only true negative we had, so nothing
+currently checks that the detector stays quiet at all. See `future_work.md`.
 
 Before asking anyone about a test failure, check it against this list.
 
