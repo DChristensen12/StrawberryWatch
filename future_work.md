@@ -123,3 +123,76 @@ from. Cobble Shoal's weather channels came from Open-Meteo's historical forecast
 API. If that product misses local storms, the weather context in training missed
 them too, which is one candidate explanation for why the clock variant beat the
 weather variant on both splits.
+
+## Cobble Shoal scores nodes on unequal footing
+
+Measured 2026-09-06 over 400 fault-free windows, shipped weights against
+`cobble_shoal_calibration_real.json`.
+
+`combine(rule="fisher")` sums `-2*log(p)` with `nansum`, so a node's degrees of
+freedom is however many of its four channels are live that step. That is not
+constant. Mean live channels per node:
+
+| node | mean live channels | own p99 fisher |
+|---|---|---|
+| north_fork_0.* | 3.92 | ~21 |
+| south_fork_2.*, oxford.* | ~3.9 | ~18-28 |
+| south_fork_1.* | 3.33 | ~18-25 |
+| footbridge.conductivity/depth_dev/temperature | 0.58 | ~6-9 |
+| footbridge.do_pct, float_cond | 0.12 | ~7-10 |
+
+The statistic scales with dof, so the global threshold of about 33 is set by the
+well observed nodes and footbridge cannot reach it. Its own 99.9th percentile is
+8.0 at depth_dev. **footbridge is structurally unflaggable**, not merely quiet.
+
+This is worth holding next to the `events.yaml` notes on `nov25_foam` and
+`nov25_rain`, both of which say footbridge is the labelled site but the target
+falls back to north_fork_0 because its sensor is broken for the window. Some of
+that is a broken sensor. Some of it is this.
+
+The pooled nulls have the same shape of problem one level down. At the pooled
+99.9th percentile the per-node fault-free rate runs 0 to 1.3e-2 against a nominal
+1e-3, worst at `oxford.depth_dev` on dispersion. The `loo` channel's median is
+about 9.5 at temperature, 6 at conductivity and 3 at depth_dev, so most of that
+spread is per-variable rather than per-site.
+
+### What was tried and did not work
+
+All four measured against the shipped rule on the same fault-free windows, each
+at a matched 1e-3 fault-free rate, counting anchors over threshold. None of them
+detected an event the shipped rule missed, and all but one fired substantially
+more during rain:
+
+| variant | anomalies detected | false-alarm steps on rain events |
+|---|---|---|
+| shipped: pooled nulls, raw Fisher | 1/4 | 10 |
+| Cauchy combination (ACAT, Liu and Xie 2020) | 1/4 | 26 |
+| per-variable nulls | 1/4 | 19 |
+| per-node channel nulls | 1/4 | 12, but half the detection margin |
+| dof-standardised Fisher, `(stat - 2k) / 2*sqrt(k)` | 1/4 | 31 |
+| per-node thresholds on the combined statistic | 1/4 | 29 |
+
+The pattern is consistent and worth understanding before anyone tries again:
+every fix that lets a sparsely observed node reach the threshold also promotes
+the sparsely observed nodes during rain, because those are the same nodes. Rain
+false alarms and footbridge's unreachability are the same knob viewed from two
+ends, and none of these variants separates them.
+
+Cauchy is the clearest case. It is dominated by the smallest p, so a single
+spurious channel carries it, where Fisher's demand for corroboration across
+channels is what suppresses rain. That is an argument that the shipped choice is
+right for this problem rather than merely conventional.
+
+Per-node thresholds do equalise the fault-free rate exactly, 2.5e-3 at every
+node against a global range of 0 to 5e-3. If footbridge coverage becomes the
+priority, that is the variant to revisit, paired with something that separates
+rain from sparse observation rather than treating them as one.
+
+### Where to look instead
+
+Detection is 1/4 at a 1e-3 fault-free rate, and `jun25_spill`, `mar26_hydrant`
+and `aug25_sprinklers` all score zero anchors over threshold. The scoring rule is
+not what is costing those. Three of the catalog notes say the same thing in
+different words: the peak clears the bar on one or two steps where flagging needs
+three. That points at temporal aggregation of evidence, accumulating a weak but
+sustained signal rather than counting threshold crossings, which is untried here.

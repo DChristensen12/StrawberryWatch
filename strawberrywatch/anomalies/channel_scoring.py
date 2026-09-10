@@ -333,11 +333,25 @@ def combine(pvalues=None, raw=None, rule="fisher"):
 
     Fisher assumes independent channels, which these are not: dispersion and
     leave-one-out both fire on a frozen sensor, so an agreeing pair overstates
-    its significance. The statistic is still monotone in the evidence and the
-    degrees of freedom are constant across nodes for a given model, so ranking
-    is unaffected; only the absolute p-value is optimistic, which is why the
-    alerting threshold comes from POT on the statistic's own null rather than
-    from the chi-squared tail.
+    its significance. The statistic is still monotone in the evidence, and the
+    absolute p-value is optimistic, which is why the alerting threshold comes
+    from POT on the statistic's own null rather than from the chi-squared tail.
+
+    What is not true, and used to be claimed here, is that the degrees of
+    freedom are constant across nodes. nansum drops the channels that are NaN,
+    so a node's dof is however many of its channels are live, and measured over
+    400 fault-free windows that runs 0 to 4: a mean of 3.92 at north_fork_0
+    against 0.58 at footbridge, whose do_pct and float_cond sit at 0.12. The
+    statistic scales with dof, so footbridge's own 99.9th percentile is about 8
+    where the global threshold is about 33, and a sparsely observed node cannot
+    reach a threshold the well observed ones set. Ranking across nodes is
+    therefore not safe, and comparing a node against itself over time is.
+
+    Fixing it is not as easy as it looks. Standardising by dof, per-node nulls,
+    per-node thresholds and the Cauchy combination were all measured against
+    this rule at a matched fault-free rate, and every one of them traded
+    footbridge's reachability for substantially more firing during rain without
+    detecting anything new. See future_work.md.
     """
     if rule == "max":
         stack = np.stack([np.asarray(v, float) for v in raw.values()])
