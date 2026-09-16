@@ -207,7 +207,7 @@ python main.py --mode train
 
 Both `update` and `train` overwrite the saved weights, and the current weights
 are the baseline every historical event test is judged against. Don't run
-either one because you are curious. Ask first. See section 11.
+either one because you are curious. Ask first. See section 12.
 
 If no weights exist at all, `update` and `inference` say so and fall back to
 training, so a fresh clone with an empty `checkpoints/` folder will train on its
@@ -876,7 +876,45 @@ StrawberryWatch/
 
 ---
 
-## 9. Common problems
+## 9. How this fits with the notifications frontend
+
+StrawberryWatch is the research side. The production monitoring platform is a
+separate repository, Night Heron, which is the Django site and alert daemon
+behind the public creek website. It owns the database, the sensor and alert rule
+configuration, the user and group lists, and the actual email and SMS delivery.
+This repository owns the model.
+
+The join between the two is one function. Night Heron's `email_alerts.py`
+imports `strawberrywatch.integrations.night_heron.gnn_alerts` and calls
+`pending_alerts()` once per cycle. That function reads their creek tables, runs
+Dusk Crayfish on a background thread, and hands back anomalies already shaped
+for the alert task they already had, so they never touch a checkpoint or a
+tensor. Nothing here imports anything of theirs, which is why every command in
+this manual works with Night Heron absent.
+
+For that import to resolve, their server needs `strawberrywatch` installed and a
+checkpoint folder holding `dusk_crayfish_serving.json` and the weights, pointed
+at by `GNN_CHECKPOINT_DIR` in their environment. `GNN_ENABLED=0` turns the model
+off without touching their code, and their daemon imports us inside a
+try/except, so a missing package costs them the anomaly alerts and nothing else.
+
+Two things that are easy to get wrong:
+
+- **Running `scripts/run_live.py` here does not notify anyone on the website.**
+  It emails through `strawberrywatch/utils/notifier.py` using your own `.env`
+  credentials, to `ALERT_EMAIL_RECEIVER` and nobody else. In a fresh clone those
+  are still the placeholders from `.env.example`, so a real anomaly prints
+  `Failed to send anomaly alert email` and reaches no one. Website alerts come
+  from Night Heron's delivery, not from this path.
+- **`integrations/night_heron/` at the top of the repo is not the live code.**
+  The live code is the package folder,
+  `strawberrywatch/integrations/night_heron/`. The top level folder holds
+  reference code meant to be pasted into their repository, and nothing here
+  imports or runs it.
+
+---
+
+## 10. Common problems
 
 ### `ModuleNotFoundError: No module named 'strawberrywatch'`
 
@@ -953,7 +991,7 @@ those three, nothing is wrong.
 
 ---
 
-## 10. Who to ask
+## 11. Who to ask
 
 *This section needs a person to fill in. The repository doesn't record who is
 responsible for what. `CONTRIBUTORS.md` exists but is empty.*
@@ -971,7 +1009,7 @@ flagged detection, check what the readings actually did and whether it rained.
 
 ---
 
-## 11. What this manual doesn't yet cover
+## 12. What this manual doesn't yet cover
 
 This is a first draft. These gaps are known, and each one needs information that
 is not in the repository.
@@ -987,10 +1025,10 @@ is not in the repository.
    terminal closes. Whether it's meant to run under systemd, cron, or on a
    specific machine is not recorded. **Needed from:** whoever operates it now.
 
-4. **What "currently deployed" means in practice.** The README names a deployed
-   model, but where it runs, on what schedule, and whether this repository is
-   that deployment or a research copy of it's not stated anywhere.
-   **Needed from:** the project lead.
+4. **What "currently deployed" means in practice.** Section 9 says how the model
+   reaches Night Heron. What it doesn't say is which machine runs that daemon,
+   which checkpoint sits on it, and whether the weights in this repository are
+   the ones serving the website. **Needed from:** the project lead.
 
 5. **Cobble Shoal through `main.py`.** It's a `--model` choice that can't run,
    for the reason in section 3. Whether the intended fix is to generate the
