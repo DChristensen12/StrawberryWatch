@@ -358,14 +358,16 @@ class RainGate:
             return self.base_threshold * mult
         # A per-node multiplier rescales only the raised part: at zero rain
         # every node sits on the same base threshold, which is the calibrated
-        # one, and only the size of the rain-time raise differs.
+        # one, and only the size of the rain-time raise differs. That raised
+        # fraction is a property of the rain rather than of the node, so it is
+        # built here and not once per node inside the loop.
+        if self.multiplier > 1.0:
+            scale = (mult - 1.0) / (self.multiplier - 1.0)
+        else:
+            scale = np.zeros_like(mult)
         out = np.empty((mult.size, len(nodes)), dtype=float)
         for j, node in enumerate(nodes):
             m_node = self.node_multipliers.get(node, self.multiplier)
-            if self.multiplier > 1.0:
-                scale = (mult - 1.0) / (self.multiplier - 1.0)
-            else:
-                scale = np.zeros_like(mult)
             out[:, j] = self.base_threshold * (1.0 + (m_node - 1.0) * scale)
         return out
 

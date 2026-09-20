@@ -209,27 +209,29 @@ def build_windows(
     # A step nobody reported at is not worth putting in a window
     usable = ~np.isnan(grid).all(axis=(1, 2))
 
-    sequences, targets, target_stamps, masks = [], [], [], []
-    for i in range(len(stamps) - window):
-        if not usable[i : i + window + 1].all():
-            continue
-        sequences.append(filled[i : i + window])
-        targets.append(filled[i + window])
-        masks.append(reported[i : i + window])
-        target_stamps.append(stamps[i + window])
+    # Which starts give a wholly usable window, from one cumulative sum instead of
+    # rescanning window+1 flags per candidate start.
+    n_starts = max(len(stamps) - window, 0)
+    run = np.concatenate([[0], np.cumsum(usable, dtype=np.int64)])
+    offsets = np.arange(n_starts)
+    starts = np.flatnonzero(run[offsets + window + 1] - run[offsets] == window + 1)
 
-    if not sequences:
-        empty = np.empty((0, window, n_nodes, n_feat), dtype=np.float32)
+    if not starts.size:
         return (
-            empty,
+            np.empty((0, window, n_nodes, n_feat), dtype=np.float32),
             np.empty((0, n_nodes, n_feat), dtype=np.float32),
             [],
             np.empty((0, window, n_nodes), dtype=bool),
         )
 
+    # Narrowed once over the (T, nodes, features) grid, then gathered. Casting
+    # after the gather instead would put a float64 copy of every window in memory
+    # at once on the way to the float32 the caller gets.
+    narrow = filled.astype(np.float32)
+    window_idx = starts[:, None] + np.arange(window)
     return (
-        np.asarray(sequences, dtype=np.float32),
-        np.asarray(targets, dtype=np.float32),
-        target_stamps,
-        np.asarray(masks, dtype=bool),
+        narrow[window_idx],
+        narrow[starts + window],
+        [stamps[i + window] for i in starts],
+        reported[window_idx],
     )

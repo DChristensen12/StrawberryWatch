@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from tqdm import tqdm
 
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.data_loader import _NON_FEATURE_COLUMNS
@@ -199,15 +198,21 @@ def prepare_sequences_normalized(
     # carries only the second. Presence gets ANDed in once nan_mask exists.
     qc_valid_3d = np.ones((len(timestamps_all), num_nodes), dtype=bool)
 
-    for t_idx, timestamp in enumerate(tqdm(timestamps_all, desc="Pivoting data")):
-        t_data = df_normalized.loc[timestamp]
-        if isinstance(t_data, pd.Series):
-            t_data = t_data.to_frame().T
-        for _, row in t_data.iterrows():
-            node_idx = location_to_idx[row["location"]]
-            data_3d[t_idx, node_idx, :] = row[feature_cols].values
-            if has_valid_col:
-                qc_valid_3d[t_idx, node_idx] = bool(row["valid"])
+    # One scatter over the whole frame. This was a .loc label lookup per timestep
+    # and a Series build per row inside it, which on the training corpus is
+    # 116,000 of each and minutes of wall clock for an array assignment. A
+    # duplicate (timestamp, location) still resolves to the last row for that
+    # cell, because the row order handed to the scatter is the frame's own.
+    row_idx = pd.DatetimeIndex(timestamps_all).get_indexer(df_normalized.index)
+    node_idx = df_normalized["location"].map(location_to_idx)
+    if node_idx.isna().any():
+        # The loop raised KeyError off location_to_idx here. Same failure, named.
+        unknown = sorted(set(df_normalized["location"][node_idx.isna()]))
+        raise KeyError(f"no node index for location(s) {unknown}")
+    node_idx = node_idx.to_numpy(dtype=np.intp)
+    data_3d[row_idx, node_idx, :] = df_normalized[feature_cols].to_numpy(dtype=float)
+    if has_valid_col:
+        qc_valid_3d[row_idx, node_idx] = df_normalized["valid"].to_numpy(dtype=bool)
 
     # transient_absent_mask[t, n, f] = True if (node n, feature f) is NaN at
     # timestep t and NOT permanently absent. Real outages longer than the
@@ -252,14 +257,11 @@ def prepare_sequences_normalized(
 
     # A timestep is valid if zeroing out all known absences leaves no NaN.
     # That means every NaN is accounted for, and at least one cell had real data.
-    def is_valid_timestep(t_idx):
-        t_data = data_3d[t_idx].copy()
-        for node_idx, feat_idx in permanent_absent:
-            t_data[node_idx, feat_idx] = 0
-        t_data[transient_absent_mask[t_idx]] = 0
-        return not np.isnan(t_data).any()
-
-    valid_mask = np.array([is_valid_timestep(i) for i in range(len(timestamps_all))])
+    # Asked of the whole array at once rather than one copied timestep at a time:
+    # a NaN survives the zeroing exactly when it is neither permanently nor
+    # transiently absent.
+    unaccounted = nan_mask & ~permanent_mask[np.newaxis, :, :] & ~transient_absent_mask
+    valid_mask = ~unaccounted.any(axis=(1, 2))
     print(f"valid timesteps: {valid_mask.sum():,} / {len(valid_mask):,}")
 
     # Optional safety: a timestep with EVERY node absent is not useful even
@@ -271,45 +273,47 @@ def prepare_sequences_normalized(
     print(f"after node filter: {valid_mask.sum():,} / {len(valid_mask):,} valid timesteps")
 
     print(f"creating sequences (length {sequence_length})...")
-    sequences = []
-    targets = []
-    sequence_timestamps = []
-    node_mask_sequences = []
-    target_node_mask = []
 
-    for i in tqdm(range(len(timestamps_all) - sequence_length), desc="Sliding window"):
-        if valid_mask[i : i + sequence_length + 1].all():
-            seq = data_3d[i : i + sequence_length].copy()
-            target = data_3d[i + sequence_length].copy()
+    # Zero the absences once over the whole corpus instead of once per window
+    # they fall in, which was sequence_length times over for every interior step.
+    cleaned = data_3d.copy()
+    cleaned[:, permanent_mask] = 0
+    cleaned[transient_absent_mask] = 0
 
-            # Zero permanent absences across the whole window + target
-            for node_idx, feat_idx in permanent_absent:
-                seq[:, node_idx, feat_idx] = 0
-                target[node_idx, feat_idx] = 0
+    # Which windows are wholly valid, from one cumulative sum rather than a
+    # rescan of sequence_length+1 flags per candidate start.
+    n_starts = max(len(timestamps_all) - sequence_length, 0)
+    run = np.concatenate([[0], np.cumsum(valid_mask, dtype=np.int64)])
+    offsets = np.arange(n_starts)
+    starts = np.flatnonzero(
+        run[offsets + sequence_length + 1] - run[offsets] == sequence_length + 1
+    )
 
-            for step_offset in range(sequence_length):
-                t_idx = i + step_offset
-                seq[step_offset][transient_absent_mask[t_idx]] = 0
-            target[transient_absent_mask[i + sequence_length]] = 0
+    if starts.size:
+        # Gathered straight into the returned array. Collecting a list of window
+        # copies first and stacking it afterwards held two full copies of the
+        # corpus in memory at once.
+        window_idx = starts[:, None] + np.arange(sequence_length)
+        sequences = cleaned[window_idx]
+        targets = cleaned[starts + sequence_length]
+        sequence_timestamps = [timestamps_all[i + sequence_length] for i in starts]
+        node_mask_sequences = valid_3d[window_idx] if return_node_mask else np.array([])
+        target_node_mask = valid_3d[starts + sequence_length] if return_node_mask else np.array([])
+    else:
+        sequences = targets = np.array([])
+        node_mask_sequences = target_node_mask = np.array([])
+        sequence_timestamps = []
 
-            sequences.append(seq)
-            targets.append(target)
-            sequence_timestamps.append(timestamps_all[i + sequence_length])
-
-            if return_node_mask:
-                node_mask_sequences.append(valid_3d[i : i + sequence_length].copy())
-                target_node_mask.append(valid_3d[i + sequence_length].copy())
-
-    print(f"done. {len(sequences):,} sequences total")
+    print(f"done. {len(sequence_timestamps):,} sequences total")
 
     if return_node_mask:
         return (
-            np.array(sequences),
-            np.array(targets),
+            sequences,
+            targets,
             sequence_timestamps,
             scaler,
             feature_cols,
-            np.array(node_mask_sequences),
-            np.array(target_node_mask),
+            node_mask_sequences,
+            target_node_mask,
         )
-    return np.array(sequences), np.array(targets), sequence_timestamps, scaler, feature_cols
+    return sequences, targets, sequence_timestamps, scaler, feature_cols

@@ -2,7 +2,6 @@
 
 import torch
 import torch.nn as nn
-from torch_geometric.data import Batch, Data
 from torch_geometric.nn import GATConv, GCNConv
 
 from strawberrywatch.models import model_calls
@@ -93,13 +92,26 @@ def propagate_missing_features(x, node_mask, norm_adj, num_iters=40):
     known = node_mask.unsqueeze(-1).float()  # (batch, num_nodes, 1)
     x_known = x * known  # zero out the missing rows to start
 
+    # Both of these used to be rebuilt inside the loop, which is num_iters copies
+    # of the same two tensors per timestep and was the single hottest thing in
+    # the model. They do not depend on the iterate, so they are built once.
+    free = 1.0 - known
+    anchored = x_known * known
+
+    # With every node known the reset overwrites the whole diffusion, so all
+    # num_iters steps land on exactly the tensor one step would. Skipping them is
+    # the identical result, not an approximation of it.
+    if bool(known.all()):
+        return anchored
+
     out = x_known.clone()
     for _ in range(num_iters):
         # Diffuse: (num_nodes, num_nodes) times (batch, num_nodes, feat) per batch
-        # einsum keeps the batch dimension clean
+        # einsum keeps the batch dimension clean. Not matmul: the two disagree in
+        # the last bits of float32 and forty iterations compound it.
         out = torch.einsum("ij,bjf->bif", norm_adj, out)
         # Reset the known nodes to their real values so they stay fixed
-        out = out * (1.0 - known) + x_known * known
+        out = out * free + anchored
     return out
 
 
@@ -243,13 +255,17 @@ class DuskCrayfish(nn.Module):
         """
         batch_size, seq_len, num_nodes, num_features = x_sequence.shape
 
-        # Batched edge index for the per-timestep GCN, same trick as the original
-        data_list = [
-            Data(x=torch.zeros(num_nodes, num_features), edge_index=edge_index)
-            for _ in range(batch_size)
-        ]
-        batch_loader = Batch.from_data_list(data_list).to(x_sequence.device)
-        batch_edge_index = batch_loader.edge_index
+        # Batched edge index for the per-timestep GCN. One shared graph batches
+        # block-diagonally, so this is the same columns once per graph, each copy
+        # shifted by that graph's node offset. Going through Batch.from_data_list
+        # meant allocating batch_size dummy node-feature blocks to arrive at the
+        # same indices and throw the features away.
+        device = x_sequence.device
+        edges = edge_index.to(device)
+        offsets = (
+            torch.arange(batch_size, device=device).repeat_interleave(edges.size(1)) * num_nodes
+        )
+        batch_edge_index = edges.repeat(1, batch_size) + offsets
 
         # Dense normalized adjacency for feature propagation, built once per call
         norm_adj = None

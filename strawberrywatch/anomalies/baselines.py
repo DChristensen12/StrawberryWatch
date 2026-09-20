@@ -31,9 +31,14 @@ def rolling_median(values, window=MEDIAN_WINDOW):
     """Trailing median per column, expanding until the window fills."""
     v = np.asarray(values, dtype=float)
     out = np.empty_like(v)
-    for t in range(v.shape[0]):
-        lo = max(0, t - window + 1)
-        out[t] = np.median(v[lo : t + 1], axis=0)
+    # Only the first window-1 rows have a window that is still growing, so only
+    # they need a step of their own. The rest are one strided view and one median,
+    # rather than a fresh slice and a fresh median call per step.
+    for t in range(min(window - 1, v.shape[0])):
+        out[t] = np.median(v[: t + 1], axis=0)
+    if v.shape[0] >= window:
+        trailing = np.lib.stride_tricks.sliding_window_view(v, window, axis=0)
+        out[window - 1 :] = np.median(trailing, axis=-1)
     return out
 
 

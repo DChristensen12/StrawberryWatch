@@ -30,6 +30,11 @@ DISPERSION_WINDOW = 8
 # tail is used instead and the caller is told the fit was skipped.
 MIN_EXCEEDANCES = 20
 
+# Ceiling on the t-by-y temporary the GPD grid sweep builds, in float64 entries.
+# Without a cap the sweep is grid.size * len(excess), which on a corpus-sized
+# fault-free sample is hundreds of megabytes for an array read once.
+GPD_GRID_BLOCK = 2_000_000
+
 
 def _np(x):
     return x.detach().cpu().numpy() if torch.is_tensor(x) else np.asarray(x)
@@ -161,22 +166,45 @@ def fit_gpd(excess):
     grid = np.concatenate([np.clip(-span[::-1], lo, None), span])
     grid = np.unique(grid[(grid > lo) & (np.abs(grid) > 1e-12)])
 
-    ll = np.array([loglik(t) for t in grid])
+    # The grid sweep is one log1p over t-by-y instead of one call to loglik per
+    # grid point, blocked so the temporary stays around GPD_GRID_BLOCK entries
+    # however many excesses came in. Same values, same order of summation: mean
+    # along a row of a C-contiguous block is the 1-D mean of that row.
+    g_all = np.empty(grid.size)
+    step = max(1, GPD_GRID_BLOCK // n)
+    block = np.empty((min(step, grid.size), n))
+    for i in range(0, grid.size, step):
+        t_blk = grid[i : i + step]
+        buf = block[: t_blk.size]
+        np.multiply(t_blk[:, None], y[None, :], out=buf)
+        np.log1p(buf, out=buf)
+        g_all[i : i + t_blk.size] = buf.mean(axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ll = n * np.log(grid / g_all) - n * (g_all + 1.0)
+    # The two guards loglik() applies pointwise, kept so a grid point it would
+    # have rejected still scores -inf here rather than a nan out of the log.
+    ll = np.where((g_all > 1e-12) & (g_all / grid > 0), ll, -np.inf)
+
     best = int(np.argmax(ll))
     a = grid[max(best - 1, 0)]
     b = grid[min(best + 1, grid.size - 1)]
 
     # Golden section on the bracketing interval. The profile is unimodal there
     # for every sample we have looked at; if it is not, the grid answer stands.
+    # The point that survives a step keeps its likelihood instead of being
+    # evaluated again, which is half the evaluations for the same bracket.
     phi = (math.sqrt(5.0) - 1.0) / 2.0
     c, d = b - phi * (b - a), a + phi * (b - a)
+    fc, fd = loglik(c), loglik(d)
     for _ in range(80):
-        if loglik(c) > loglik(d):
-            b, d = d, c
+        if fc > fd:
+            b, d, fd = d, c, fc
             c = b - phi * (b - a)
+            fc = loglik(c)
         else:
-            a, c = c, d
+            a, c, fc = c, d, fd
             d = a + phi * (b - a)
+            fd = loglik(d)
     t = 0.5 * (a + b)
 
     if loglik(0.0) >= loglik(t):

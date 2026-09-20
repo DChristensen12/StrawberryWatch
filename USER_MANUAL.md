@@ -207,7 +207,7 @@ python main.py --mode train
 
 Both `update` and `train` overwrite the saved weights, and the current weights
 are the baseline every historical event test is judged against. Don't run
-either one because you are curious. Ask first. See section 12.
+either one because you are curious. Ask first. See section 13.
 
 If no weights exist at all, `update` and `inference` say so and fall back to
 training, so a fresh clone with an empty `checkpoints/` folder will train on its
@@ -305,11 +305,57 @@ separate process so each cycle starts with clean memory, then sleeps 15 minutes.
 `Monitoring stopped by user.` and exits. Closing the terminal window also stops
 it. There's no background service and no PID file, so if you want it to survive
 a logout you need systemd or cron, which is not set up here. See the gaps in
-section 12.
+section 13.
 
 ---
 
-## 3. The models
+## 3. When it looks like the model is wrong
+
+Usually it isn't. When the output looks wrong, or a site seems to have stopped
+making sense, the sensors are the first thing to check and the model is close to
+the last.
+
+**A sensor is down.** The probes are solar powered and run independently of any
+building's mains, which is what lets them sit out in the creek at all. It also
+means they go quiet from time to time: a run of overcast days, a battery that
+never fully recovered, leaves or silt over a panel. This is expected. It happens
+occasionally and it is not a fault in the software.
+
+The run output tells you when it has happened. `Nodes judged: 3/4` means one site
+didn't have enough data to score, so that site isn't being watched that cycle at
+all. Sites that share a flow path with it also lose the neighbour the model would
+normally lean on, so their numbers can look odd while nothing is wrong with the
+model itself.
+
+**A sensor was tampered with or destroyed.** At least one sensor a year gets
+stolen, and that has held true as of 2026. Theft and vandalism look exactly like
+a flat battery from here, so if a site goes quiet and stays quiet for days, send
+someone to look at it rather than waiting for the sun to come back.
+
+Once you know a probe is gone, take it out of service in the inventory so the
+system stops expecting readings from it. See section 6.
+
+**North fork runs dirtier than south fork.** More urban activity drains into the
+north fork, so its baseline conductivity sits higher and swings wider than the
+south fork's. A number that would be alarming at a south fork site can be an
+ordinary day at `north_fork_0`.
+
+The model already accounts for this, because thresholds are fitted per node and
+each site is judged against its own history. What you should not do is compare
+`peak_deviation` between two sites and conclude the larger one is in worse shape.
+That number only means something against the same site over time.
+
+**A gap at Oxford, University House or Codornices may never have existed.** Those
+three are the legacy Balance Hydrologics stations, they are read from a separate
+system, and that system only serves the last seven days. A hole older than that
+was never retrievable and nobody broke it. See section 6.
+
+So the order to work through is: check the judged count, check the inventory,
+check whether the probe is physically still there, then consider the model.
+
+---
+
+## 4. The models
 
 Models are named after creek biota. Each one is a different approach to the same
 question. The README table is the short version, this is the longer one.
@@ -368,7 +414,7 @@ trained feature set. Retrain with --mode train.
 python scripts/run_audit_comparison.py
 ```
 
-  Wiring it into `main.py` properly is unfinished work. See section 12.
+  Wiring it into `main.py` properly is unfinished work. See section 13.
 
 ### Flame Skimmer
 
@@ -388,7 +434,7 @@ regression model. The other two are marked TBD.
 
 ---
 
-## 4. The support modules
+## 5. The support modules
 
 A support module attaches to any model. It has no weights of its own and is not
 a model. You attach one or more with `--support`:
@@ -451,7 +497,7 @@ is fed.
 
 ---
 
-## 5. The inventory
+## 6. The inventory
 
 This is the file you are most likely to need to edit. It records which sensor is
 at which site, when it went in, and whether it's in use right now.
@@ -498,6 +544,20 @@ conductivity, temperature and depth probe, which is one instrument reporting
 three channels), `do` (dissolved oxygen), `fc` (floating conductivity) and `ph`.
 The three legacy Balance Hydrologics sites at the bottom have different columns,
 `stage` and `balance_feed`, because they are a different kind of station.
+
+Those three predate SCMG. Before this project existed, creek monitoring at
+Berkeley ran on Balance Hydrologics stations, which were bulky, heavy, expensive
+to install, and wired for mains and LAN. That is the reason the current probes
+look the way they do: small, solar powered, and wireless, so a site needs no
+trenching and no network drop. It is also why the three old stations are still
+described differently here. They were never the same kind of instrument.
+
+One consequence matters when you are reading results. The Balance feed is
+scraped from a separate system that only serves the last seven days, set by
+`balance_service_days` further down this file. A gap older than that at Oxford,
+University House or Codornices was never retrievable in the first place, so the
+system reports it as "not installed" rather than as a broken sensor. Nobody
+broke it and there is nothing to fix.
 
 Three values are allowed and nothing else:
 
@@ -635,7 +695,7 @@ Fix that one first if you can find out the answer.
 
 ---
 
-## 6. Making a change to the code
+## 7. Making a change to the code
 
 ### Setting up the checks
 
@@ -738,7 +798,7 @@ top of the README goes red.
 
 ---
 
-## 7. Running the tests
+## 8. Running the tests
 
 The full suite:
 
@@ -815,7 +875,7 @@ a decision for the project lead rather than something to guess at. See section
 
 ---
 
-## 8. Where things live
+## 9. Where things live
 
 ```
 StrawberryWatch/
@@ -829,13 +889,13 @@ StrawberryWatch/
   strawberrywatch/           all the library code
     config.py                settings read from .env and settings.yaml
     paths.py                 every file location, resolved in one place
-    inventory.yaml           which sensor is where, section 5
+    inventory.yaml           which sensor is where, section 6
     inventory.py             reads and validates the inventory
     ingest/                  fetching data: API, SQL, weather, raw files
     preprocessing/           turning readings into model input
     models/                  model architectures, one file each
     anomalies/              scoring, thresholds, rain handling
-    support_modules/         the attachable modules from section 4
+    support_modules/         the attachable modules from section 5
     training/                the training loop
     utils/                   graph helpers, plotting, email
 
@@ -876,7 +936,7 @@ StrawberryWatch/
 
 ---
 
-## 9. How this fits with the notifications frontend
+## 10. How this fits with the notifications frontend
 
 StrawberryWatch is the research side. The production monitoring platform is a
 separate repository, Night Heron, which is the Django site and alert daemon
@@ -914,7 +974,7 @@ Two things that are easy to get wrong:
 
 ---
 
-## 10. Common problems
+## 11. Common problems
 
 ### `ModuleNotFoundError: No module named 'strawberrywatch'`
 
@@ -982,16 +1042,23 @@ source of truth, and is not committed.
 
 You get `The inventory file has a problem and nothing will run until it's
 fixed.` Read the message. It names the file, the line number, and what to write.
-See section 5.
+See section 6.
+
+### A site stopped being judged, or its numbers stopped making sense
+
+`Nodes judged` came back lower than the number of modelled sites, or one site's
+output looks nothing like it used to. This is a sensor problem far more often
+than a model problem. The probes are solar powered, so they go quiet on their
+own, and sensors do get stolen. Work through the checks in section 3.
 
 ### A test fails
 
-Check them against the three known failures in section 7 first. If they're
+Check them against the three known failures in section 8 first. If they're
 those three, nothing is wrong.
 
 ---
 
-## 11. Who to ask
+## 12. Who to ask
 
 *This section needs a person to fill in. The repository doesn't record who is
 responsible for what. `CONTRIBUTORS.md` exists but is empty.*
@@ -1004,17 +1071,17 @@ responsible for what. `CONTRIBUTORS.md` exists but is empty.*
 | EH&S escalation when something is flagged | | |
 | Repository access and permissions | | |
 
-Before asking about a failing test, check section 7. Before asking about a
+Before asking about a failing test, check section 8. Before asking about a
 flagged detection, check what the readings actually did and whether it rained.
 
 ---
 
-## 12. What this manual doesn't yet cover
+## 13. What this manual doesn't yet cover
 
 This is a first draft. These gaps are known, and each one needs information that
 is not in the repository.
 
-1. **Who to ask.** Section 10 is an empty table. **Needed from:** the project
+1. **Who to ask.** Section 12 is an empty table. **Needed from:** the project
    lead, the current names and contacts.
 
 2. **What to do when a real detection fires.** This manual explains how to read
@@ -1025,13 +1092,13 @@ is not in the repository.
    terminal closes. Whether it's meant to run under systemd, cron, or on a
    specific machine is not recorded. **Needed from:** whoever operates it now.
 
-4. **What "currently deployed" means in practice.** Section 9 says how the model
+4. **What "currently deployed" means in practice.** Section 10 says how the model
    reaches Night Heron. What it doesn't say is which machine runs that daemon,
    which checkpoint sits on it, and whether the weights in this repository are
    the ones serving the website. **Needed from:** the project lead.
 
 5. **Cobble Shoal through `main.py`.** It's a `--model` choice that can't run,
-   for the reason in section 3. Whether the intended fix is to generate the
+   for the reason in section 4. Whether the intended fix is to generate the
    missing metadata or to wire in its separate data path is an open decision.
    **Needed from:** whoever owns that model.
 
@@ -1053,7 +1120,7 @@ is not in the repository.
    for Windows is given from the standard Python documentation but was not
    tested. **Needed:** somebody to run through section 1 on Windows.
 
-10. **The two failing inventory comment tests.** Described in section 7. The
+10. **The two failing inventory comment tests.** Described in section 8. The
     header comment in `inventory.yaml` and the tests that check it disagree.
     **Needed from:** the project lead, a decision on which one is correct.
 

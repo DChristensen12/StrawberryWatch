@@ -31,6 +31,13 @@ STALE = "STALE"
 MISSING = "MISSING"
 STATES = (NOT_INSTALLED, PRESENT, STALE, MISSING)
 
+# resolve_series works in these codes and indexes the names back on at the end,
+# so a whole archive's worth of states costs one pass over int8 rather than four
+# masked writes into an object array. The codes index _STATE_BY_CODE, so their
+# order has to stay in step with STATES.
+_STATE_BY_CODE = np.array(STATES, dtype=object)
+_NOT_INSTALLED_CODE, _PRESENT_CODE, _STALE_CODE, _MISSING_CODE = range(len(STATES))
+
 MAYFLY = "mayfly"
 BALANCE = "balance_hydrologics"
 SOURCES = (MAYFLY, BALANCE)
@@ -752,11 +759,16 @@ class Inventory:
         site = self.site(table)
         sensor = site.sensor_for(variable)
 
-        states = np.full(len(index), NOT_INSTALLED, dtype=object)
-        if sensor is None or not sensor.ever_installed or len(index) == 0:
-            return pd.Series(states, index=index)
-        if self._switched_off(sensor, in_service_only):
-            return pd.Series(states, index=index)
+        # Built inside the branches that return it. Hoisted out, every call
+        # allocated a pointer per timestep for an array the common path then
+        # overwrote wholesale.
+        if (
+            sensor is None
+            or not sensor.ever_installed
+            or len(index) == 0
+            or self._switched_off(sensor, in_service_only)
+        ):
+            return pd.Series(np.full(len(index), NOT_INSTALLED, dtype=object), index=index)
 
         present = values.notna().to_numpy()
         installed = index >= sensor.install
@@ -767,9 +779,13 @@ class Inventory:
         # subtracts cleanly instead of landing in object dtype. as_unit first:
         # pandas takes the resolution off the input, and a microsecond index
         # read every gap as inside the allowed two hours.
-        stamps = index.as_unit("ns").asi8.astype("float64")
-        last = pd.Series(np.where(present, stamps, np.nan)).ffill().to_numpy()
-        age = stamps - last
+        stamps = (index if index.unit == "ns" else index.as_unit("ns")).asi8.astype("float64")
+        # Carry the last reporting stamp forward as a running max of its position,
+        # which is the same fill a Series.ffill() does without building the Series
+        # or a second float array beside it. Nothing seen yet stays NaN, as before.
+        where = np.where(present, np.arange(len(index)), -1)
+        np.maximum.accumulate(where, out=where)
+        age = np.where(where >= 0, stamps - stamps[where], np.nan)
 
         as_of_stamp = None if as_of is None else pd.Timestamp(as_of)
         if as_of_stamp is not None and as_of_stamp.tzinfo is None:
@@ -781,11 +797,15 @@ class Inventory:
 
         stale = np.isfinite(age) & (age <= self.staleness_hours * 3600 * 1e9)
 
-        states[installed & present] = PRESENT
-        states[installed & ~present & expected_gap] = NOT_INSTALLED
-        states[installed & ~present & ~expected_gap & stale] = STALE
-        states[installed & ~present & ~expected_gap & ~stale] = MISSING
-        return pd.Series(states, index=index)
+        # One pass of small integer codes indexed into the state table, rather
+        # than four boolean-masked writes into an object array. The masks that
+        # were spelled out three times over are built once.
+        silent = installed & ~present & ~expected_gap
+        codes = np.full(len(index), _NOT_INSTALLED_CODE, dtype=np.int8)
+        codes[installed & present] = _PRESENT_CODE
+        codes[silent & stale] = _STALE_CODE
+        codes[silent & ~stale] = _MISSING_CODE
+        return pd.Series(_STATE_BY_CODE[codes], index=index)
 
     def state_counts(self, frames, as_of=None, in_service_only=True):
         """

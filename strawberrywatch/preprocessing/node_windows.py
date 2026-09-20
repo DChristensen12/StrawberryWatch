@@ -17,6 +17,7 @@ filling it would hand the model a reading it treats as real.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -289,7 +290,12 @@ def build_window(tables, start, end, inventory=None, scaler=None, as_of=None):
     return {
         "values": scaler.transform(values),
         "staleness": staleness,
-        "target_val": np.nan_to_num(scaler.transform(target_val)).astype(np.float32),
+        # transform() hands back a fresh float32 array, so the NaN fill can land in
+        # it rather than in a copy, and the astype is already satisfied. On a
+        # corpus-length grid the two copies this drops were 60 MB each.
+        "target_val": np.nan_to_num(scaler.transform(target_val), copy=False).astype(
+            np.float32, copy=False
+        ),
         "target_mask": target_mask,
         "context": add_context_features(grid).to_numpy(dtype=np.float32),
         "grid": grid,
@@ -346,12 +352,16 @@ def fault_free_anchors(win, count, window=24, min_coverage=0.5, spans=EVENT_SPAN
     bad = _labelled(win["grid"], spans)
     mask = win["target_mask"]
     n_nodes = mask.shape[1]
-    usable = [
-        anchor
-        for anchor in range(window, len(win["grid"]) - 1)
-        if not bad[anchor - window : anchor + 1].any()
-        and mask[anchor].sum() >= min_coverage * n_nodes
-    ]
+    # Both conditions over all candidate anchors at once. Per anchor they were
+    # rescanning the same window of `bad` and re-summing the same mask row, which
+    # is O(grid * window) for something two cumulative sums answer.
+    candidates = np.arange(window, max(window, len(win["grid"]) - 1))
+    spans_clear = np.concatenate([[0], np.cumsum(bad, dtype=np.int64)])
+    covered = mask.sum(axis=1)
+    keep = (spans_clear[candidates + 1] - spans_clear[candidates - window] == 0) & (
+        covered[candidates] >= min_coverage * n_nodes
+    )
+    usable = candidates[keep].tolist()
     if len(usable) <= count:
         return usable
     take = np.linspace(0, len(usable) - 1, count).round().astype(int)
@@ -367,16 +377,19 @@ def to_batch(win, anchor, window):
     """
     import torch
 
-    from strawberrywatch.models.Cobble_Shoal import (
-        build_site_matrix,
-        build_variable_adjacency,
-        inventory_matrix,
-    )
-
     roster = win.get("roster") or _expected_roster()
     sites = list(roster)
     node_site = win["node_site"]
     lo, hi = anchor - window, anchor
+
+    # These three describe the creek, not the anchor, so scoring a thousand
+    # anchors out of one window used to rebuild the same three tensors a thousand
+    # times. Every consumer only reads them, so one copy per roster is enough.
+    site_inventory, a_var, site_matrix = _graph_tensors(
+        tuple(node_site.tolist()),
+        tuple(sites),
+        tuple((site, tuple(variables)) for site, variables in roster.items()),
+    )
 
     stale = torch.tensor(win["staleness"][lo:hi], dtype=torch.float32).unsqueeze(0)
     return {
@@ -388,11 +401,37 @@ def to_batch(win, anchor, window):
         "obs_mask": stale < 1.0,
         "node_site": node_site,
         "node_var": win["node_var"],
-        "site_inventory": inventory_matrix(sites, roster),
-        "a_var": build_variable_adjacency(node_site),
-        "site_matrix": build_site_matrix(node_site, len(sites)),
+        "site_inventory": site_inventory,
+        "a_var": a_var,
+        "site_matrix": site_matrix,
         "nodes": win["nodes"],
     }
+
+
+@lru_cache(maxsize=8)
+def _graph_tensors(node_site_key, sites_key, roster_key):
+    """
+    The roster-derived graph tensors for to_batch, built once per distinct creek.
+
+    Keyed on plain tuples because the cache has to be keyed on what the tensors
+    are built from, and a tensor is not hashable. Handing out one shared copy is
+    only safe while nothing writes to them, which is why this is private: the
+    encoder multiplies and indexes them and nothing mutates them in place.
+    """
+    import torch
+
+    from strawberrywatch.models.Cobble_Shoal import (
+        build_site_matrix,
+        build_variable_adjacency,
+        inventory_matrix,
+    )
+
+    node_site = torch.tensor(node_site_key, dtype=torch.long)
+    return (
+        inventory_matrix(list(sites_key), dict(roster_key)),
+        build_variable_adjacency(node_site),
+        build_site_matrix(node_site, len(sites_key)),
+    )
 
 
 def _expected_roster():

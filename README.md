@@ -21,6 +21,11 @@ New here? Start with the [User Manual](USER_MANUAL.md). Currently deployed: Dusk
 
 The creek is monitored at eleven locations: UC Botanical Gardens, Women's Faculty Club (south fork 0), Stephens Hall (south fork 1), Downstream of Sather Gate (south fork 2), Weill Hall (south fork 3), Kingman Hall Garden, University House, Giannini Hall (north fork 0), Wickson Footbridge (north fork 1, also sometimes labeled as scnf010), Oxford Street, and Codornices Creek. The eleventh site, Codornices, is a separate watershed monitored as a standalone point.
 
+The two forks do not behave alike. More urban activity drains into the north
+fork, so it runs dirtier than the south fork: a higher baseline conductivity and
+wider swings. Thresholds are fitted per node for that reason, and a deviation at
+a north fork site is not comparable to the same number at a south fork one.
+
 ### Sensors + Measured Metrics
 
 Every site runs an [EnviroDIY Mayfly Data Logger](https://www.envirodiy.org/mayfly/),
@@ -43,7 +48,14 @@ reads the top of the water column, which is what separates a surface
 contaminant like oil from one that mixes through.
 
 Three legacy Balance Hydrologics sites are read from a separate system and serve
-only the past seven days.
+only the past seven days, so a gap older than a week at those sites was never
+retrievable rather than broken.
+
+Those stations predate SCMG. Berkeley monitored the creek with Balance
+Hydrologics equipment first, which was bulky, heavy, expensive to install and
+wired for mains and LAN. The Mayfly sites replaced that with something small,
+solar powered and wireless, which is why they need no trenching and no network
+drop, and also why they occasionally go quiet when the sun does.
 
 
 ## Models
@@ -190,11 +202,12 @@ through it in order the first time.
 |---|---|
 | Install it for the first time | [Getting set up](USER_MANUAL.md#1-getting-set-up) |
 | Run it and understand what it prints | [Running the system](USER_MANUAL.md#2-running-the-system) |
-| Know what each model does | [The models](USER_MANUAL.md#3-the-models) |
-| Take a sensor out of service | [The inventory](USER_MANUAL.md#5-the-inventory) |
-| Change some code and commit it | [Making a change to the code](USER_MANUAL.md#6-making-a-change-to-the-code) |
-| Run the tests | [Running the tests](USER_MANUAL.md#7-running-the-tests) |
-| Fix an error I am seeing | [Common problems](USER_MANUAL.md#9-common-problems) |
+| Work out why the results look wrong | [When it looks like the model is wrong](USER_MANUAL.md#3-when-it-looks-like-the-model-is-wrong) |
+| Know what each model does | [The models](USER_MANUAL.md#4-the-models) |
+| Take a sensor out of service | [The inventory](USER_MANUAL.md#6-the-inventory) |
+| Change some code and commit it | [Making a change to the code](USER_MANUAL.md#7-making-a-change-to-the-code) |
+| Run the tests | [Running the tests](USER_MANUAL.md#8-running-the-tests) |
+| Fix an error I am seeing | [Common problems](USER_MANUAL.md#11-common-problems) |
 
 ---
 
