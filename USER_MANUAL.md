@@ -24,6 +24,128 @@ manual is wrong, and would require fixing.
 
 ---
 
+## Background: the creek and SCMG
+
+You don't need any of this to run the system. It's here because the output
+makes more sense once you know a bit about the creek and the group watching it.
+
+### The creek
+
+Strawberry Creek runs through the UC Berkeley campus and has been part of it
+since the University was founded in 1868. It's an urban creek, but it still
+supports native wildlife, including several endangered or threatened species
+such as the Alameda whipsnake. Courses across campus use it for teaching too.
+
+It hasn't always been in good shape. In the University's early years the creek
+was used for sewage and waste discharge, which badly degraded its ecosystem. It
+once had a seasonal salmon run, but development in the watershed, especially
+diverting creek water for household use, is believed to have wiped out its fish
+by the end of the 1800s. Restoration work began in the 1980s, and the ecosystem
+has been slowly recovering since the Strawberry Creek Management Plan began in
+1987.
+
+Today the creek holds crayfish, water striders and mosquitoes, and fish
+including the California roach, the Sacramento sucker and the threespine
+stickleback. Upstream, the Strawberry Canyon wildlands are still home to deer,
+foxes and mountain lions, though grizzly bears and elk were wiped out of the
+area long ago. Wildlife corridors between watersheds let animals range across
+the East Bay's undeveloped parkland. Downstream of campus is a different story.
+Most of the creek's route to the Bay is culverted, which restricts habitat for
+anything living in or along it.
+
+### Culverts and runoff
+
+The first part of the creek was culverted in 1883. The main culvert now is the
+Big Inch, which carries the creek from Strawberry Canyon down to campus. It's
+about 4,000 feet long, and inside there are cables for workers to use when they
+head upstream. The Little Inch is only used to divert stormwater and runoff
+into the creek. Both come out near the Women's Faculty Club, which is where
+South Fork 0 sits.
+
+That runoff is the reason the site is there. Sprinklers, fire hydrants and
+hoses all drain into the creek, and all of them deliver tap water. EBMUD
+disinfects tap water, which introduces new chemicals into the creek. The
+chlorine used as the disinfectant kills microorganisms in the creek, which
+disrupts the food chain and has knock-on effects for the surrounding ecosystem.
+
+### The Stanley Hall diesel spill
+
+In 2011 a diesel spill at Stanley Hall put around 1,000 gallons of diesel into
+Strawberry Creek. The cleanup cost the University more than $1 million, and
+long response times made the damage worse. The spill marked the birth of
+continuous monitoring along the creek. Before real-time monitoring, the creek
+was watched by eye: employees were paid to look over it as part of their job
+and report any damage they saw.
+
+Continuous monitoring began with Balance Hydrologics stations, installed in the
+early 2000s. Three went in, two on Strawberry Creek and one in Codornices Creek.
+Section 6 has more on them.
+
+### Where SCMG came from
+
+The Strawberry Creek Monitoring Group (SCMG) was founded in 2024 as an offshoot
+of the Strawberry Creek Restoration Program (SCRP). It started with an SCRP
+intern who wanted to set up remote watershed monitoring. Once more people were
+interested, the group applied for a grant from The Green Initiative Fund
+(TGIF), a student-funded grant pool for environmental student projects. That
+grant paid for the sensor network, and the group has held it ever since. As of
+2026 the group is going into its third year of TGIF funding.
+
+The aim is to close the gap between environmental data and community action,
+using low-cost, high-frequency sensors across the watershed to show the creek's
+health in real time. Members come from majors ranging from environmental
+science to computer science to civil engineering.
+
+### Where the sensors sit
+
+Sites are picked for three things:
+
+- **Deep water.** The probe needs water all year, including the dry summer
+  months.
+- **Out of the main flow.** It sits toward the side of the stream so brush and
+  other debris coming down the creek don't damage it.
+- **Out of sight.** The box holding the electronics should be hidden from
+  nearby walkways so strangers don't tamper with it.
+
+Notes on individual sites:
+
+- **South Fork 0**, by the Women's Faculty Club, watches the culvert runoff
+  described above.
+- **South Fork 1**, under the Stephens Hall walkway, sits right beside an old
+  Balance Hydrologics station, so it's the easiest place to compare the two.
+  The Balance station is mounted in a room inside Stephens Hall and depends on
+  mains power and an ethernet cable run through the building. Anyone can
+  unplug it, which may be why it has been inactive. The SCMG sensor beside it
+  runs on a solar panel and sends its data over a cellular modem.
+- **South Fork 2**, by Sather Gate, is next to a concrete bank. Concrete banks
+  are bad for a creek, and natural, rough banks are much better. The crib wall
+  between South Fork 1 and South Fork 2 shows the alternative: a stepped wall
+  of logs filled with soil and native plants, whose roots hold the logs in
+  place. It's built at the steepest angle the soil can hold without sliding, so
+  it stabilizes the slope without changing the creek around it the way concrete
+  does.
+- **South Fork 3** is near a bank in the eucalyptus grove that's built from
+  logs for the same reason. Close by is a tree that fell and that the
+  University wanted gone. It was fought for and kept, and it's still alive,
+  growing sideways.
+- **North Fork 1** is SCMG's longest-running sensor.
+
+### What a spill looks like
+
+Each reading points to something different. Conductivity shows new ions,
+meaning contaminants, entering the water. Temperature can hint at where a
+discharge came from. Depth shows new fluid coming in.
+
+Most of what SCMG sees is rain, tap water or fertilizer. Oil and sewage are
+rarer but do happen, and they're a big part of why the creek is watched this
+closely.
+
+In June 2025, South Fork 0, 1, 2 and 3 all picked up an unknown contaminant.
+Conductivity dropped steeply while depth and temperature rose. It turned out to
+be warm tap water.
+
+---
+
 ## 1. Getting set up
 
 ### What a terminal is
@@ -328,9 +450,11 @@ normally lean on, so their numbers can look odd while nothing is wrong with the
 model itself.
 
 **A sensor was tampered with or destroyed.** At least one sensor a year gets
-stolen, and that has held true as of 2026. Theft and vandalism look exactly like
-a flat battery from here, so if a site goes quiet and stays quiet for days, send
-someone to look at it rather than waiting for the sun to come back.
+stolen, and that has held true as of 2026. Not every case is theft: at South
+Fork 1, the same person unplugged the sensor twice. Theft and vandalism look
+exactly like a flat battery from here, so if a site goes quiet and stays quiet
+for days, send someone to look at it rather than waiting for the sun to come
+back.
 
 Once you know a probe is gone, take it out of service in the inventory so the
 system stops expecting readings from it. See section 6.
@@ -551,6 +675,9 @@ to install, and wired for mains and LAN. That is the reason the current probes
 look the way they do: small, solar powered, and wireless, so a site needs no
 trenching and no network drop. It is also why the three old stations are still
 described differently here. They were never the same kind of instrument.
+
+They do cover the same parameters, though. A Balance station cost around
+\$20,000, and an SCMG site measures the same things for around \$1,500.
 
 One consequence matters when you are reading results. The Balance feed is
 scraped from a separate system that only serves the last seven days, set by
