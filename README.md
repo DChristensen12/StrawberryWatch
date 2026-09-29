@@ -72,7 +72,7 @@ drop, and also why they occasionally go quiet when the sun does.
     <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
   <tr>
-    <td align="center"><img src="assets/biota/Crayfish.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/edward.jpeg" width="351"></td>
     <td align="center"><img src="assets/biota/Aquarius_remigis.jpeg" width="351"></td>
     <td align="center"><img src="assets/biota/Flame_Skimmer.jpeg" width="351"></td>
   </tr>
