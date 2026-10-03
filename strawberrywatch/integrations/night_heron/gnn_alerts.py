@@ -1,27 +1,11 @@
 """
 One function Night Heron's alert daemon calls once a cycle: pending_alerts().
 
-It reads their creek tables, runs Dusk Crayfish, and hands back a list of alerts
-already shaped for the fire_alerts_task they already have. They never see a
-tensor, a checkpoint, or torch. Everything that could break lives here, where the
-traceback points at our code.
-
-Their daemon loops roughly every twenty seconds. Scoring on every pass would be
-pointless, since sensors report every fifteen minutes, so there are two throttles
-below. SCORE_INTERVAL stops us running the model more often than the data
-changes, and the per site cooldown stops a standing anomaly mailing somebody
-every cycle for as long as it lasts.
-
-pending_alerts never blocks. Their loop pings a systemd watchdog on every pass,
-and a cold model load plus a weather fetch can take tens of seconds, which is
-long enough that systemd could decide the daemon has hung and restart it. So the
-scoring runs on a background thread and pending_alerts hands back whatever the
-last finished pass produced. Alerts arrive one cycle later than they otherwise
-would, which is twenty seconds against a fifteen minute scoring cadence.
-
-Nothing here is imported at module scope except the standard library. torch and
-pandas come in when the worker actually runs, so importing this costs their
-daemon almost nothing at startup.
+It reads their creek tables once, runs every model named in GNN_MODELS over
+them, and hands back alerts already shaped for the fire_alerts_task they already
+have. They never see a tensor, a checkpoint, or torch. Nothing is imported at
+module scope except the standard library, so importing this costs their daemon
+almost nothing at startup.
 """
 
 from __future__ import annotations
@@ -54,47 +38,64 @@ def _env_number(name, default, cast):
         return cast(default)
 
 
-# How often to actually run the model, whatever the caller's loop does.
+def _model_names():
+    """
+    Which models to run, from GNN_MODELS, comma separated.
+
+    GNN_MODEL_NAME was the setting back when there could only be one, so it still
+    counts if GNN_MODELS is unset. Names are checked when the worker loads them
+    rather than here, because a bad name at import would be a crash at their
+    startup.
+    """
+    raw = os.getenv("GNN_MODELS") or os.getenv("GNN_MODEL_NAME") or "dusk_crayfish"
+    names = []
+    for part in raw.split(","):
+        name = part.strip().lower()
+        if name and name not in names:
+            names.append(name)
+    return names or ["dusk_crayfish"]
+
+
+# Their daemon loops every twenty seconds and the sensors report every fifteen
+# minutes, so scoring every pass would just be the same answer forty times over.
 SCORE_INTERVAL = timedelta(minutes=_env_number("GNN_SCORE_INTERVAL_MINUTES", 15, int))
 
-# How long a site stays quiet after it alerts. Long enough that a real event that
-# lasts all afternoon sends one email, not eighty.
+# How long a (model, site, sensor, rule) stays quiet after it alerts. Long enough
+# that a real event that lasts all afternoon sends one email, not eighty.
 COOLDOWN = timedelta(hours=_env_number("GNN_ALERT_COOLDOWN_HOURS", 6, float))
 
-# How much history to pull. The model needs 24 rows for one window, and the
-# detection rules need 30 real readings before they will judge a site at all, so
-# two days at a fifteen minute cadence leaves plenty of headroom.
+# How much history to pull. Dusk Crayfish wants 30 real readings before it will
+# judge a site, and Cobble Shoal wants enough behind its newest step that a node
+# gone quiet looks properly stale. Two days covers both with room to spare.
 LOOKBACK = timedelta(days=_env_number("GNN_LOOKBACK_DAYS", 2, int))
 
-# The off switch. Without one the only way to quiet the model is to uninstall the
-# package, which also takes away the checkpoint and 800MB of torch, and their
-# daemon has no other way to skip us.
+# The off switch. Without one the only way to quiet the models is to uninstall
+# the package, which also takes away the checkpoints and 800MB of torch, and
+# their daemon has no other way to skip us.
 ENABLED = os.getenv("GNN_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
 CHECKPOINT_DIR = os.getenv("GNN_CHECKPOINT_DIR")
-MODEL_NAME = os.getenv("GNN_MODEL_NAME", "dusk_crayfish")
+MODELS = _model_names()
 
-# Raw logger column names to what the model calls them. The same mapping
-# ingest/data_loader.py uses, repeated here so this module does not import the
-# ingest package and drag the API client along with it.
-COLUMNS = {
-    "Meter_Hydros21_Cond": "conductivity",
-    "Meter_Hydros21_Depth": "depth",
-    "Meter_Hydros21_Temp": "temperature",
-    "timestamp": "datetime",
-    "station_id": "location",
+# Inventory names to Night Heron's sensor names. Theirs where they have one,
+# since that key picks the unit in their email, and the raw column code where
+# they do not, which is what their own COL map does.
+SENSOR_NAMES = {
+    "conductivity": "conductivity",
+    "depth": "depth",
+    "temperature": "temperature",
+    "dissolved_oxygen": "AtlasSci_DO",
+    "floating_conductivity": "AtlasSci_FloatCond",
 }
 
-# Which sensor the alert is about, for their email subject and their unit lookup.
-# Both rules score conductivity, so this is always conductivity today.
-ALERT_SENSOR = "conductivity"
+# Dusk Crayfish shipped as gnn_anomaly_<rule> and their AlertEvent table already
+# holds rows under those names, so it keeps them. Every model after it goes out
+# under its own name. Their event_type is a CharField(max_length=50), and the
+# longest this makes today is cobble_shoal_combined_fisher, at 28.
+ALERT_PREFIXES = {"dusk_crayfish": "gnn_anomaly"}
 
-# Prefix, not the whole type. The rule that fired gets appended, because a site
-# can trip both in one pass and two alerts that differ in nothing are two
-# identical emails and two AlertEvent rows nobody can tell apart. Their
-# AlertEvent.event_type is a CharField(max_length=50) and the longest this makes
-# is gnn_anomaly_forecast_residual, at 29.
-ALERT_TYPE = "gnn_anomaly"
+# On every one of their tables and never a reading
+_BOOKKEEPING = ("uuid", "site_code", "station_id")
 
 _state = {"last_scored": None, "sent": {}}
 _ready = []
@@ -126,110 +127,79 @@ def _checkpoint_dir():
         return str(paths.checkpoints_dir())
     except RuntimeError as exc:
         raise RuntimeError(
-            "no checkpoint directory. Set GNN_CHECKPOINT_DIR to the folder holding "
-            "dusk_crayfish_weights.pt, since there is no StrawberryWatch checkout to "
-            "find one relative to."
+            "no checkpoint directory. Set GNN_CHECKPOINT_DIR to the folder holding the "
+            "model checkpoints, since there is no StrawberryWatch checkout to find one "
+            "relative to."
         ) from exc
 
 
-def _read_creek(sites, start, end):
-    """
-    Pull recent rows for each site out of Night Heron's MySQL and stack them.
+def _alert_type(model, rule):
+    return f"{ALERT_PREFIXES.get(model, model)}_{rule}"
 
-    Reads the same per site tables their get_creek_data daemon writes. We only
-    ever read. A site with no table or no rows is skipped rather than raising,
-    because one dead logger should not stop the other three being scored.
-    """
-    import pandas as pd
 
+def _detectors():
+    """
+    Every model in MODELS, loaded, in the order named.
+
+    Loading is cached, so after the first pass this is a dict lookup per model.
+    One that will not load is logged and left out of the pass rather than taking
+    the rest down with it.
+    """
+    from strawberrywatch.serving import detector_class
+
+    loaded = []
+    for name in MODELS:
+        try:
+            loaded.append(detector_class(name).cached(_checkpoint_dir(), device="cpu"))
+        except Exception:
+            logger.exception("gnn: %s would not load, running the others without it", name)
+    return loaded
+
+
+def _read_tables(names, start, end):
+    """
+    Recent rows for each table out of Night Heron's MySQL, read once a pass.
+
+    Comes back as {table: frame} indexed by reading time with the raw logger
+    columns, which is what every detector takes. Two models wanting the same table
+    share the one read. A table with no rows is left out rather than raising,
+    because one dead logger should not stop the others being scored.
+    """
     from strawberrywatch.ingest.sql_client import fetch_creek_data_sql
 
-    frames = []
-    for site in sites:
-        raw = fetch_creek_data_sql(site, start, end)
+    tables = {}
+    for name in names:
+        raw = fetch_creek_data_sql(name, start, end)
         if raw.empty:
-            logger.info("gnn: no rows for %s", site)
+            logger.info("gnn: no rows for %s", name)
             continue
-        raw = raw.rename(columns=COLUMNS)
-        raw["location"] = site
-        frames.append(raw)
-
-    if not frames:
-        return pd.DataFrame()
-
-    frame = pd.concat(frames, ignore_index=True)
-    frame["datetime"] = pd.to_datetime(frame["datetime"], utc=True)
-    return frame.set_index("datetime").sort_index()
+        raw = raw.drop(columns=[c for c in _BOOKKEEPING if c in raw.columns])
+        tables[name] = raw.set_index("timestamp")
+    return tables
 
 
-def _add_weather(frame, features, start, end):
+def _weather(start, end):
     """
-    Merge the weather columns the model trained on, if we can get them.
+    Open-Meteo for the window, fetched once a pass for every model that wants it.
 
     Night Heron does not store weather. It fetches it per rule from WeatherAPI and
-    throws it away, so there is nothing in their database to join against. We pull
-    the same Open Meteo series the model was trained against instead.
-
-    If that fetch fails, the missing columns are left absent and the caller fills
-    them with the training mean. The model still runs. It just loses the weather
-    context, which mostly costs us during storms. Returns whether we got it.
+    throws it away, so there is nothing in their database to join against. A
+    failed fetch comes back None and each model goes on without it, which mostly
+    costs us during storms.
     """
-    wanted = [c for c in ("rain_mm", "air_temp_c", "shortwave_radiation") if c in features]
-    if not wanted:
-        return frame, False
-
     try:
         from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 
         weather = fetch_open_meteo_weather(start, end)
     except Exception as exc:
         logger.warning("gnn: weather fetch failed (%s), scoring without it", exc)
-        return frame, False
-
-    if weather.empty:
-        return frame, False
-
-    have = [c for c in wanted if c in weather.columns]
-    if not have:
-        return frame, False
-
-    # Weather is on its own 15 minute grid. Snap each reading to the quarter hour
-    # it falls in rather than merging on an exact timestamp match that will miss.
-    keyed = frame.copy()
-    keyed["_quarter"] = keyed.index.floor("15min")
-    merged = keyed.merge(
-        weather[have].resample("15min").mean(),
-        how="left",
-        left_on="_quarter",
-        right_index=True,
-    ).drop(columns=["_quarter"])
-    merged.index = frame.index
-    return merged, True
-
-
-def _fill_absent(frame, features, normalization):
-    """
-    Give every trained feature a column, filling any we could not get.
-
-    A missing feature gets its training mean, which lands on zero once the window
-    builder normalizes. That is the same thing main.py does when a weather fetch
-    fails mid run, and it means "no signal" rather than "a reading of zero".
-    """
-    out = frame.copy()
-    for name in features:
-        if name not in out.columns:
-            out[name] = normalization[name][0]
-    return out
+        return None
+    return None if weather.empty else weather
 
 
 def _due(now):
     last = _state["last_scored"]
     return last is None or now - last >= SCORE_INTERVAL
-
-
-def _cooling_down(site, rule, now):
-    last = _state["sent"].get((site, rule))
-    return last is not None and now - last < COOLDOWN
 
 
 def pending_alerts(now=None):
@@ -241,9 +211,11 @@ def pending_alerts(now=None):
     what fired is still in cooldown, it is not time to score again, the pass is
     still running, or GNN_ENABLED is off.
 
-    Returns immediately. The model runs on a background thread, so a slow load or
-    a slow weather fetch cannot stall the caller's loop. Call it as often as you
-    like.
+    Returns immediately, whatever the models are doing. Their loop pings a systemd
+    watchdog every pass, and a cold model load plus a weather fetch can take long
+    enough that systemd decides the daemon has hung. So scoring runs on a
+    background thread and this hands back what the last finished pass found,
+    which makes alerts one cycle late: twenty seconds against fifteen minutes.
     """
     global _worker
     if not ENABLED:
@@ -267,7 +239,7 @@ def _run_pass(now):
     One scoring pass, on the worker thread.
 
     Never raises. A daemon that has been running for months should not fall over
-    because our model had a bad day, and an exception escaping a thread would be
+    because a model had a bad day, and an exception escaping a thread would be
     invisible to the caller anyway.
     """
     try:
@@ -283,62 +255,67 @@ def _run_pass(now):
 def _score(now):
     import torch
 
-    from strawberrywatch.serving import DuskCrayfishDetector
-
-    # A pass is a tenth of a second either way, and torch otherwise sizes its
-    # thread pool to the whole box. We are a guest in their daemon, so take one.
+    # torch otherwise sizes its thread pool to the whole box. We are a guest in
+    # their daemon, so take one and let the pass take a little longer.
     torch.set_num_threads(1)
 
-    detector = DuskCrayfishDetector.cached(_checkpoint_dir(), MODEL_NAME, device="cpu")
+    detectors = _detectors()
+    if not detectors:
+        return []
+
+    names = []
+    for detector in detectors:
+        names += [name for name in detector.table_names if name not in names]
 
     start, end = now - LOOKBACK, now
-    frame = _read_creek(detector.sites, start, end)
-    if frame.empty:
+    tables = _read_tables(names, start, end)
+    if not tables:
         logger.info("gnn: no creek data in the last %s, nothing to score", LOOKBACK)
         return []
 
-    frame, got_weather = _add_weather(frame, detector.features, start, end)
-    if not got_weather:
-        logger.info("gnn: scoring without weather context")
-
-    normalization = detector.checkpoint.normalization()
-    sensor_cols = [c for c in detector.features if c in frame.columns] + ["location"]
-    frame = _fill_absent(frame[sensor_cols], detector.features, normalization)
-
-    rain = frame["rain_mm"] if got_weather and "rain_mm" in frame.columns else None
-    result = detector.score(frame, rain=rain)
-    if not result["windows"]:
-        logger.info("gnn: not enough consecutive readings to fill a window")
-        return []
-
+    weather = _weather(start, end) if any(d.wants_weather for d in detectors) else None
     emails, phones = _recipients("GNN_ALERT_EMAILS"), _recipients("GNN_ALERT_PHONES")
-    alerts = []
-    for site, verdict in result["verdicts"].items():
-        if not verdict.get("judged") or not verdict.get("flagged"):
-            continue
-        for rule in verdict["rules_fired"]:
-            if _cooling_down(site, rule, now):
-                continue
-            with _lock:
-                _state["sent"][(site, rule)] = now
 
-            readings = frame.loc[frame["location"] == site, "conductivity"].dropna()
-            peak = verdict["rule1" if rule == "forecast_residual" else "rule2"]["peak_deviation"]
-            logger.warning(
-                "gnn: %s flagged by %s, peak %.2f, window ending %s",
-                site,
-                rule,
-                peak,
-                result["window_end"],
-            )
-            alerts.append(
-                {
-                    "values": [float(v) for v in readings.tail(200)],
-                    "site": site,
-                    "sensor": ALERT_SENSOR,
-                    "alert_type": f"{ALERT_TYPE}_{rule}",
-                    "emails": emails,
-                    "phones": phones,
-                }
-            )
+    alerts = []
+    for detector in detectors:
+        mine = {name: tables[name] for name in detector.table_names if name in tables}
+        try:
+            found = detector.findings(mine, weather)
+        except Exception:
+            logger.exception("gnn: %s failed this pass, the others still ran", detector.name)
+            continue
+        for finding in found:
+            alert = _alert(detector.name, finding, now, emails, phones)
+            if alert is not None:
+                alerts.append(alert)
     return alerts
+
+
+def _alert(model, finding, now, emails, phones):
+    """One Finding as the dict fire_alerts_task takes, or None while it is cooling down."""
+    sensor = SENSOR_NAMES.get(finding.variable, finding.variable)
+    key = (model, finding.site, sensor, finding.rule)
+    with _lock:
+        last = _state["sent"].get(key)
+        if last is not None and now - last < COOLDOWN:
+            return None
+        _state["sent"][key] = now
+
+    logger.warning(
+        "gnn: %s flagged %s %s by %s, peak %.2f against %.2f, first over at %s",
+        model,
+        finding.site,
+        sensor,
+        finding.rule,
+        finding.peak,
+        finding.threshold,
+        finding.when,
+    )
+    return {
+        "values": [float(v) for v in finding.readings.tail(200)],
+        "site": finding.site,
+        "sensor": sensor,
+        "alert_type": _alert_type(model, finding.rule),
+        "emails": emails,
+        "phones": phones,
+    }

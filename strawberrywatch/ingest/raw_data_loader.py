@@ -110,6 +110,23 @@ def _table_name_for_file(path):
     return stem
 
 
+def tidy_channels(df):
+    """
+    One table's rows under the inventory's names, as numbers, one row per stamp.
+
+    df is indexed by UTC reading time and carries the raw logger columns. The
+    archive loader below and the live serving path both come through here, so a
+    table read off disk and the same table read out of MySQL cannot end up
+    shaped differently.
+    """
+    df = df.rename(columns=_ALL_CHANNEL_MAPPING)
+    cols = [c for c in _ALL_CHANNEL_MAPPING.values() if c in df.columns]
+    for col in cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df = df.sort_index()
+    return df[~df.index.duplicated(keep="first")][cols]
+
+
 def load_archive_by_table(raw_dir=None, earliest=None, with_report=False):
     """
     Return {sql table name: DataFrame} carrying every channel the file has.
@@ -134,13 +151,7 @@ def load_archive_by_table(raw_dir=None, earliest=None, with_report=False):
         if time_col is None:
             raise ValueError(f"{path}: no recognizable timestamp column")
         df["datetime"] = pd.to_datetime(df[time_col], utc=True, errors="coerce")
-        df = df.dropna(subset=["datetime"])
-        df = df.rename(columns=_ALL_CHANNEL_MAPPING)
-        cols = [c for c in _ALL_CHANNEL_MAPPING.values() if c in df.columns]
-        for col in cols:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        df = df.set_index("datetime").sort_index()
-        df = df[~df.index.duplicated(keep="first")]
+        df = tidy_channels(df.dropna(subset=["datetime"]).set_index("datetime"))
 
         table = _table_name_for_file(path)
         if earliest is not None:
@@ -157,7 +168,7 @@ def load_archive_by_table(raw_dir=None, earliest=None, with_report=False):
                 )
                 df = df[~too_old]
 
-        tables[table] = df[cols]
+        tables[table] = df
 
     return (tables, dropped) if with_report else tables
 

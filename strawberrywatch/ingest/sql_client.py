@@ -70,6 +70,20 @@ def _table_name_for_site(site_code: str) -> str:
     return "".join(c if c.isalnum() or c == "_" else "_" for c in lowered)
 
 
+def _table_names_for_site(site_code: str) -> list[str]:
+    """
+    Every name a site's table might be under, the override first.
+
+    Night Heron's fetcher writes its tables lowercased and its alert daemon reads
+    them that way, but the signal that makes a table when someone adds a sensor
+    keeps the site code's case. On a server with case sensitive table names
+    SCNF010 and scnf010 are two tables, and only one of them gets the readings.
+    """
+    first = _table_name_for_site(site_code)
+    lowered = "".join(c if c.isalnum() or c == "_" else "_" for c in site_code.lower())
+    return [first] if lowered == first else [first, lowered]
+
+
 def _is_safe_identifier(name: str) -> bool:
     """Return True if name is a safe MySQL identifier (no injection risk)."""
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
@@ -83,7 +97,7 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
     exposes (raw logger codes like 'Meter_Hydros21_Cond'). Column renaming to
     internal names happens in data_loader, same as the API path.
     """
-    table = _table_name_for_site(site)
+    tables = _table_names_for_site(site)
 
     # Accept either datetime or ISO string; MySQL handles ISO strings fine.
     start_str = (
@@ -95,38 +109,49 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
         end_time.strftime("%Y-%m-%d %H:%M:%S") if isinstance(end_time, datetime) else str(end_time)
     )
 
+    df, missing = None, []
     try:
         with _connect() as conn:
             cursor = conn.cursor(buffered=True)
             try:
-                try:
-                    cursor.execute(f"SHOW COLUMNS FROM `{table}`")
-                except MySQLError as e:
-                    logger.error(f"[{site}] table `{table}` not accessible: {e}")
-                    return pd.DataFrame()
+                for table in tables:
+                    try:
+                        cursor.execute(f"SHOW COLUMNS FROM `{table}`")
+                    except MySQLError as e:
+                        missing.append((table, e))
+                        continue
 
-                available = [row[0] for row in cursor.fetchall()]
-                if "timestamp" not in available:
-                    logger.error(f"[{site}] table `{table}` has no 'timestamp' column")
-                    return pd.DataFrame()
+                    available = [row[0] for row in cursor.fetchall()]
+                    if "timestamp" not in available:
+                        logger.error(f"[{site}] table `{table}` has no 'timestamp' column")
+                        continue
 
-                # Safety check on identifier characters before string-interpolating.
-                safe_cols = [c for c in available if _is_safe_identifier(c)]
-                unsafe = set(available) - set(safe_cols)
-                if unsafe:
-                    logger.warning(f"[{site}] skipping unsafe column names: {sorted(unsafe)}")
+                    # Safety check on identifier characters before string-interpolating.
+                    safe_cols = [c for c in available if _is_safe_identifier(c)]
+                    unsafe = set(available) - set(safe_cols)
+                    if unsafe:
+                        logger.warning(f"[{site}] skipping unsafe column names: {sorted(unsafe)}")
 
-                select_sql = ", ".join(f"`{c}`" for c in safe_cols)
-                query = (
-                    f"SELECT {select_sql} FROM `{table}` "
-                    f"WHERE `timestamp` >= %s AND `timestamp` <= %s "
-                    f"ORDER BY `timestamp` ASC"
-                )
-                df = pd.read_sql(query, conn, params=(start_str, end_str))
+                    select_sql = ", ".join(f"`{c}`" for c in safe_cols)
+                    query = (
+                        f"SELECT {select_sql} FROM `{table}` "
+                        f"WHERE `timestamp` >= %s AND `timestamp` <= %s "
+                        f"ORDER BY `timestamp` ASC"
+                    )
+                    df = pd.read_sql(query, conn, params=(start_str, end_str))
+                    # Nothing under one spelling can mean the readings went to the other
+                    if not df.empty:
+                        break
             finally:
                 cursor.close()
     except Exception as e:
         logger.error(f"[{site}] SQL query failed: {e}", exc_info=True)
+        return pd.DataFrame()
+
+    if df is None:
+        if missing:
+            names = " or ".join(f"`{table}`" for table, _ in missing)
+            logger.error(f"[{site}] table {names} not accessible: {missing[-1][1]}")
         return pd.DataFrame()
 
     if df.empty:

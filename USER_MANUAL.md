@@ -1074,16 +1074,21 @@ This repository owns the model.
 The join between the two is one function. Night Heron's `email_alerts.py`
 imports `strawberrywatch.integrations.night_heron.gnn_alerts` and calls
 `pending_alerts()` once per cycle. That function reads their creek tables, runs
-Dusk Crayfish on a background thread, and hands back anomalies already shaped
-for the alert task they already had, so they never touch a checkpoint or a
-tensor. Nothing here imports anything of theirs, which is why every command in
-this manual works with Night Heron absent.
+every model named in `GNN_MODELS` on a background thread (Dusk Crayfish unless
+told otherwise, Cobble Shoal as well if it is listed), and hands back anomalies
+already shaped for the alert task they already had, so they never touch a
+checkpoint or a tensor. Nothing here imports anything of theirs, which is why
+every command in this manual works with Night Heron absent.
 
 For that import to resolve, their server needs `strawberrywatch` installed and a
-checkpoint folder holding `dusk_crayfish_serving.json` and the weights, pointed
-at by `GNN_CHECKPOINT_DIR` in their environment. `GNN_ENABLED=0` turns the model
-off without touching their code, and their daemon imports us inside a
+checkpoint folder holding each listed model's files, pointed at by
+`GNN_CHECKPOINT_DIR` in their environment. For Dusk Crayfish that is
+`dusk_crayfish_serving.json` and the weights, for Cobble Shoal
+`cobble_shoal_calibration_real.json` and its weights. `GNN_ENABLED=0` turns the
+models off without touching their code, and their daemon imports us inside a
 try/except, so a missing package costs them the anomaly alerts and nothing else.
+The rest, including how to add a model, is in
+`strawberrywatch/integrations/night_heron/README.md`.
 
 Two things that are easy to get wrong:
 
@@ -1225,7 +1230,8 @@ is not in the repository.
    the ones serving the website. **Needed from:** the project lead.
 
 5. **Cobble Shoal through `main.py`.** It's a `--model` choice that can't run,
-   for the reason in section 4. Whether the intended fix is to generate the
+   for the reason in section 4. It does run inside Night Heron, through
+   `strawberrywatch/serving/cobble.py` (section 10). Whether the intended fix is to generate the
    missing metadata or to wire in its separate data path is an open decision.
    **Needed from:** whoever owns that model.
 
