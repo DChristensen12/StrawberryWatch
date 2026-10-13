@@ -6,6 +6,8 @@ data/processed_data/
 !data/raw_data/*.csv
 !data/anomalies/**/*.csv
 !data/normal/*.csv
+# The dashboard's replay events, copies of data/anomalies that ship in the package
+!strawberrywatch/watch/events/**/*.csv
 *.ipynb_checkpoints
 
 # Python Environments
@@ -21,6 +23,7 @@ venv/
 *.egg-info/
 build/
 dist/
+
 
 # Model Weights/Logs
 *.pt

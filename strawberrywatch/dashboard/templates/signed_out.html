@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Open the link StrawberryWatch printed{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<h1>Open the link StrawberryWatch printed</h1>
+{% if used %}
+  <p>That link has been used. It works once, in the browser that opened it first.</p>
+  <p>If that's this browser, <a href="/">go to the Overview</a>. Otherwise stop StrawberryWatch and start it again for a new link.</p>
+{% else %}
+  <p>When it starts, StrawberryWatch prints a link with a one-time key in it. Open that link to sign in on this computer.</p>
+{% endif %}
+{% endblock %}

@@ -201,6 +201,10 @@ def _rule1_forecast_residual(
         # Which of this node's real timesteps went over, for anything that has
         # to point at the readings behind the flag rather than count them.
         "over": over,
+        # What was compared, step by step, so serving can hand out scores and
+        # not only the verdict. Exposed, not recomputed.
+        "score": normalized,
+        "threshold": thresholds,
     }
 
 
@@ -223,6 +227,8 @@ def _rule2_level_shift(
         "longest_run": _longest_run(over),
         "peak_deviation": float(np.abs(deviation).max()) if len(deviation) else float("nan"),
         "over": over,
+        "score": np.abs(deviation),
+        "threshold": np.broadcast_to(np.asarray(k, dtype=float), deviation.shape),
     }
 
 
@@ -355,6 +361,8 @@ def detect_anomalies(
             "longest_run": 0,
             "peak_deviation": float("nan"),
             "over": np.zeros(n_real, dtype=bool),
+            "score": np.full(n_real, np.nan),
+            "threshold": np.full(n_real, np.nan),
         }
         if cond_median.get(site) is not None and cond_iqr.get(site) is not None:
             rule2 = _rule2_level_shift(
@@ -391,6 +399,8 @@ def detect_anomalies(
             "rule2": rule2,
             "n_real": n_real,
             "over_timesteps": over_timesteps,
+            # Which timesteps the rules' per-step arrays line up with
+            "real_timesteps": real,
         }
 
     return results, rain_flags

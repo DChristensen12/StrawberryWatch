@@ -22,7 +22,14 @@ import pandas as pd
 
 from strawberrywatch.serving import windows
 from strawberrywatch.serving.checkpoint import CheckpointError, load_checkpoint
-from strawberrywatch.serving.contract import DetectorError, Finding, utc_indexed
+from strawberrywatch.serving.contract import (
+    DONT_FLAG,
+    DetectorError,
+    Finding,
+    Score,
+    check_leave_out,
+    utc_indexed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,10 @@ class DuskCrayfishDetector:
     name = "dusk_crayfish"
     # As detect_anomalies names them in rules_fired
     RULES = ("forecast_residual", "level_shift")
+    # Only "don't flag". A site whose newest input is filled in rather than
+    # measured makes false alarms downstream, footbridge poisoned oxford that
+    # way twice, so leaving one out needs a retrain with sites dropped first.
+    SITE_CHOICE = (DONT_FLAG,)
     # All a checkpoint folder needs for load() to work with no checkout around it
     FILES = ("dusk_crayfish_weights.pt", "dusk_crayfish_serving.json")
 
@@ -158,25 +169,36 @@ class DuskCrayfishDetector:
     def wants_weather(self):
         return any(c in self.features for c in WEATHER)
 
-    def findings(self, tables, weather=None):
-        """
-        Score Night Heron's site tables and say what fired.
+    @property
+    def min_steps(self):
+        """How many steps over its line either rule needs before it fires."""
+        from strawberrywatch.anomalies.anomaly_detector import MIN_TIMESTEPS_OVER_THRESHOLD
 
-        tables is {table: DataFrame} indexed by reading time, raw logger columns.
-        weather is Open-Meteo on its 15 minute UTC index, or None. Comes back as a
-        list of Finding, empty when nothing fired or nothing could be judged.
+        return (self.operating_point or {}).get("min_timesteps_over", MIN_TIMESTEPS_OVER_THRESHOLD)
+
+    def bar(self, rule, site):
+        """
+        The calibrated line for one rule at one site, before rain moves it. Rule 1
+        is held to the node's threshold and Rule 2 to the flat k, the same split
+        main.py reports.
         """
         from strawberrywatch.anomalies.anomaly_detector import LEVEL_SHIFT_K
 
+        if rule == "forecast_residual":
+            return float(self.checkpoint.calibration.get("node_thresholds", {}).get(site, np.nan))
+        return float((self.operating_point or {}).get("level_shift_k", LEVEL_SHIFT_K))
+
+    def _judge(self, tables, weather):
+        """Stack the tables, merge weather and run score(). (frame, result), or None for nothing to judge."""
         frame = self._frame(tables)
         if frame.empty:
             logger.info("%s: none of %s had readings", self.name, ", ".join(self.sites))
-            return []
+            return None
         if "conductivity" not in frame.columns:
             # Both rules score it, and _fill_absent would otherwise hand
             # detect_anomalies the training mean dressed up as a reading.
             logger.info("%s: no conductivity column on any table, nothing to judge", self.name)
-            return []
+            return None
 
         frame, got_weather = _merge_weather(frame, self.features, weather)
         if not got_weather:
@@ -189,13 +211,55 @@ class DuskCrayfishDetector:
         result = self.score(frame, rain=rain)
         if not result["windows"]:
             logger.info("%s: not enough consecutive readings to fill a window", self.name)
-            return []
+            return None
+        return frame, result
 
-        # Rule 1 is held to the node's calibrated threshold and Rule 2 to the flat
-        # k, the same split main.py reports. Rain moves Rule 1's bar per step, so
-        # this is the calibrated one rather than wherever it sat at the peak.
-        node_bars = self.checkpoint.calibration.get("node_thresholds", {})
-        level_k = (self.operating_point or {}).get("level_shift_k", LEVEL_SHIFT_K)
+    def scores(self, tables, weather=None, leave_out=None):
+        """
+        Every step either rule judged, with the line it had to cross.
+
+        The same run findings() makes, handed out step by step: only judged
+        sites, only the timesteps a sensor really reported at, which are the
+        ones the rules count. notice() over these at a scale of 1 gives back
+        what findings() fires.
+        """
+        check_leave_out(self, leave_out)
+        judged = self._judge(tables, weather)
+        if judged is None:
+            return []
+        _, result = judged
+        stamps = pd.DatetimeIndex(result["timestamps"])
+        out = []
+        for site, verdict in result["verdicts"].items():
+            if not verdict.get("judged"):
+                continue
+            times = stamps[verdict["real_timesteps"]]
+            for rule, key in (("forecast_residual", "rule1"), ("level_shift", "rule2")):
+                detail = verdict[key]
+                base = self.bar(rule, site)
+                for when, value, line in zip(
+                    times, detail["score"], detail["threshold"], strict=True
+                ):
+                    if np.isfinite(line):
+                        out.append(
+                            Score(site, "conductivity", rule, when, float(value), float(line), base)
+                        )
+        return out
+
+    def findings(self, tables, weather=None, leave_out=None):
+        """
+        Score Night Heron's site tables and say what fired.
+
+        tables is {table: DataFrame} indexed by reading time, raw logger columns.
+        weather is Open-Meteo on its 15 minute UTC index, or None. Comes back as a
+        list of Finding, empty when nothing fired or nothing could be judged.
+        """
+        check_leave_out(self, leave_out)
+        judged = self._judge(tables, weather)
+        if judged is None:
+            return []
+        frame, result = judged
+
         stamps = result["timestamps"]
 
         found = []
@@ -217,9 +281,8 @@ class DuskCrayfishDetector:
                         variable="conductivity",
                         rule=rule,
                         peak=float(detail["peak_deviation"]),
-                        threshold=float(
-                            node_bars.get(site, np.nan) if rule == "forecast_residual" else level_k
-                        ),
+                        # The calibrated bar, not wherever rain had it at the peak
+                        threshold=self.bar(rule, site),
                         when=when,
                         readings=readings,
                     )

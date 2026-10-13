@@ -1,0 +1,209 @@
+{#- Native form controls, the site's status squares, the creek map and chart data.
+    Every control has a real label or legend, hints and errors are tied to it
+    with aria-describedby, and nothing here marks data safe. -#}
+
+{% macro errors_summary(form) -%}
+  {% if form and form.errors %}
+    <div class="sw-errors" role="alert" tabindex="-1" id="sw-errors">
+      <h2>There is a problem</h2>
+      <ul>
+        {% for name, messages in form.errors.items() %}
+          {% for message in messages %}
+            <li><a href="#{{ form[name].id }}">{{ message }}</a></li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro _described(field, hint) -%}
+  {%- set ids = [] -%}
+  {%- if hint %}{% set _ = ids.append(field.id ~ '-hint') %}{% endif -%}
+  {%- if field.errors %}{% set _ = ids.append(field.id ~ '-error') %}{% endif -%}
+  {%- if ids %} aria-describedby="{{ ids | join(' ') }}"{% endif -%}
+{%- endmacro %}
+
+{% macro _hint_and_error(field, hint) -%}
+  {% if hint %}<span class="sw-hint" id="{{ field.id }}-hint">{{ hint }}</span>{% endif %}
+  {% if field.errors %}<span class="sw-error" id="{{ field.id }}-error"><span class="visually-hidden">Error: </span>{{ field.errors[0] }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro text(field, label=None, hint=None, suffix=None, kind='text', inputmode=None, autocomplete='off') -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <div class="sw-field{{ ' sw-field--error' if field.errors }}">
+    <label for="{{ field.id }}">{{ label or field.label.text }}</label>
+    {{ _hint_and_error(field, hint) }}
+    {% set value = '' if kind == 'password' else (field.data if field.data is not none else '') %}
+    {% if suffix %}<div class="sw-number">{% endif %}
+    <input type="{{ kind }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ value }}" autocomplete="{{ autocomplete }}" spellcheck="false"{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{{ _described(field, hint) }}{% if field.errors %} aria-invalid="true"{% endif %}>
+    {% if suffix %}<span>{{ suffix }}</span></div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro textarea(field, label=None, hint=None, rows=4) -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <div class="sw-field{{ ' sw-field--error' if field.errors }}">
+    <label for="{{ field.id }}">{{ label or field.label.text }}</label>
+    {{ _hint_and_error(field, hint) }}
+    <textarea id="{{ field.id }}" name="{{ field.name }}" rows="{{ rows }}"{{ _described(field, hint) }}>{{ field.data or '' }}</textarea>
+  </div>
+{%- endmacro %}
+
+{#- items: {value: {"hint": text, "disabled": bool, "reveal": markup}} -#}
+{% macro radios(field, legend=None, hint=None, legend_class='as-heading', inline=False, items={}) -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <fieldset class="sw-field{{ ' sw-field--error' if field.errors }}"{{ _described(field, hint) }}>
+    <legend class="{{ legend_class }}">{{ legend or field.label.text }}</legend>
+    {{ _hint_and_error(field, hint) }}
+    <div class="sw-choices{{ ' sw-choices--inline' if inline }}">
+      {% for value, label in field.choices %}
+        {% set extra = items.get(value, {}) %}
+        {% set input_id = field.id ~ '-' ~ loop.index %}
+        <div class="sw-choice">
+          <input type="radio" id="{{ input_id }}" name="{{ field.name }}" value="{{ value }}"{% if field.data == value %} checked{% endif %}{% if extra.disabled %} disabled{% endif %}{% if extra.hint %} aria-describedby="{{ input_id }}-hint"{% endif %}>
+          <label for="{{ input_id }}">{{ label }}{% if extra.hint %}<span class="sw-hint" id="{{ input_id }}-hint">{{ extra.hint }}</span>{% endif %}</label>
+        </div>
+        {% if extra.reveal %}
+          <div class="sw-reveal" data-sw-reveal-for="{{ input_id }}">{{ extra.reveal }}</div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+{%- endmacro %}
+
+{% macro checkboxes(field, legend=None, hint=None, legend_class='as-small', items={}, attributes={}) -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <fieldset class="sw-field{{ ' sw-field--error' if field.errors }}"{{ _described(field, hint) }}>
+    <legend class="{{ legend_class }}">{{ legend or field.label.text }}</legend>
+    {{ _hint_and_error(field, hint) }}
+    <div class="sw-choices">
+      {% for value, label in field.choices %}
+        {% set extra = items.get(value, {}) %}
+        {% set input_id = field.id ~ '-' ~ loop.index %}
+        <div class="sw-choice">
+          <input type="checkbox" id="{{ input_id }}" name="{{ field.name }}" value="{{ value }}"{% if value in (field.data or []) %} checked{% endif %}{% if extra.disabled %} disabled{% endif %}{% for k, v in attributes.items() %} {{ k }}="{{ v }}"{% endfor %}{% if extra.hint %} aria-describedby="{{ input_id }}-hint"{% endif %}>
+          <label for="{{ input_id }}">{{ label }}{% if extra.hint %}<span class="sw-hint" id="{{ input_id }}-hint">{{ extra.hint }}</span>{% endif %}</label>
+        </div>
+      {% endfor %}
+    </div>
+  </fieldset>
+{%- endmacro %}
+
+{% macro checkbox(field, label=None, hint=None) -%}
+  <div class="sw-field">
+    {% if hint %}<span class="sw-hint" id="{{ field.id }}-hint">{{ hint }}</span>{% endif %}
+    <div class="sw-choice">
+      <input type="checkbox" id="{{ field.id }}" name="{{ field.name }}" value="y"{% if field.data %} checked{% endif %}{% if hint %} aria-describedby="{{ field.id }}-hint"{% endif %}>
+      <label for="{{ field.id }}">{{ label or field.label.text }}</label>
+    </div>
+  </div>
+{%- endmacro %}
+
+{#- A status: the word, with a small square beside it that only repeats it in colour -#}
+{% macro status(key, text) -%}
+  <span class="sw-status"><span class="sw-square sw-square--{{ key }}" aria-hidden="true"></span>{{ text }}</span>
+{%- endmacro %}
+
+{#- One line of History: an unusual reading with its square, or a settings change -#}
+{% macro entry_text(item) -%}
+  {% if item.kind == 'unusual' %}{{ status('flagged', '') }}{% endif %}{% if item.href %}<a href="{{ item.href }}">{{ item.text }}</a>{% else %}{{ item.text }}{% endif %}
+{%- endmacro %}
+
+{#- The notes written about a reading, under it on the History timeline -#}
+{% macro entry_notes(item) -%}
+  {% if item.notes %}
+    <div class="sw-notes">
+      {% for n in item.notes %}
+        <p><span class="muted">Note{% if n.author %} by {{ n.author }}{% endif %}, {{ n.when }}:</span> {{ n.text }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro checks_ran(n, problems=0) -%}
+  {% if n == 0 %}No checks ran.{% elif n == 1 %}1 check ran.{% else %}{{ n }} checks ran.{% endif %}
+  {%- if problems %} {{ problems }} had a problem.{% endif %}
+{%- endmacro %}
+
+{#- One hour of a day, or a run of quiet hours folded into one row. Check
+    counts are left off when History only shows settings changes. -#}
+{% macro hour_row(h, show='everything') -%}
+  <div class="sw-hour{{ ' sw-hour--quiet' if h.quiet or h.future }}">
+    <span class="sw-hour__when">{{ h.label }}</span>
+    <div>
+      {% if h.future %}
+        <p class="muted small">Not yet.</p>
+      {% elif h.quiet or not h.entries %}
+        <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'Nothing unusual.' }}{% if show != 'changes' %} <span class="small">{{ checks_ran(h.checks, h.problems or 0) }}</span>{% endif %}</p>
+      {% else %}
+        {% for item in h.entries %}
+          <p>{{ entry_text(item) }} <span class="muted">{{ item.clock }}</span></p>
+          {{ entry_notes(item) }}
+        {% endfor %}
+        {#- A reading and the check that noticed it can fall in different hours, so no "No checks ran" here -#}
+        {% if show != 'changes' and h.checks %}<p class="muted small">{{ checks_ran(h.checks, h.problems) }}</p>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+{%- endmacro %}
+
+{#- The creek map as inline SVG, drawn from the inventory's downstream links.
+    Every edge carries a small arrowhead for the way water flows; the edges a
+    problem travelled along turn the flagged colour. -#}
+{% macro creek_map(map, label) -%}
+  <svg class="sw-map" viewBox="0 0 {{ map.width }} {{ map.height }}" role="img" aria-label="{{ label }}">
+    <defs>
+      <marker id="sw-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" class="sw-map__flowhead"></path>
+      </marker>
+      <marker id="sw-travel" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" class="sw-map__arrowhead"></path>
+      </marker>
+    </defs>
+    {% for e in map.edges %}
+      <line class="{{ 'sw-map__travel' if e.travel else 'sw-map__edge' }}" x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" marker-end="url(#{{ 'sw-travel' if e.travel else 'sw-flow' }})"></line>
+    {% endfor %}
+    {% for l in map.labels %}
+      <text class="sw-map__row-label" x="{{ l.x }}" y="{{ l.y }}" text-anchor="end">{{ l.text }}</text>
+    {% endfor %}
+    {% for n in map.nodes %}
+      <g>
+        <title>{{ n.site }}: {{ n.text }}</title>
+        <text class="sw-map__label" x="{{ n.x }}" y="{{ n.y - 14 }}" text-anchor="middle">{{ n.short }}</text>
+        {% if n.watched is none %}
+          <rect class="sw-map__node sw-square--{{ n.key }}" x="{{ n.x - 8 }}" y="{{ n.y - 8 }}" width="16" height="16"></rect>
+        {% else %}
+          <rect class="sw-map__node {{ 'sw-map__node--watched' if n.watched else 'sw-map__node--unwatched' }}" data-sw-site="{{ n.site }}" x="{{ n.x - 8 }}" y="{{ n.y - 8 }}" width="16" height="16"></rect>
+        {% endif %}
+      </g>
+    {% endfor %}
+  </svg>
+{%- endmacro %}
+
+{#- The reminder at the top of Settings and Advanced settings while there are unsaved changes -#}
+{% macro unsaved_note(count, text) -%}
+  <div class="sw-unsaved" id="sw-unsaved" role="status"{% if not count %} hidden{% endif %}>
+    <p id="sw-unsaved-text">{{ text }}</p>
+  </div>
+{%- endmacro %}
+
+{#- Save changes and, once there are any, Discard changes, together at the bottom -#}
+{% macro save_buttons(count) -%}
+  <div class="sw-buttons">
+    <button type="submit" class="sw-button" name="save" value="y">Save changes</button>
+    <button type="submit" class="sw-button sw-button--warning" id="sw-discard" form="sw-discard-form"{% if not count %} hidden{% endif %}>Discard changes</button>
+  </div>
+{%- endmacro %}
+
+{% macro discard_form(back) -%}
+  <form method="post" action="{{ url_for('main.discard') }}" id="sw-discard-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="back" value="{{ back }}">
+  </form>
+{%- endmacro %}
+
+{#- Chart data for app.js, as JSON in a block the browser never runs -#}
+{% macro chart_data(id, data) -%}
+  <script type="application/json" id="{{ id }}">{{ data | tojson }}</script>
+{%- endmacro %}

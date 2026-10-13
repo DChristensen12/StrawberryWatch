@@ -15,7 +15,15 @@ import numpy as np
 import pandas as pd
 
 from strawberrywatch.serving.checkpoint import CheckpointError
-from strawberrywatch.serving.contract import DetectorError, Finding, utc_indexed
+from strawberrywatch.serving.contract import (
+    DONT_FLAG,
+    LEAVE_OUT,
+    DetectorError,
+    Finding,
+    Score,
+    check_leave_out,
+    utc_indexed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +60,11 @@ class CobbleShoalDetector:
 
     name = "cobble_shoal"
     RULES = (RULE,)
+    # Built for missing sensors: a left-out site's readings are just missing,
+    # masked like any other gap, and MIN_COVERAGE still decides what's judged
+    SITE_CHOICE = (DONT_FLAG, LEAVE_OUT)
+    # One anchor over the gated line is a firing
+    min_steps = 1
     # REAL only. The synthetic calibration scores on another scale entirely and
     # records no scaler, see cobble_calibration.py.
     FILES = ("cobble_shoal_weights.pt", "cobble_shoal_calibration_real.json")
@@ -141,7 +154,49 @@ class CobbleShoalDetector:
         # Rain is all it takes, and only to move the bar
         return self.gate.mode != "off"
 
-    def findings(self, tables, weather=None):
+    def set_rain_gate(self, rain_gate=None):
+        """Swap the rain gate's settings without reloading the model. z_q stays the calibrated one."""
+        from strawberrywatch.anomalies.rain_gate import RainGate
+
+        self.gate = RainGate.from_dict(
+            {"base_threshold": self.calibration.z_q, **(rain_gate or {})}
+        )
+
+    def scores(self, tables, weather=None, leave_out=None):
+        """
+        Every recent anchor and node scored, with the gated line it was held to.
+
+        A node at a left-out site never appears. Neither does an anchor the
+        node couldn't be scored at, which comes back NaN from the model.
+        """
+        from strawberrywatch.preprocessing import node_windows as nw
+
+        leave_out = check_leave_out(self, leave_out)
+        result = self.score(tables, weather, leave_out=leave_out)
+        inventory_name = {canonical: name for name, canonical in nw.VARIABLE_MAP.items()}
+        grid, base = result["grid"], float(self.gate.base_threshold)
+        out = []
+        for j, node in enumerate(result["nodes"]):
+            table = nw.SITE_TO_TABLE.get(node.site, node.site)
+            if table in leave_out:
+                continue
+            for i, anchor in enumerate(result["anchors"]):
+                value = result["scores"][i, j]
+                if np.isfinite(value):
+                    out.append(
+                        Score(
+                            table,
+                            inventory_name[node.var],
+                            RULE,
+                            grid[anchor],
+                            float(value),
+                            float(result["thresholds"][i, j]),
+                            base,
+                        )
+                    )
+        return out
+
+    def findings(self, tables, weather=None, leave_out=None):
         """
         Score Night Heron's site tables and say what fired.
 
@@ -150,7 +205,8 @@ class CobbleShoalDetector:
         """
         from strawberrywatch.preprocessing import node_windows as nw
 
-        result = self.score(tables, weather)
+        leave_out = check_leave_out(self, leave_out)
+        result = self.score(tables, weather, leave_out=leave_out)
         if not result["anchors"]:
             logger.info("%s: no recent step with enough of the creek reporting to judge", self.name)
             return []
@@ -163,6 +219,8 @@ class CobbleShoalDetector:
         found = []
         for j in np.flatnonzero(over.any(axis=0)):
             node = result["nodes"][j]
+            if nw.SITE_TO_TABLE.get(node.site, node.site) in leave_out:
+                continue
             rows = np.flatnonzero(over[:, j])
             worst = rows[np.argmax(scores[rows, j])]
             frame = result["frames"].get(node.site, pd.DataFrame())
@@ -179,7 +237,7 @@ class CobbleShoalDetector:
             )
         return found
 
-    def score(self, tables, weather=None):
+    def score(self, tables, weather=None, leave_out=None):
         """
         Every recent anchor scored and held to its rain-gated bar.
 
@@ -191,6 +249,9 @@ class CobbleShoalDetector:
         Returns grid, nodes, anchors (grid positions scored), scores and thresholds
         (anchor by node), fired (the same shape, bool), frames (each site's
         readings in sensor units as the model saw them) and rain_applied.
+
+        A table named in leave_out is never read, so its nodes are missing to
+        the model and count against MIN_COVERAGE like any other gap.
         """
         from strawberrywatch.anomalies.rain_gate import fired
 
@@ -199,8 +260,11 @@ class CobbleShoalDetector:
         from strawberrywatch.ingest.raw_data_loader import tidy_channels
         from strawberrywatch.preprocessing import node_windows as nw
 
+        leave_out = set(leave_out or ())
         channels = {}
         for name in self.table_names:
+            if name in leave_out:
+                continue
             raw = tables.get(name)
             if raw is not None and not raw.empty:
                 channels[name] = tidy_channels(utc_indexed(name, raw))

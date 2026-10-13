@@ -40,7 +40,7 @@ def load_model_and_metadata():
     meta_path = paths.checkpoints_dir() / f"{MODEL_NAME}_metadata.pkl"
     weights_path = paths.checkpoints_dir() / f"{MODEL_NAME}_weights.pt"
     with open(meta_path, "rb") as f:
-        metadata = pickle.load(f)
+        metadata = pickle.load(f)  # nosec B301: our own checkpoint metadata
 
     model = model_calls.build_from_metadata(
         MODEL_REGISTRY[MODEL_NAME], metadata, device=Config.DEVICE

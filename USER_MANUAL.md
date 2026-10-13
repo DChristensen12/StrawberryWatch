@@ -280,6 +280,9 @@ usage: main.py [-h] [--mode {train,update,inference}]
                [--model {dusk_crayfish,cobble_shoal}]
                [--support NAME [NAME ...]] [--q-total Q_TOTAL]
                [--data-file DATA_FILE]
+               [--operating-point KEY=VALUE [KEY=VALUE ...]]
+               [--alert-sites SITE [SITE ...]] [--dry-run]
+               [--results-json PATH]
 
 SCMG GNN Pipeline
 
@@ -300,6 +303,26 @@ options:
                         than handed to each. Default 0.0001.
   --data-file DATA_FILE
                         Path to the data CSV, overriding the default cache.
+                        Accepts either the long-format rolling cache or a wide
+                        training-corpus CSV (see
+                        scripts/build_training_corpus.py; auto-detected by
+                        *_valid columns). Omit to use the default cache,
+                        unchanged.
+  --operating-point KEY=VALUE [KEY=VALUE ...]
+                        Override detection constants for this run, space
+                        separated. Keys: level_shift_k, min_timesteps_over,
+                        min_timesteps_to_judge. Omit to use anomaly_detector's
+                        own values.
+  --alert-sites SITE [SITE ...]
+                        Only email about these sites. Every site is still
+                        scored, the rest just stay quiet. Omit to alert on all
+                        of them. Valid names: north_fork_0, south_fork_2,
+                        south_fork_1, oxford
+  --dry-run             Print the alerts this run would email and send
+                        nothing.
+  --results-json PATH   Also write what the run found to PATH as JSON: per
+                        site verdicts, explainer accounts, and every alert
+                        with whether it was sent.
 ```
 
 ### The three modes
@@ -428,6 +451,106 @@ separate process so each cycle starts with clean memory, then sleeps 15 minutes.
 it. There's no background service and no PID file, so if you want it to survive
 a logout you need systemd or cron, which is not set up here. See the gaps in
 section 13.
+
+### Trying settings for one run
+
+`main.py` can take different numbers for a single run, so nobody has to edit a
+file everyone shares just to try something:
+
+- **`--operating-point KEY=VALUE`** overrides the detection constants.
+  `level_shift_k` is how many robust deviations Rule 2 needs (default 4),
+  `min_timesteps_over` is how many scored steps over a bar it takes to flag
+  (default 3), and `min_timesteps_to_judge` is how many real readings a site
+  needs before it's scored at all (default 30).
+- **`--alert-sites`** limits which sites get emailed about. Every site is still
+  scored. The ones you leave out show up as muted instead of sending.
+- **`--dry-run`** prints what would have been emailed and sends nothing.
+- **`--results-json PATH`** writes what the run found to a file: every site's
+  verdict, what the support modules said, and each alert with whether it went.
+
+Anything in `settings.yaml` can be changed for one run too. Write a yaml with
+the same sections, holding only what changes:
+
+```
+detection:
+  rain_multiplier: 3.0
+```
+
+and point `STRAWBERRYWATCH_SETTINGS` at it:
+
+```
+STRAWBERRYWATCH_SETTINGS=my_settings.yaml python main.py --mode inference --dry-run
+```
+
+Keys you leave out keep `settings.yaml`'s value. The run's header prints
+`Settings: settings.yaml + my_settings.yaml`, so the log says which numbers it
+actually ran on.
+
+### Watching the creek on your own computer
+
+The local dashboard runs the models against the real creek for as long as it's
+open. It needs its extras once, then one command:
+
+```
+pip install -e ".[dashboard]"
+strawberrywatch dashboard
+```
+
+It prints a link and opens it. The link works once and signs that browser in,
+so copy it straight away if you want it somewhere else. The first time, it asks
+where readings should come from:
+
+- **The Strawberry Creek API.** You need your own token; the API page on the
+  website says how to get one. It's kept in your computer's keychain and never
+  written anywhere else, so it isn't in the dashboard's files, its logs or the
+  page.
+- **A folder of CSV files.** One file per site, named after it
+  (`south_fork_1.csv`), with a time column and the raw logger columns. No token
+  needed.
+- **A past event.** The labelled events ship with the package, so this works
+  offline and checks the whole event at once. Start here if you want to see what
+  it does before connecting anything.
+
+While it's open, the models that are on check the creek every 15 minutes.
+Closing it stops them, so there's no separate on switch. Nothing it notices
+leaves the computer unless you turn on email alerts, and nothing is ever sent to
+the website.
+
+It looks like a page of strawberrycreek.org, with the same dark mode button, and
+has five tabs:
+
+- **Overview** says in one line whether the creek looks normal, something looks
+  unusual, or a site has stopped reporting, then shows the creek map and every
+  site's status.
+- **Unusual readings** has the details of anything the models noticed in the
+  last day, with a chart for each. The tab shows how many there are.
+- **History** lists unusual readings and settings changes by day or by hour.
+  Opening a day shows it hour by hour, with how many checks ran. Notes you've
+  written show under the reading they're about, and **Your notes** beside the
+  heading lists them all, filtered by site and date. Tick the ones you want, or
+  none for everything shown, then **Download as CSV** for a spreadsheet or
+  **Save as PDF**, which opens a print page where you pick Save as PDF as the
+  printer.
+- **Models** describes each model and whether it's on.
+- **Settings** chooses which sites to watch, how many alerts you want, rain and
+  which models are on. Advanced settings, linked from it, has each model's own
+  values. **Email alerts**, also linked from it, is the list of people who get
+  an email when a check notices something new. Adding or removing someone takes
+  effect straight away. Sending starts off: turn it on there once **Send a test
+  email** has reached everyone. It sends through the account in `.env` that
+  `main.py`'s alerts use (`ALERT_EMAIL_SENDER`, `ALERT_EMAIL_PASSWORD`,
+  `SMTP_SERVER`, `SMTP_PORT`), with each address hidden from the others.
+  Replays of past events never send email.
+
+Settings and Advanced settings share one draft, kept as you edit, so moving
+between pages doesn't lose it. A note at the top says how many changes aren't
+saved yet. Save changes, at the bottom, lists every change before and after and
+runs StrawberryWatch's own checks on it; saving there checks the creek straight
+away. Discard changes, beside it, appears once there's something to discard.
+
+Settings, scores and what was noticed live in one file in your user data folder
+(`~/.local/share/strawberrywatch` on Linux), readable only by you. Deleting the
+folder starts it over.
 
 ---
 
@@ -1025,6 +1148,8 @@ StrawberryWatch/
     support_modules/         the attachable modules from section 5
     training/                the training loop
     utils/                   graph helpers, plotting, email
+    dashboard/               the local dashboard's pages, section 2
+    watch/                   its checks every 15 minutes, settings and store
 
   tests/                     the test suite
   scripts/                   one-off and operational tools

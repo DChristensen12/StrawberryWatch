@@ -99,7 +99,7 @@ reasoning behind each choice.
 \label{sec:introduction}
 
 DuskCrayfish learns what the creek normally looks like and flags what it cannot
-predict. That works well for an onset, a spill arriving and pushing
+predict. That works well for an onset, a discharge arriving and pushing
 conductivity somewhere the model did not expect. It fails for a fault that
 stops the reading moving at all. If a probe freezes, the model's one-step
 forecast is anchored on the frozen reading, it predicts the frozen number, the
@@ -241,7 +241,7 @@ lets a model exploit informative missingness, which is the right move where a
 missing measurement is itself a decision, as in clinical
 records~\citep{che2018grud}. Here missingness is flat batteries and network
 outages. A model given the mask learns that offline implies anomalous, and
-then every power failure in the catchment arrives as a spill alert. The
+then every power failure in the catchment arrives as a discharge alert. The
 elapsed time is a feature; the fact of absence is not.
 
 \section{Model Architecture}
@@ -565,7 +565,7 @@ survey. Its value is a physical claim about how much of oxford's inflow arrives
 from each fork, and it is currently unverified.
 
 The site inventory is uneven, and the two channels that only footbridge carries
-are the two that would separate pollutant types. Dissolved oxygen and floating
+are the two that would separate disturbance types. Dissolved oxygen and floating
 conductivity exist at exactly one of five sites, so any downstream reasoning
 that needs them can be attempted at one site and nowhere else.
 

@@ -16,3 +16,27 @@ jobs:
       - run: pip install ruff
       - run: ruff check .
       - run: ruff format --check .
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks reads every commit, not only the newest
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install bandit pip-audit
+      # Medium and high fail the build. A reviewed exception carries # nosec and its reason.
+      - run: bandit -r strawberrywatch main.py scripts -x strawberrywatch/watch/events -ll
+      # The CPU torch wheel keeps this small. pip-audit then checks everything that installed.
+      - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -e ".[dashboard]"
+      - run: pip-audit --skip-editable
+      - name: gitleaks
+        run: |
+          curl -sSLo gitleaks.tgz https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum --check
+          tar xzf gitleaks.tgz gitleaks
+          ./gitleaks git . --no-banner --redact

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Unusual readings{% endblock %}
+{% block content %}
+<h1>What looks unusual?</h1>
+{% if not recent %}
+  <div class="sw-headline">
+    <p class="lead">Nothing looks unusual right now.</p>
+    <p>Anything the models noticed before is in <a href="{{ url_for('main.history', show='unusual') }}">History</a>.</p>
+  </div>
+{% else %}
+  <p>{{ 'Everything this replay noticed' if replay else 'Everything the models noticed in the last 24 hours' }}, newest first. Each chart shows how unusual the reading looked against the line it had to cross, with rain underneath.</p>
+  {% for item in recent %}
+    <section class="sw-item" aria-labelledby="item-{{ item.id }}">
+      <p class="caption">{{ item.when }}</p>
+      <h2 id="item-{{ item.id }}">{{ sw.status('flagged', 'Unusual ' ~ item.label ~ ' at ' ~ item.site) }}</h2>
+      <p>{{ item.happened }} {{ item.title }} noticed.</p>
+      {% if item.extras %}
+        <div class="sw-extras">
+          {% for line in item.extras %}<p>{{ line }}</p>{% endfor %}
+        </div>
+      {% endif %}
+      {% if charts[item.id] %}
+        {{ sw.chart_data("chart-" ~ item.id, charts[item.id]) }}
+        <div class="sw-chart" data-sw-chart="score" data-sw-source="chart-{{ item.id }}" role="img" aria-label="How unusual {{ item.label }} looked to {{ item.title }}, against the line it had to cross, with rain underneath"></div>
+      {% endif %}
+      <p><a href="{{ url_for('main.noticed', noticed_id=item.id, **{'from': 'unusual'}) }}">See what happened at {{ item.site }}</a></p>
+    </section>
+  {% endfor %}
+{% endif %}
+{% endblock %}

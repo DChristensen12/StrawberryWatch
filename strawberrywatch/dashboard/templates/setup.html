@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Set up StrawberryWatch{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+{% if not first %}<a class="back-link" href="{{ url_for('main.advanced') }}">Advanced settings</a>{% endif %}
+<h1>{{ 'Set up StrawberryWatch' if first else 'Where should readings come from?' }}</h1>
+{% if first %}
+  <p>StrawberryWatch checks the creek every 15 minutes while it's open, with the models you turn on. It never sends anything anywhere.</p>
+{% endif %}
+<form method="post" novalidate>
+  {{ form.csrf_token }}
+  {% set token_html %}
+    {{ sw.text(form.token, kind='password', hint='A token is already saved on this computer. Leave this blank to keep it.' if token_saved else "It's saved in this computer's keychain and never shown again.") }}
+    <p><a href="https://www.strawberrycreek.org/api/" rel="noreferrer noopener">How to get a token</a></p>
+  {% endset %}
+  {% set folder_html %}
+    {{ sw.text(form.folder) }}
+  {% endset %}
+  {% set event_html %}
+    {{ sw.radios(form.event, legend_class='as-small') }}
+    <p class="small">A replay checks the whole event at once instead of waiting 15 minutes.</p>
+  {% endset %}
+  {{ sw.radios(form.source, legend='Where should readings come from?', legend_class='as-heading visually-hidden' if not first else 'as-heading', items={
+    'api': {'reveal': token_html},
+    'csv': {'reveal': folder_html},
+    'replay': {'reveal': event_html}
+  }) }}
+  <div class="sw-buttons"><button type="submit" class="sw-button" id="submit">Continue</button></div>
+</form>
+{% endblock %}

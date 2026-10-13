@@ -24,12 +24,25 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff", "pre-commit", "pytest"]
+# The local dashboard, `strawberrywatch dashboard`. Left out of the base install
+# so using the models doesn't pull in a web app.
+dashboard = [
+    "flask>=3.1",
+    "flask-wtf>=1.2",
+    "keyring>=25",
+    "platformdirs>=4",
+]
+
+[project.scripts]
+strawberrywatch = "strawberrywatch.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["strawberrywatch*"]
 
 [tool.setuptools.package-data]
 strawberrywatch = ["settings.yaml", "inventory.yaml"]
+"strawberrywatch.dashboard" = ["templates/*.html", "static/*", "static/*/*"]
+"strawberrywatch.watch" = ["model_files.sha256.json", "events/events.json", "events/*/*.csv"]
 
 [tool.ruff]
 line-length = 100

@@ -134,7 +134,8 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
 
                     select_sql = ", ".join(f"`{c}`" for c in safe_cols)
                     query = (
-                        f"SELECT {select_sql} FROM `{table}` "
+                        # nosec B608: both identifiers are reduced to [A-Za-z0-9_] first, values are %s
+                        f"SELECT {select_sql} FROM `{table}` "  # nosec B608
                         f"WHERE `timestamp` >= %s AND `timestamp` <= %s "
                         f"ORDER BY `timestamp` ASC"
                     )

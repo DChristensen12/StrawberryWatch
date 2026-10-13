@@ -9,15 +9,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _receivers():
+    """ALERT_EMAIL_RECEIVER as a list, so one address or several comma separated both work."""
+    raw = os.getenv("ALERT_EMAIL_RECEIVER") or ""
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 def send_spill_alert(spill_count, locations_affected):
-    """Send a system-level summary email when spills are detected."""
+    """Send a system-level summary email when spills are detected. True if it went."""
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
-    receiver = os.getenv("ALERT_EMAIL_RECEIVER")
+    receivers = _receivers()
 
-    if not all([sender, password, receiver]):
+    if not all([sender, password, receivers]):
         print("Alert skipped: Email credentials missing in .env")
-        return
+        return False
 
     subject = f" ALERT: {spill_count} Potential Spill(s) Detected in Strawberry Creek"
     body = f"""
@@ -30,7 +36,7 @@ def send_spill_alert(spill_count, locations_affected):
 
     msg = MIMEMultipart()
     msg["From"] = sender
-    msg["To"] = receiver
+    msg["To"] = ", ".join(receivers)
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
 
@@ -38,11 +44,13 @@ def send_spill_alert(spill_count, locations_affected):
         server = smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT")))
         server.starttls()
         server.login(sender, password)
-        server.sendmail(sender, receiver, msg.as_string())
+        server.sendmail(sender, receivers, msg.as_string())
         server.quit()
         print("Spill alert email sent successfully.")
+        return True
     except Exception as e:
         print(f"Failed to send email alert: {e}")
+        return False
 
 
 def _diagnosis_line(classification):
@@ -122,15 +130,15 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
     classification is the support_modules.trial_bed account for this event, or
     None if nothing classified it. rule is which detection rule fired, so a site
     that trips both gets two distinguishable emails. Credential handling mirrors
-    send_spill_alert.
+    send_spill_alert, and so does the return: True only if the email went.
     """
     sender = os.getenv("ALERT_EMAIL_SENDER")
     password = os.getenv("ALERT_EMAIL_PASSWORD")
-    receiver = os.getenv("ALERT_EMAIL_RECEIVER")
+    receivers = _receivers()
 
-    if not all([sender, password, receiver]):
+    if not all([sender, password, receivers]):
         print("Alert skipped: Email credentials missing in .env")
-        return
+        return False
 
     diagnosis = _diagnosis_line(classification)
 
@@ -157,7 +165,7 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
 
     msg = MIMEMultipart()
     msg["From"] = sender
-    msg["To"] = receiver
+    msg["To"] = ", ".join(receivers)
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain"))
 
@@ -165,11 +173,13 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
         server = smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT")))
         server.starttls()
         server.login(sender, password)
-        server.sendmail(sender, receiver, msg.as_string())
+        server.sendmail(sender, receivers, msg.as_string())
         server.quit()
         print(f"Anomaly alert email sent successfully for {location}.")
+        return True
     except Exception as e:
         print(f"Failed to send anomaly alert email: {e}")
+        return False
 
 
 def fire_anomaly_alerts(events):
@@ -179,12 +189,15 @@ def fire_anomaly_alerts(events):
     Each event dict needs: location, score, threshold, event_time, and
     optionally rule (which detection rule fired) and classification (one
     support_modules.trial_bed account, or None).
+
+    Returns one bool per event, True where its email actually went. The summary
+    email isn't counted, it isn't about any one event.
     """
     if not events:
         print("No anomaly events to alert on.")
-        return
+        return []
 
-    for ev in events:
+    delivered = [
         send_anomaly_alert(
             location=ev.get("location", "unknown"),
             score=ev.get("score", float("nan")),
@@ -193,6 +206,9 @@ def fire_anomaly_alerts(events):
             classification=ev.get("classification"),
             rule=ev.get("rule"),
         )
+        for ev in events
+    ]
 
     locations = sorted({ev.get("location", "unknown") for ev in events})
     send_spill_alert(len(events), locations)
+    return delivered

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ site }}{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.overview') }}">Overview</a>
+<p class="caption">{{ entry.name }}</p>
+<h1>{{ site }}</h1>
+<p>{{ sw.status(status.key, status.text) }}</p>
+<p>
+  {% if watched_by %}Watched by {{ watched_by | join(' and ') }}.{% else %}No model watches this site yet.{% endif %}
+  {% if entry.downstream %}Its water flows on to {{ entry.downstream }}.{% endif %}
+</p>
+
+<h2>Is each sensor alive and sane?</h2>
+<p>One small line per sensor over the last 72 hours. A line breaks where readings stopped for more than 6 hours.</p>
+<div class="sw-table-scroll">
+  <table class="sw-table">
+    <caption class="visually-hidden">Sensors at {{ site }}</caption>
+    <thead>
+      <tr><th scope="col">Sensor</th><th scope="col">Last 72 hours</th><th scope="col">Last value</th><th scope="col">When</th></tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+        <tr>
+          <th scope="row">{{ line.label | capitalize }}</th>
+          <td>
+            {{ sw.chart_data("spark-" ~ line.column, line) }}
+            <div class="sw-spark" data-sw-chart="spark" data-sw-source="spark-{{ line.column }}"></div>
+          </td>
+          <td class="num">{{ line.last_text }}</td>
+          <td class="num">{{ line.when }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

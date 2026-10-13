@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Email alerts{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.settings') }}">Settings</a>
+<h1>Email alerts</h1>
+<p>When a check notices something new that looks unusual, StrawberryWatch emails everyone on this list. Changes on this page take effect straight away.</p>
+
+<div class="sw-headline{{ ' sw-headline--late' if gaps and not on else ('' if on else ' sw-headline--muted') }}">
+  {% if gaps and not on %}
+    <p class="lead">Email isn't set up on this computer.</p>
+    <p>StrawberryWatch sends through the email account in the <code>.env</code> file, the same one main.py's alerts use. It still needs {{ gaps | join(', ') }}.</p>
+  {% elif on %}
+    <p class="lead">Sending is on.</p>
+    <p>Emails come from {{ sender }}. Replays of past events never send email.</p>
+  {% else %}
+    <p class="lead">Sending is off. Nobody is emailed.</p>
+    <p>Once it's on, emails come from {{ sender }}.</p>
+  {% endif %}
+  {% if on or not gaps %}
+    <form method="post" action="{{ url_for('main.email_sending') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="on" value="{{ 'no' if on else 'yes' }}">
+      <div class="sw-buttons"><button type="submit" class="sw-button{{ ' sw-button--secondary' if on }}">{{ 'Turn sending off' if on else 'Turn sending on' }}</button></div>
+    </form>
+  {% endif %}
+</div>
+
+<h2>Who gets emailed</h2>
+{% if people %}
+  <div class="sw-table-scroll">
+    <table class="sw-table">
+      <caption class="visually-hidden">People on the email list</caption>
+      <thead>
+        <tr><th scope="col">Name</th><th scope="col">Email address</th><th scope="col"><span class="visually-hidden">Remove</span></th></tr>
+      </thead>
+      <tbody>
+        {% for p in people %}
+          <tr>
+            <td>{{ p.name or '' }}</td>
+            <td>{{ p.email }}</td>
+            <td class="num">
+              <form method="post" action="{{ url_for('main.remove_recipient', recipient_id=p.id) }}" data-sw-confirm="Take {{ p.email }} off the list?">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="sw-link-button">Remove<span class="visually-hidden"> {{ p.email }}</span></button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="muted">Nobody yet. Add someone below.</p>
+{% endif %}
+
+<h2>Add someone</h2>
+<form method="post" novalidate>
+  {{ form.csrf_token }}
+  {{ sw.text(form.email, kind='email', autocomplete='off') }}
+  {{ sw.text(form.name) }}
+  <div class="sw-buttons"><button type="submit" class="sw-button">Add to the list</button></div>
+</form>
+
+<h2>Check it reaches them</h2>
+<p>Sends a short test email to everyone on the list, whether sending is on or off.</p>
+{% if last %}<p class="small muted">{{ last }}</p>{% endif %}
+<form method="post" action="{{ url_for('main.email_test') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="sw-buttons"><button type="submit" class="sw-button sw-button--secondary"{% if gaps or not people %} disabled{% endif %}>Send a test email</button></div>
+</form>
+{% endblock %}

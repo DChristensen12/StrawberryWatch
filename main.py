@@ -1,4 +1,7 @@
+import argparse
 import inspect
+import json
+import math
 import os
 import pickle
 import sys
@@ -27,6 +30,34 @@ _MODEL_REGISTRY = {
     "dusk_crayfish": DuskCrayfish,
     "cobble_shoal": CobbleShoal,
 }
+
+# What --operating-point may override, and the type each is read as. These are
+# the keys detect_anomalies merges over its own constants, and it ignores any
+# other key, so a typo has to be caught here or it quietly does nothing.
+_OPERATING_POINT = {
+    "level_shift_k": float,
+    "min_timesteps_over": int,
+    "min_timesteps_to_judge": int,
+}
+
+
+def _operating_point_item(text):
+    """One KEY=VALUE off --operating-point, checked before anything downloads."""
+    key, _, value = text.partition("=")
+    key = key.strip()
+    cast = _OPERATING_POINT.get(key)
+    if cast is None:
+        raise argparse.ArgumentTypeError(
+            f"{text!r}: expected KEY=VALUE with KEY one of {', '.join(_OPERATING_POINT)}"
+        )
+    try:
+        number = cast(value)
+    except ValueError:
+        kind = "a whole number" if cast is int else "a number"
+        raise argparse.ArgumentTypeError(f"{text!r}: {key} needs {kind}") from None
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError(f"{text!r}: {key} has to be positive")
+    return key, number
 
 
 def _align_to_trained_features(sequences, targets, current_feature_cols, trained_feature_cols):
@@ -111,14 +142,17 @@ def _fired_grid(node_results, site_order, shape):
     return grid
 
 
-def _anomaly_events(node_results, timestamps, metadata, accounts, site_order):
+def _anomaly_events(
+    node_results, timestamps, metadata, accounts, site_order, level_shift_k=LEVEL_SHIFT_K
+):
     """
     One alert event per (site, rule) that fired, shaped the way notifier wants.
 
     Rule 1 and Rule 2 go out separately on purpose. An onset and a sustained
     abnormal level mean different things to whoever reads the email, and
     blending them into one number would lose that. Trial Bed's account rides
-    along when that explainer ran.
+    along when that explainer ran. level_shift_k is whatever k Rule 2 was
+    actually held to, so an --operating-point run reports its own bar.
     """
     node_thresholds = metadata.get("node_thresholds", {})
     trial_bed = accounts.get("trial_bed", [])
@@ -140,7 +174,7 @@ def _anomaly_events(node_results, timestamps, metadata, accounts, site_order):
             threshold = (
                 node_thresholds.get(site, float("nan"))
                 if rule_name == "forecast_residual"
-                else LEVEL_SHIFT_K
+                else level_shift_k
             )
             crossed = rule.get("over_timesteps")
             # First crossing, since that's when the thing started, not when we noticed.
@@ -162,6 +196,122 @@ def _anomaly_events(node_results, timestamps, metadata, accounts, site_order):
     return events
 
 
+def _dispatch_alerts(events, alert_sites=None, dry_run=False, send=None):
+    """
+    Email what fired and stamp each event with a status saying what happened.
+
+    alert_sites None means every site. A muted site was still scored, it just
+    stays quiet, so its event is kept as "muted" rather than dropped. That's
+    what lets a results file show what muting cost. send is for tests; normally
+    it's notifier.fire_anomaly_alerts.
+    """
+    outgoing = []
+    for ev in events:
+        if alert_sites is not None and ev["location"] not in alert_sites:
+            ev["status"] = "muted"
+            print(f"  muted: {ev['location']} {ev['rule']}")
+        elif dry_run:
+            ev["status"] = "dry_run"
+            print(
+                f"  would email: {ev['location']} {ev['rule']}, "
+                f"peak {ev['score']:.2f} against {ev['threshold']:.2f}"
+            )
+        else:
+            outgoing.append(ev)
+    if not outgoing:
+        return events
+
+    try:
+        if send is None:
+            from strawberrywatch.utils.notifier import fire_anomaly_alerts as send
+        delivered = list(send(outgoing) or [])
+    except Exception as e:
+        print(f"Alerting failed: {e}")
+        delivered = []
+    # notifier skips quietly when .env has no credentials, so "emailed" has to
+    # come from what it says went, not from having asked it.
+    for i, ev in enumerate(outgoing):
+        ev["status"] = "emailed" if i < len(delivered) and delivered[i] else "not_emailed"
+    return events
+
+
+def _plain(value):
+    """
+    Something json can write. NaN and inf become null, since JSON has neither
+    and a browser's JSON.parse refuses the file outright if they sneak in.
+    """
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, np.datetime64):
+        return np.datetime_as_string(value, unit="s")
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    return str(value)
+
+
+def _write_results(path, header, node_results, accounts, site_order, events):
+    """
+    What the run found, for anything that wants it without parsing the log.
+
+    Scalars only. The per-timestep arrays stay behind, since nothing reading
+    this needs 192 booleans a rule.
+    """
+    sites = {}
+    for site, result in node_results.items():
+        entry = {"judged": bool(result.get("judged")), "n_real": result.get("n_real")}
+        if entry["judged"]:
+            entry["flagged"] = bool(result.get("flagged"))
+            entry["rules_fired"] = list(result.get("rules_fired", []))
+            for key in ("rule1", "rule2"):
+                rule = result.get(key) or {}
+                entry[key] = {
+                    k: rule.get(k) for k in ("peak_deviation", "longest_run", "n_over_threshold")
+                }
+        else:
+            entry["reason"] = result.get("reason")
+        sites[site] = entry
+
+    explanations = {}
+    for name, per_node in accounts.items():
+        for site, account in zip(site_order, per_node, strict=True):
+            if account.get("verdict") == "nothing_to_explain":
+                continue
+            explanations.setdefault(name, {})[site] = {
+                k: account.get(k) for k in ("verdict", "cause", "confidence", "explanation")
+            }
+
+    alerts = []
+    for ev in events:
+        classification = ev.get("classification") or {}
+        alerts.append(
+            {
+                "site": ev["location"],
+                "rule": ev["rule"],
+                "score": ev["score"],
+                "threshold": ev["threshold"],
+                "event_time": ev["event_time"],
+                "status": ev.get("status"),
+                "diagnosis": classification.get("explanation"),
+                "diagnosis_verdict": classification.get("verdict"),
+                "diagnosis_cause": classification.get("cause"),
+            }
+        )
+
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w") as f:
+        payload = {**header, "sites": sites, "explanations": explanations, "alerts": alerts}
+        json.dump(_plain(payload), f, indent=2, allow_nan=False)
+    print(f"Results written to {path}")
+
+
 def main(
     mode="update",
     data_source="api",
@@ -169,6 +319,10 @@ def main(
     data_file=None,
     support=None,
     q_total=DEFAULT_Q_TOTAL,
+    operating_point=None,
+    alert_sites=None,
+    dry_run=False,
+    results_json=None,
 ):
     """
     Run the GNN anomaly detection pipeline in train, update, or inference mode.
@@ -176,7 +330,13 @@ def main(
     support is a list of names from support_modules.SUPPORT_REGISTRY, or None
     for a run with no support attached. None and [] take the same path as three
     modules do; there is no separate no-support branch anywhere below.
+
+    The last four all default to how this always ran. operating_point overrides
+    detect_anomalies' constants, alert_sites limits who gets emailed about
+    (every site is still scored), dry_run prints the alerts instead of sending
+    them, and results_json writes what the run found to that path.
     """
+    requested_mode = mode
     model_dir = paths.checkpoints_dir()
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
     metadata_path = os.path.join(model_dir, f"{model_name}_metadata.pkl")
@@ -214,6 +374,17 @@ def main(
         print("           python scripts/refit_cobble_calibration.py")
         sys.exit(1)
 
+    # Same reason as the support check below: a typo should fail before a
+    # thirty day download, not after it.
+    unknown = sorted(set(operating_point or {}) - set(_OPERATING_POINT))
+    if unknown:
+        print(f"ERROR: unknown operating point keys {unknown}. Valid: {list(_OPERATING_POINT)}")
+        sys.exit(1)
+    off_roster = sorted(set(alert_sites or []) - set(Config.LOCATIONS))
+    if off_roster:
+        print(f"ERROR: alert sites {off_roster} are not on the roster {Config.LOCATIONS}")
+        sys.exit(1)
+
     # Resolved before anything is downloaded, so an unknown name, a module that
     # cannot attach, a builtin collision or an impossible budget split all fail
     # here with nothing done yet. The registry check moved up for the same
@@ -232,6 +403,15 @@ def main(
     print(f"False alarm budget: q_total={split['q_total']:g}, primary={split['primary']:g}")
     for name, q in sorted(split["detectors"].items()):
         print(f"  {name}: q={q:g}")
+    if Config.SETTINGS_OVERRIDES:
+        print(f"Settings:       settings.yaml + {Config.SETTINGS_OVERRIDES}")
+    if operating_point:
+        pairs = ", ".join(f"{k}={v:g}" for k, v in sorted(operating_point.items()))
+        print(f"Operating point: {pairs}")
+    if alert_sites is not None:
+        print(f"Alerting on:    {', '.join(alert_sites) if alert_sites else 'no sites'}")
+    if dry_run:
+        print("Dry run:        alerts get printed, nothing is emailed")
 
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring
@@ -278,7 +458,7 @@ def main(
             )
             sys.exit(1)
         with open(metadata_path, "rb") as f:
-            saved_metadata = pickle.load(f)
+            saved_metadata = pickle.load(f)  # nosec B301: our own checkpoint, written by train
         trained_feature_cols = saved_metadata.get("feature_cols")
         if not trained_feature_cols:
             print("ERROR: metadata has no feature_cols. Retrain with --mode train.")
@@ -461,6 +641,7 @@ def main(
         df_original=df_original,
         locations=locations,
         device=Config.DEVICE,
+        operating_point=operating_point,
     )
 
     judged_sites = [site for site, r in node_results.items() if r["judged"]]
@@ -506,21 +687,29 @@ def main(
     # Every anomaly emails out, whatever mode turned it up. This used to fire only
     # in inference, so a train or update run could find a spill and tell nobody.
     # One email per rule per site plus a batch summary, all to ALERT_EMAIL_RECEIVER.
+    level_k = (operating_point or {}).get("level_shift_k", LEVEL_SHIFT_K)
     events = _anomaly_events(
-        node_results, test_timestamps, detection_metadata, accounts, site_order
+        node_results, test_timestamps, detection_metadata, accounts, site_order, level_k
     )
-    if events:
-        try:
-            from strawberrywatch.utils.notifier import fire_anomaly_alerts
+    _dispatch_alerts(events, alert_sites, dry_run)
 
-            fire_anomaly_alerts(events)
-        except Exception as e:
-            print(f"Alerting failed: {e}")
+    if results_json:
+        header = {
+            "model": model_name,
+            "requested_mode": requested_mode,
+            "mode": mode,
+            "support": stack.names,
+            "q_total": q_total,
+            "operating_point": operating_point or {},
+            "alert_sites": alert_sites,
+            "dry_run": dry_run,
+            "settings_overrides": Config.SETTINGS_OVERRIDES,
+            "window": [test_timestamps[0], test_timestamps[-1]] if len(test_timestamps) else [],
+        }
+        _write_results(results_json, header, node_results, accounts, site_order, events)
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="SCMG GNN Pipeline")
     parser.add_argument(
         "--mode",
@@ -570,6 +759,38 @@ if __name__ == "__main__":
         "scripts/build_training_corpus.py; auto-detected by *_valid columns). "
         "Omit to use the default cache, unchanged.",
     )
+    parser.add_argument(
+        "--operating-point",
+        type=_operating_point_item,
+        nargs="+",
+        default=None,
+        metavar="KEY=VALUE",
+        help="Override detection constants for this run, space separated. Keys: "
+        + ", ".join(_OPERATING_POINT)
+        + ". Omit to use anomaly_detector's own values.",
+    )
+    parser.add_argument(
+        "--alert-sites",
+        nargs="+",
+        default=None,
+        choices=Config.LOCATIONS,
+        metavar="SITE",
+        help="Only email about these sites. Every site is still scored, the rest "
+        "just stay quiet. Omit to alert on all of them. Valid names: "
+        + ", ".join(Config.LOCATIONS),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the alerts this run would email and send nothing.",
+    )
+    parser.add_argument(
+        "--results-json",
+        default=None,
+        metavar="PATH",
+        help="Also write what the run found to PATH as JSON: per site verdicts, "
+        "explainer accounts, and every alert with whether it was sent.",
+    )
     args = parser.parse_args()
     main(
         mode=args.mode,
@@ -578,4 +799,8 @@ if __name__ == "__main__":
         data_file=args.data_file,
         support=args.support,
         q_total=args.q_total,
+        operating_point=dict(args.operating_point) if args.operating_point else None,
+        alert_sites=args.alert_sites,
+        dry_run=args.dry_run,
+        results_json=args.results_json,
     )

@@ -170,7 +170,7 @@ def load_checkpoint(checkpoint_dir, model_name="dusk_crayfish"):
     # Unpickling runs whatever the file references, so this is only safe on a
     # checkpoint you produced. That is the other reason the sidecar exists.
     with open(meta_pickle, "rb") as f:
-        blob = pickle.load(f)
+        blob = pickle.load(f)  # nosec B301: see above; the dashboard's hash check needs the sidecar first
     return _from_blob(blob, weights, str(meta_pickle), scaler=blob.get("scaler"))
 
 

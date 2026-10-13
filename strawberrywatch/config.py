@@ -8,6 +8,40 @@ from strawberrywatch import paths
 
 load_dotenv()
 
+# Names a yaml laid over settings.yaml for one run, same sections, holding only
+# what changes. The dashboard writes one per run so trying a number never means
+# editing the file everyone shares.
+SETTINGS_ENV_VAR = "STRAWBERRYWATCH_SETTINGS"
+
+
+def _read_overrides(path):
+    """
+    The override yaml at path, or {} with no path.
+
+    A path that isn't there raises rather than shrugging. A run that asked for
+    its own numbers and quietly got settings.yaml's would look fine and mean
+    nothing.
+    """
+    if not path:
+        return {}
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"{SETTINGS_ENV_VAR} points at {path}, which does not exist")
+    with open(path) as f:
+        overrides = yaml.safe_load(f) or {}
+    if not isinstance(overrides, dict):
+        raise ValueError(f"{path} should hold sections like settings.yaml, got {overrides!r}")
+    return overrides
+
+
+def _layered(base, overrides):
+    """base with overrides laid over it a section at a time, so a key left out keeps its value."""
+    merged = {section: dict(values or {}) for section, values in (base or {}).items()}
+    for section, values in overrides.items():
+        if not isinstance(values, dict):
+            raise ValueError(f"override section {section!r} should be a mapping, got {values!r}")
+        merged.setdefault(section, {}).update(values)
+    return merged
+
 
 class Config:
     API_TOKEN = os.getenv("SCMG_API_TOKEN")
@@ -40,6 +74,11 @@ class Config:
     except FileNotFoundError:
         print(f"Warning: settings.yaml not found at {_yaml_path}. Using hardcoded defaults.")
         _s = {}
+
+    # Set when a run brought its own values. main.py prints it, so a log says
+    # which numbers it actually ran on.
+    SETTINGS_OVERRIDES = os.getenv(SETTINGS_ENV_VAR) or None
+    _s = _layered(_s, _read_overrides(SETTINGS_OVERRIDES))
 
     # Model architecture
     HIDDEN_DIM = _s.get("model_architecture", {}).get("hidden_dim", 16)

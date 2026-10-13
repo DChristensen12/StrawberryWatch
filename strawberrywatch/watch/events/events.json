@@ -1,0 +1,18 @@
+{
+  "_about": "Copies of data/anomalies, shipped so a replay works offline. labels are tests/events.yaml's, for the events it grades.",
+  "events": [
+    {"folder": "anomaly_2025_06_12_spill_sf", "title": "June 2025 spill on the south fork",
+     "labels": {"south_fork_1": "anomaly", "south_fork_2": "relative_only"}},
+    {"folder": "anomaly_2025_08_sprinklers_nf0", "title": "August 2025 sprinkler runoff at north_fork_0",
+     "labels": {"north_fork_0": "relative_only"}},
+    {"folder": "anomaly_2025_09_10_overnight_sf", "title": "September 2025 overnight spike on the south fork",
+     "labels": {"south_fork_1": "anomaly", "south_fork_2": "anomaly"}},
+    {"folder": "anomaly_2025_11_05_foam_nf1", "title": "November 2025 foam at the footbridge",
+     "labels": {"north_fork_0": "relative_only"}},
+    {"folder": "anomaly_2025_11_13_rain_nf1", "title": "November 2025 rain at the footbridge", "labels": {}},
+    {"folder": "anomaly_2026_01_botanical_actuator", "title": "January to March 2026 Botanical Garden actuator", "labels": {}},
+    {"folder": "anomaly_2026_03_20_hydrant_nf0", "title": "March 2026 fire hydrant break into the north fork",
+     "labels": {"north_fork_0": "anomaly"}},
+    {"folder": "anomaly_2026_04_01_rainfall", "title": "April 2026 rainfall", "labels": {}}
+  ]
+}

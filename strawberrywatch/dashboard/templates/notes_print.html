@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Notes{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block body_attrs %} data-sw-print="yes"{% endblock %}
+{% block content %}
+<div class="sw-print-help">
+  <p>In the print window, choose <strong>Save as PDF</strong> as the printer to keep these notes as a PDF.</p>
+  <div class="sw-buttons">
+    <button type="button" class="sw-button" id="sw-print">Open the print window</button>
+    <a href="{{ back }}">Back to your notes</a>
+  </div>
+</div>
+
+<h1>StrawberryWatch notes</h1>
+<p class="muted">{{ summary }}</p>
+{% for d in days %}
+  <section class="sw-print-day">
+    {% for n in d.notes %}
+      {% set item = n.item %}
+      <article class="sw-print-note">
+        {#- Inside the first note, so a page never ends on a day's heading -#}
+        {% if loop.first %}<h2>{{ d.label }}</h2>{% endif %}
+        <p class="sw-print-note__when">{{ n.clock }}{% if n.author %}, note by {{ n.author }}{% endif %}</p>
+        <blockquote>{{ n.text }}</blockquote>
+        <dl class="sw-summary">
+          <div class="sw-summary__row"><dt>About</dt><dd>Unusual {{ item.label }} at {{ item.site }}</dd></div>
+          <div class="sw-summary__row"><dt>Noticed</dt><dd>{{ item.when }} by {{ item.title }}</dd></div>
+          <div class="sw-summary__row"><dt>What happened</dt><dd>{{ item.happened }}</dd></div>
+          {% if item.extras %}
+            <div class="sw-summary__row"><dt>Support modules</dt><dd>{% for line in item.extras %}<p>{{ line }}</p>{% endfor %}</dd></div>
+          {% endif %}
+        </dl>
+        {% if n.chart %}
+          {{ sw.chart_data("chart-note-" ~ n.id, n.chart) }}
+          <div class="sw-chart" data-sw-chart="score" data-sw-source="chart-note-{{ n.id }}" role="img" aria-label="How unusual {{ item.label }} looked, against the line it had to cross"></div>
+        {% else %}
+          <p class="small muted">The chart isn't available any more. Scores are kept for 30 days.</p>
+        {% endif %}
+      </article>
+    {% endfor %}
+  </section>
+{% else %}
+  <p>No notes to include.</p>
+{% endfor %}
+{% endblock %}

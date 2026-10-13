@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<div class="sw-heading-row">
+  <h1>What has happened?</h1>
+  <a href="{{ url_for('main.notes') }}">Your notes ({{ note_count }})</a>
+</div>
+<p>Unusual readings and changes to the settings, newest first. By hour shows each day's busy hours and folds the quiet ones together. Open a day to see every hour of it.</p>
+
+<form method="get" action="{{ url_for('main.history') }}" class="sw-filters" data-sw-autosubmit="yes">
+  <fieldset>
+    <legend class="as-small">Show</legend>
+    <div class="sw-choices sw-choices--inline">
+      {% for value, label in shows.items() %}
+        <div class="sw-choice">
+          <input type="radio" id="show-{{ value }}" name="show" value="{{ value }}"{% if show == value %} checked{% endif %}>
+          <label for="show-{{ value }}">{{ label }}</label>
+        </div>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend class="as-small">Detail</legend>
+    <div class="sw-choices sw-choices--inline">
+      {% for value, label in bys.items() %}
+        <div class="sw-choice">
+          <input type="radio" id="by-{{ value }}" name="by" value="{{ value }}"{% if by == value %} checked{% endif %}>
+          <label for="by-{{ value }}">{{ label }}</label>
+        </div>
+      {% endfor %}
+    </div>
+  </fieldset>
+  <button type="submit" class="sw-button sw-button--secondary" data-sw-nojs="yes">Update the list</button>
+</form>
+
+{% if not days %}
+  <p>Nothing to show yet.</p>
+{% endif %}
+{% for d in days %}
+  <section class="sw-day" aria-labelledby="day-{{ loop.index }}">
+    <h2 id="day-{{ loop.index }}"><a href="{{ d.href }}">{{ d.label }}</a></h2>
+    {% if by == 'hour' %}
+      {% for h in d.hours %}{{ sw.hour_row(h, show) }}{% endfor %}
+    {% elif not d.entries %}
+      <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'Nothing unusual.' }}</p>
+    {% else %}
+      {% for item in d.entries %}
+        <p class="sw-entry">
+          <span>{{ sw.entry_text(item) }}</span>
+          <span class="sw-entry__time">{{ item.clock }}</span>
+        </p>
+        {{ sw.entry_notes(item) }}
+      {% endfor %}
+    {% endif %}
+  </section>
+{% endfor %}
+{% endblock %}

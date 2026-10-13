@@ -83,7 +83,7 @@ moments it cannot predict well. It takes a window of recent sensor history
 across all the connected monitoring sites and predicts what the very next
 reading should be at every site; when the real reading and the prediction
 diverge sharply on conductivity, that gap is the anomaly signal. We never tell
-the model what a spill looks like. It only ever learns normal, and an anomaly is
+the model what a discharge looks like. It only ever learns normal, and an anomaly is
 whatever it fails to reproduce. This document sets out the mathematics of the
 deployed model, that is, a graph convolution over the creek's flow topology
 followed by a per-node recurrent forecaster, together with the detection rules
@@ -99,7 +99,7 @@ cannot predict well. Everything below follows from one idea: we take a
 window of recent sensor history across all the connected sites, and we predict
 what the very next reading should be at every site. When the real reading and
 the prediction diverge sharply on conductivity, that gap is the anomaly signal.
-We never tell the model what a spill looks like. It only ever learns normal, and
+We never tell the model what a discharge looks like. It only ever learns normal, and
 an anomaly is whatever it fails to reproduce.
 
 This document explains the math and, alongside each piece, why we built the
@@ -309,7 +309,7 @@ topology honest and trains the model on the same set of sites it serves.
 \label{sec:gcn}
 
 At each timestep we let each node's features be informed by the nodes connected
-to it, because a contaminant upstream shows up downstream as the water carries
+to it, because a disturbance upstream shows up downstream as the water carries
 it. With $\mathbf{H} \in \mathbb{R}^{N \times F}$ the node features at one
 timestep, the graph convolution \citep{kipf2017gcn} computes:
 
@@ -498,7 +498,7 @@ We train by minimizing the mean squared error between prediction and truth,
 \end{equation}
 
 over training data that contains only ordinary creek behavior. The model learns
-the absence of spills, not spills themselves.
+the absence of discharges, not discharges themselves.
 
 Two restrictions narrow that sum. $\mathcal{S}$ is the scored channel set, that
 is, conductivity, depth and temperature, not all $F$ channels. The model still
@@ -538,7 +538,7 @@ prediction error at node $i$ on feature $j$ is the absolute deviation:
 The defining choice is which of those errors we act on. The model predicts all
 features, but we use only conductivity error to decide whether something is
 anomalous. This is the model all, alert one strategy. Conductivity is the
-channel that actually responds to spills, while the others, rainfall especially,
+channel that actually responds to discharges, while the others, rainfall especially,
 produce large prediction errors that have nothing to do with water quality. An
 earlier version that scored on the average error across all features was
 effectively flagging rainstorms, because the rain prediction error swamped
@@ -608,8 +608,8 @@ abnormal level mean different things operationally.
 \subsection{The rain adjustment}
 \label{sec:rain}
 
-Rain genuinely raises conductivity without being a spill, as runoff carries road
-salt and grime into the creek. To avoid alarming on ordinary rain, we raise the
+Rain genuinely raises conductivity without being a discharge, as runoff carries road
+salt and grime into the creek. To avoid flagging ordinary rain, we raise the
 threshold during wet periods. Summing rainfall over the preceding 12 hour
 window, the per timestep threshold is
 
@@ -635,13 +635,13 @@ enough to clear twice the normal bar.
 The taper exists because the step alone had a gap. With a hard edge the
 threshold returns to normal the moment the lookback window clears, so a delayed
 first flush pulse arriving a few hours later meets the ordinary bar and is
-flagged as a spill. The decay covers that window and returns smoothly instead.
+flagged as a discharge. The decay covers that window and returns smoothly instead.
 
-There is a limit in the other direction. A genuine spill that happens to occur
+There is a limit in the other direction. A genuine discharge that happens to occur
 during or shortly after rain has to clear a bar that is up to twice as high, so
 real events in wet weather are harder to detect, and one confirmed event in the
 catalog is missed for exactly this reason. Where to set $m$ and $D$ is a trade
-between missing spills in the wet and alarming on ordinary runoff, and it is a
+between missing discharges in the wet and flagging ordinary runoff, and it is a
 judgment about what the system should alarm on rather than a flaw in the math.
 
 \section{Limitations and Future Work}
@@ -669,10 +669,10 @@ by the current alarm. The loss now watches three channels, but detection still
 watches one.
 
 The rain adjustment gives up some detection in order to suppress false alarms.
-A spill during or shortly after
+A discharge during or shortly after
 rain has to clear up to twice the ordinary bar, and at least one confirmed event
 in the catalog is not detected under the deployed multiplier. Lowering it would
-recover that event at the cost of alarming on ordinary runoff. We chose these
+recover that event at the cost of flagging ordinary runoff. We chose these
 values by judgment rather than deriving them, and they belong to whoever owns
 the alerting budget.
 

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Advanced settings{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.settings') }}">Settings</a>
+<h1>Advanced settings</h1>
+{{ sw.unsaved_note(unsaved, banner) }}
+<p>Each model's own values. Nothing changes until you save, and the count under each model shows what the last 7 days would have looked like.</p>
+
+{{ sw.discard_form('advanced') }}
+<form method="post" novalidate data-sw-autosave="yes">
+  {{ form.csrf_token }}
+  {% for b in blocks %}
+    {% set m = b.model %}
+    {% set on_html %}
+      {% if b.warning %}<p class="sw-warning">{{ b.warning }}</p>{% endif %}
+      {% for rule in m.rules %}
+        {{ sw.text(form['scale_' ~ m.name ~ '_' ~ rule], suffix='times the tested value', inputmode='decimal') }}
+      {% endfor %}
+      <p id="sw-preview-{{ m.name }}" aria-live="polite">{{ previews[m.name] }}</p>
+
+      {{ sw.text(form['rain_' ~ m.name], suffix='times', inputmode='decimal') }}
+      <p>The line after 6 hours of rain, as a multiple of normal. It rises with the rain, then relaxes. The shaded part is when it's raining.</p>
+      {{ sw.chart_data("curve-" ~ m.name, b.curve) }}
+      <div class="sw-chart sw-chart--small" data-sw-chart="rain" data-sw-source="curve-{{ m.name }}" data-sw-model="{{ m.name }}" role="img" aria-label="How far the line rises during and after rain"></div>
+
+      {% if 'leave_' ~ m.name in form %}
+        {{ sw.checkboxes(form['leave_' ~ m.name], legend='Leave a site out') }}
+      {% else %}
+        <h3>Leave a site out</h3>
+        <p>Not available. {{ m.title }} needs all {{ m.sites | length }} sites.</p>
+      {% endif %}
+
+      {% set items = {} %}
+      {% for o in b.options %}
+        {% set _ = items.update({o.name: {'hint': o.reason or o.describe, 'disabled': o.reason != ''}}) %}
+      {% endfor %}
+      {{ sw.checkboxes(form['support_' ~ m.name], legend='Support modules', items=items) }}
+      <p>Where each support module acts, in order:</p>
+      <ol class="sw-steps">
+        {% for s in b.strip %}
+          <li><strong>{{ s.step }}</strong> {{ s.what }}</li>
+        {% endfor %}
+      </ol>
+    {% endset %}
+    {% set off_html %}
+      <p>Off. Turn it on to see its settings. Its saved values are kept.</p>
+    {% endset %}
+    {{ sw.radios(form['model_' ~ m.name], legend=m.title, items={'on': {'reveal': on_html}, 'off': {'reveal': off_html}}) }}
+  {% endfor %}
+
+  <h2>Timing</h2>
+  {{ sw.text(form.repeat_hours, suffix='hours', inputmode='decimal') }}
+  <p>Checks run every {{ interval }} minutes on the last {{ lookback }} days of readings. That can't be changed.</p>
+  {% if took is not none %}
+    <p>The last check took {{ took }} second{{ '' if took == 1 else 's' }}.</p>
+  {% endif %}
+
+  <h2>Data</h2>
+  <dl class="sw-summary">
+    <div class="sw-summary__row">
+      <dt>Readings</dt><dd>Readings come from {{ source }}.</dd>
+      <dd><a href="{{ url_for('main.setup') }}">Change<span class="visually-hidden"> where readings come from</span></a></dd>
+    </div>
+    {% if uses_token %}
+      <div class="sw-summary__row">
+        <dt>Token</dt><dd>Your token is saved in this computer's keychain.</dd>
+        <dd><a href="{{ url_for('main.token') }}">Change token</a></dd>
+      </div>
+    {% endif %}
+  </dl>
+
+  {{ sw.save_buttons(unsaved) }}
+</form>
+{% endblock %}

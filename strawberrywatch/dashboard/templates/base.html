@@ -1,0 +1,61 @@
+{#- The page frame from strawberrycreek.org's base.html: the black navbar with
+    the SCMG logo, the dark mode button in the corner and a plain footer. The
+    site's inline theme script lives in static/site-theme.js instead, so the
+    CSP can allow no inline script. -#}
+{%- import "macros.html" as sw -%}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{% block title %}{% endblock %} – StrawberryWatch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='uplot/uPlot.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  </head>
+  <body data-unsaved="{{ unsaved or 0 }}" data-settings-page="{{ 'yes' if settings_page else 'no' }}"{% block body_attrs %}{% endblock %}>
+    <script src="{{ url_for('static', filename='site-theme.js') }}"></script>
+    <a class="sw-skip" href="#main-content">Skip to main content</a>
+    <header class="navbar">
+      <div class="navbar-container">
+        <a href="{{ url_for('main.overview') }}" class="nav-logo">
+          <img src="{{ url_for('static', filename='scmg-logo.png') }}" alt="" width="50" height="50">
+          StrawberryWatch
+        </a>
+        {% if nav %}
+          <button type="button" class="nav-toggle" id="navToggle" aria-controls="navLinks" aria-expanded="false" aria-label="Menu">☰</button>
+          <nav aria-label="StrawberryWatch">
+            <ul class="nav-links" id="navLinks">
+              {% for item in nav %}
+                <li><a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.text }}{% if item.count %} <span class="nav-count">{{ item.count }}</span>{% endif %}</a></li>
+              {% endfor %}
+            </ul>
+          </nav>
+        {% endif %}
+      </div>
+    </header>
+
+    <button type="button" class="dark-mode-toggle" id="toggleDarkMode" aria-pressed="false">
+      <span id="dark-mode-icon" aria-hidden="true">🌙</span>
+      <span id="mode-label">Dark Mode</span>
+    </button>
+
+    <main class="page-content{% block width %}{% endblock %}" id="main-content" tabindex="-1">
+      {{ sw.errors_summary(form) }}
+      {% for kind, message in get_flashed_messages(with_categories=true) %}
+        <p class="sw-message{{ ' sw-message--error' if kind == 'error' }}" role="{{ 'alert' if kind == 'error' else 'status' }}">{{ message }}</p>
+      {% endfor %}
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      {% if email_on %}
+        <p>StrawberryWatch runs on this computer. When it notices something new, it emails the people on its email list.</p>
+      {% else %}
+        <p>StrawberryWatch runs on this computer. Nothing it notices leaves it.</p>
+      {% endif %}
+    </footer>
+    <script src="{{ url_for('static', filename='uplot/uPlot.iife.min.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>

@@ -202,6 +202,7 @@ through it in order the first time.
 |---|---|
 | Install it for the first time | [Getting set up](USER_MANUAL.md#1-getting-set-up) |
 | Run it and understand what it prints | [Running the system](USER_MANUAL.md#2-running-the-system) |
+| Watch the creek from a page on your computer | [Watching the creek on your own computer](USER_MANUAL.md#watching-the-creek-on-your-own-computer) |
 | Work out why the results look wrong | [When it looks like the model is wrong](USER_MANUAL.md#3-when-it-looks-like-the-model-is-wrong) |
 | Know what each model does | [The models](USER_MANUAL.md#4-the-models) |
 | Take a sensor out of service | [The inventory](USER_MANUAL.md#6-the-inventory) |

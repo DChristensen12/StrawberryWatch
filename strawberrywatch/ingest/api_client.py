@@ -80,6 +80,7 @@ def fetch_creek_data(
     start_time,
     end_time,
     variables: list[str] | None = None,
+    token: str | None = None,
 ) -> pd.DataFrame:
     """
     Query the Strawberry Creek API for one site over [start_time, end_time].
@@ -87,10 +88,14 @@ def fetch_creek_data(
     Makes one HTTP request per sensor column and merges them on timestamp.
     Returns a DataFrame with 'timestamp', 'station_id', and one column per
     available sensor. Sensors the site doesn't expose are just absent, no error.
+
+    token is the caller's own, for anything that keeps it somewhere better than
+    .env, like the dashboard's keychain entry. Without one it's SCMG_API_TOKEN.
     """
     headers = {}
-    if Config.API_TOKEN:
-        headers["Authorization"] = f"Token {Config.API_TOKEN}"
+    token = token or Config.API_TOKEN
+    if token:
+        headers["Authorization"] = f"Token {token}"
 
     start_str = (
         start_time.strftime("%Y-%m-%dT%H:%M:%S")

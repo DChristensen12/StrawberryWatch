@@ -14,7 +14,15 @@ import pytest
 from strawberrywatch import paths
 from strawberrywatch.integrations.night_heron import gnn_alerts
 from strawberrywatch.preprocessing import node_windows as nw
-from strawberrywatch.serving import SERVING_REGISTRY, DetectorError, Finding
+from strawberrywatch.serving import (
+    LEAVE_OUT,
+    SERVING_REGISTRY,
+    DetectorError,
+    Finding,
+    Score,
+    notice,
+    site_choice,
+)
 
 # Every site either model reads reports for all four days of this one
 EVENT = "anomaly_2025_09_10_overnight_sf"
@@ -142,3 +150,62 @@ def test_a_table_not_indexed_by_time_is_refused(detector):
     name = detector.table_names[0]
     with pytest.raises(DetectorError, match="DatetimeIndex"):
         detector.findings({name: tables[name].reset_index(drop=True)}, None)
+
+
+def _key(found):
+    return sorted((f.site, f.variable, f.rule, f.when) for f in found)
+
+
+def test_scores_agree_with_findings_at_a_scale_of_one(detector):
+    """
+    notice() over scores() is what a dashboard decides from, so at the tested
+    line it has to fire exactly where findings() does, and first cross at the
+    same step.
+    """
+    tables, weather = _event()
+    for case in (tables, _spiked(tables)):
+        scored = detector.scores(case, weather)
+        assert scored, "nothing scored, so the comparison would pass on nothing"
+        assert _key(notice(scored, detector.min_steps, 1.0)) == _key(
+            detector.findings(case, weather)
+        )
+
+
+def test_scores_are_well_formed(detector):
+    tables, weather = _event()
+    for row in detector.scores(_spiked(tables), weather):
+        assert isinstance(row, Score)
+        assert row.site in detector.table_names and row.variable in nw.VARIABLE_MAP
+        assert row.rule in detector.RULES
+        assert np.isfinite(row.score) and np.isfinite(row.threshold)
+        assert isinstance(row.time, pd.Timestamp) and str(row.time.tz) == "UTC"
+
+
+def test_a_higher_line_never_notices_more(detector):
+    tables, weather = _event()
+    scored = detector.scores(_spiked(tables), weather)
+    counts = [len(notice(scored, detector.min_steps, scale)) for scale in (0.8, 1.0, 1.25)]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_left_out_sites_never_appear(detector):
+    if LEAVE_OUT not in site_choice(detector):
+        pytest.skip(f"{detector.name} can't leave sites out")
+    tables, weather = _event()
+    spiked = _spiked(tables)
+    left = {"south_fork_1"}
+    assert all(row.site not in left for row in detector.scores(spiked, weather, leave_out=left))
+    assert all(f.site not in left for f in detector.findings(spiked, weather, leave_out=left))
+
+
+def test_a_model_without_leave_out_raises_when_handed_one(detector):
+    """Ignoring it quietly would go on reading a site somebody asked it not to."""
+    if LEAVE_OUT in site_choice(detector):
+        pytest.skip(f"{detector.name} can leave sites out")
+    tables, weather = _event()
+    with pytest.raises(DetectorError, match="can't leave sites out"):
+        detector.findings(tables, weather, leave_out={"oxford"})
+    with pytest.raises(DetectorError, match="can't leave sites out"):
+        detector.scores(tables, weather, leave_out={"oxford"})
+    # An empty one is no request at all
+    assert isinstance(detector.findings(tables, weather, leave_out=set()), list)

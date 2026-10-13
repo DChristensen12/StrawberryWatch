@@ -96,7 +96,7 @@ def dusk_metadata():
     if not path.exists():
         raise FileNotFoundError(f"no {path.name} in {path.parent}")
     with open(path, "rb") as f:
-        return pickle.load(f)
+        return pickle.load(f)  # nosec B301: our own checkpoint metadata
 
 
 def load_dusk(metadata):

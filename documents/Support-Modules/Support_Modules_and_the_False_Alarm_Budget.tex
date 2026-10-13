@@ -87,7 +87,7 @@ component reports $q$ while it happens. Nothing in the arithmetic complains.
 This document sets out the taxonomy that makes the false alarm budget
 divisible, the algebra that divides it, the audit record that says which module
 caused which alert, and the mathematics of Trial Bed, the first module
-implemented. Trial Bed is an explainer: it names the pollutant a firing looks
+implemented. Trial Bed is an explainer: it names the disturbance a firing looks
 like by matching the direction each channel moved against a signature table,
 and it declines to answer when the channels a signature needs are not
 measured.
@@ -290,7 +290,7 @@ two in the morning should not have to know which one they are holding.
 \label{sec:trialbed}
 
 Trial Bed is the first module implemented, and it is an explainer. Given a
-firing it names the pollutant the event looks like, the evidence behind that
+firing it names the disturbance the event looks like, the evidence behind that
 name, and how much confidence the reporting channels support.
 
 \subsection{Directions, not magnitudes}
@@ -320,14 +320,14 @@ direction is undefined rather than guessed.
 \subsection{The signature table}
 
 Table~\ref{tab:signatures} is the deployed table. Each cell is the direction a
-pollutant is expected to push a parameter, and \textsc{indet} marks a parameter
-that does not discriminate for that pollutant and is therefore skipped without
+disturbance is expected to push a parameter, and \textsc{indet} marks a parameter
+that does not discriminate for that disturbance and is therefore skipped without
 reward or penalty.
 
 \begin{table}[t]
   \centering
-  \caption{The pollutant signature table as deployed. \textsc{indet} means the
-    parameter does not discriminate for that pollutant. Entries marked $\ast$
+  \caption{The disturbance signature table as deployed. \textsc{indet} means the
+    parameter does not discriminate for that disturbance. Entries marked $\ast$
     are expected to move strongly; the current matcher does not yet weight
     them differently.}
   \label{tab:signatures}
@@ -336,7 +336,7 @@ reward or penalty.
     & temperature & dissolved oxygen & pH & conductivity & floating cond. \\
     \midrule
     rain       & \textsc{indet} & up   & down & down & down \\
-    tapwater   & down           & down & up   & down & down \\
+    potable water   & down           & down & up   & down & down \\
     oil        & up             & down$^{\ast}$ & down & down & down$^{\ast}$ \\
     sewage     & up             & down$^{\ast}$ & \textsc{indet} & up & up \\
     fertilizer & flat           & down & \textsc{indet} & up & up \\
@@ -394,7 +394,7 @@ raise from their required method rather than returning a default. Reaching the
 raise proves the call arrived.
 
 \textbf{Newtwork Run} is a detector. It will score whether a flagged event
-travelled the way water does: a real spill appears downstream after the travel
+travelled the way water does: a real discharge appears downstream after the travel
 lag and a failing sensor does not, so agreement along the flow edges separates
 the two. Being a detector, it will spend its share of the budget.
 
@@ -425,7 +425,7 @@ twice in every row's score. Whether that is intended is a question about the
 table, and the table belongs to the Water Quality team.
 
 No cell in the table carries its own source. The table is attributed as a whole
-and two cells assert measurable quantities, the local tap water temperature and
+and two cells assert measurable quantities, the local potable water temperature and
 its pH, with nothing recorded behind them. Depth is measured at every deployed
 site and appears nowhere in the table, which is part of why no row is currently
 evaluable.

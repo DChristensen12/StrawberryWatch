@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Check your changes{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+{% if problems %}
+  <div class="sw-errors" role="alert" tabindex="-1" id="sw-errors">
+    <h2>StrawberryWatch found a problem</h2>
+    <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
+  </div>
+{% endif %}
+<h1>Check your changes</h1>
+{% for w in warnings %}
+  <p class="sw-warning">{{ w }}</p>
+{% endfor %}
+
+<dl class="sw-summary">
+  {% for r in rows %}
+    <div class="sw-summary__row">
+      <dt>{{ r.setting }}</dt>
+      <dd><p>Before: {{ r.before }}</p><p>After: {{ r.after }}</p></dd>
+    </div>
+  {% endfor %}
+</dl>
+
+{% if not problems %}
+  <p>Saving makes these the settings the models use, and checks the creek straight away.</p>
+{% endif %}
+<div class="sw-buttons">
+  {% if not problems %}
+    <form method="post" action="{{ url_for('main.apply') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="sw-button">Save changes</button>
+    </form>
+  {% endif %}
+  <a class="sw-button sw-button--secondary" href="{{ back }}">Go back</a>
+</div>
+{% endblock %}

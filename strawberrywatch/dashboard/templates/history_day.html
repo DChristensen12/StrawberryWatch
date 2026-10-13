@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}, hour by hour{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.history') }}">History</a>
+<p class="caption">Hour by hour</p>
+<h1>{{ title }}</h1>
+<p>{{ ran }} check{{ 's' if ran != 1 }} ran and {{ found }} unusual reading{{ 's were' if found != 1 else ' was' }} noticed.</p>
+<p class="small">
+  <a href="{{ previous }}">Previous day</a>
+  {% if following %} · <a href="{{ following }}">Next day</a>{% endif %}
+</p>
+
+{% for h in hours %}{{ sw.hour_row(h) }}{% endfor %}
+{% endblock %}
