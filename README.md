@@ -68,7 +68,7 @@ drop, and also why they occasionally go quiet when the sun does.
   </tr>
   <tr>
     <td align="center" width="33%">A graph neural network paired with an LSTM. It predicts what the creek as a whole should be reading next, and flags timesteps where the network differs from that.</td>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">A calibrated statistical detector that checks each sensor for spikes, lasting shifts and slow drift.</td>
     <td align="center" width="33%">A Bayesian neural network. It learns a distribution over its weights rather than fixed values, so every forecast carries a calibrated uncertainty estimate.</td>
   </tr>
   <tr>
