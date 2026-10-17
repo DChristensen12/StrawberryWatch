@@ -78,7 +78,7 @@ drop, and also why they occasionally go quiet when the sun does.
   </tr>
    <tr>
     <td align="center"><b>Berry Delight</b></td>
-    <td align="center"><b>Cobble Shoal</td>
+    <td align="center"><b>Cobble Shoal</b></td>
     <td align="center"><b>Crimson Parker</b></td>
   </tr>
   <tr>
@@ -90,6 +90,21 @@ drop, and also why they occasionally go quiet when the sun does.
     <td align="center"><img src="assets/biota/Berries.jpeg" width="351"></td>
     <td align="center"><img src="assets/biota/Fish.jpeg" width="351"></td>
     <td align="center"><img src="assets/biota/Spider.jpeg" width="351"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>TBD</b></td>
+    <td align="center"><b>TBD</b></td>
+    <td align="center"><b>TBD</b></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">TBD</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/biota/Broom_Moth.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/Dancer.jpeg" width="351"></td>
+    <td align="center"><img src="assets/biota/squirrel.jpeg" width="351"></td>
   </tr>
 </table>
 
