@@ -21,11 +21,8 @@ from strawberrywatch.support_modules import DEFAULT_Q_TOTAL, SUPPORT_REGISTRY, S
 from strawberrywatch.training.trainer import train_temporal_gnn
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
-# Maps --model names to classes. Add new models here; nothing else in main.py changes.
-#
-# dusk_crayfish stays exactly as it was, class, weights and checkpoint. The
-# audit comparison rests on it, so it is not refactored, renamed or re-exported
-# on the way past.
+# --model names to classes. A new model goes here and nowhere else in main.py.
+# dusk_crayfish stays exactly as trained, since the audit comparison rests on it.
 _MODEL_REGISTRY = {
     "dusk_crayfish": DuskCrayfish,
     "cobble_shoal": CobbleShoal,
@@ -62,14 +59,10 @@ def _operating_point_item(text):
 
 def _align_to_trained_features(sequences, targets, current_feature_cols, trained_feature_cols):
     """
-    Match the freshly-built sequences to the feature set the model was trained on.
-
-    Fix for size-mismatch crashes at load time. Training might have seen 6 features,
-    but the current run only got 4 because a weather fetch failed. We build a
-    zero-filled array sized to the trained feature set, copy over whatever matches,
-    and drop anything extra. Zeros mean "no signal," same as everywhere else.
-
-    Returns aligned_sequences, aligned_targets, and a short report of what moved.
+    Matches the sequences to the feature set the model trained on. Training might
+    have seen 6 features while this run got 4 because a weather fetch failed, so
+    missing ones go in as zeros (no signal) and extras are dropped. Returns
+    aligned_sequences, aligned_targets and a short report of what moved.
     """
     if current_feature_cols == trained_feature_cols:
         return sequences, targets, "exact match (no alignment needed)"
@@ -108,13 +101,9 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
 
 def _support_window(sequences, targets, timestamps, node_mask, df_original, model=None):
     """
-    What a support module is handed as its window.
-
-    A dict and not a class: the three kinds read different parts of it, and
-    fixing a structure now would be guessing at modules nobody has written yet.
-
-    model is the class, not an instance, and it is here so a screen can read the
-    FLAG_POLICY it declares. Nothing reads which model it is.
+    What a support module is handed as its window. A dict rather than a class,
+    since the kinds read different parts of it. model is the class, so a screen
+    can read its FLAG_POLICY.
     """
     return {
         "sequences": sequences,
@@ -331,7 +320,7 @@ def main(
     for a run with no support attached. None and [] take the same path as three
     modules do; there is no separate no-support branch anywhere below.
 
-    The last four all default to how this always ran. operating_point overrides
+    The last four default to the usual behavior. operating_point overrides
     detect_anomalies' constants, alert_sites limits who gets emailed about
     (every site is still scored), dry_run prints the alerts instead of sending
     them, and results_json writes what the run found to that path.
@@ -348,18 +337,9 @@ def main(
         sys.exit(1)
     ModelClass = _MODEL_REGISTRY[model_name]
 
-    # Everything below this line is the sequence-tensor pipeline:
-    # prepare_sequences_normalized builds (batch, seq_len, sites, features)
-    # windows, the model is constructed with num_node_features, trained with
-    # masked MSE and scored on reconstruction error against a per-node
-    # threshold out of the metadata pickle.
-    #
-    # A nested-node-batch model shares none of that. It reads per-node series
-    # off the node registry, scores every node at once through channels and a
-    # fitted null, and thresholds against the POT z_q in its calibration
-    # artifact. Constructing it here raises TypeError on num_node_features,
-    # several hundred lines after the download, which says nothing about why.
-    # Refuse it up front and name the path that does work.
+    # Everything below is the sequence-tensor pipeline. A nested-node model
+    # shares none of it and would only fail with a TypeError after the download,
+    # so it's refused up front with the path that does work.
     if model_calls.input_contract(ModelClass) != model_calls.SEQUENCE_TENSOR:
         print(
             f"ERROR: '{model_name}' speaks the "
@@ -385,10 +365,8 @@ def main(
         print(f"ERROR: alert sites {off_roster} are not on the roster {Config.LOCATIONS}")
         sys.exit(1)
 
-    # Resolved before anything is downloaded, so an unknown name, a module that
-    # cannot attach, a builtin collision or an impossible budget split all fail
-    # here with nothing done yet. The registry check moved up for the same
-    # reason.
+    # Resolved before anything downloads, so an unknown name, a module that can't
+    # attach, a collision or an impossible budget split all fail with nothing done
     stack = SupportStack.load(support, ModelClass, q_total=q_total)
     split = stack.budget()
 
@@ -537,9 +515,7 @@ def main(
         train_seq, train_tgt = None, None
         test_seq, test_tgt = sequences, targets
         test_timestamps = timestamps
-        # inference doesn't split, so the whole mask applies to the whole test set.
-        # this was missing before the rewrite, which is why node_mask never made
-        # it into a live forward pass. There was nothing here to pass.
+        # Inference doesn't split, so the whole mask applies to the test set
         test_node_mask = node_mask_seq
     else:
         split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
@@ -595,10 +571,8 @@ def main(
                     "scaler": scaler,
                     "feature_cols": feature_cols,
                     "location_to_idx": location_to_idx,
-                    # So a checkpoint says what shape of model to rebuild instead
-                    # of leaving the loader to guess from whatever settings.yaml
-                    # happens to say later. Models that do not report one get
-                    # nothing here and fall back the way they always did.
+                    # So a checkpoint says what model to rebuild, instead of the
+                    # loader guessing from whatever settings.yaml says later
                     "architecture": getattr(model, "architecture", None),
                     # old scalar threshold, kept so nothing depending on it hard
                     # crashes, but detection should use node_thresholds now
@@ -624,9 +598,7 @@ def main(
         }
     else:
         print("Skipping training phase. Entering evaluation mode.")
-        # saved_metadata was already loaded above for feature alignment, and
-        # loading_existing being true (the only way to reach this branch) means
-        # it has everything detect_anomalies needs. No need to read it twice.
+        # Already loaded above, with everything detect_anomalies needs
         detection_metadata = saved_metadata
 
     model.eval()
@@ -684,9 +656,8 @@ def main(
                 print(f"  {name} at {site}: {account['explanation']}")
                 print(f"    confidence: {account['confidence']}")
 
-    # Every anomaly emails out, whatever mode turned it up. This used to fire only
-    # in inference, so a train or update run could find a spill and tell nobody.
-    # One email per rule per site plus a batch summary, all to ALERT_EMAIL_RECEIVER.
+    # Every anomaly emails out, whatever the mode: one email per rule per site
+    # plus a batch summary, all to ALERT_EMAIL_RECEIVER
     level_k = (operating_point or {}).get("level_shift_k", LEVEL_SHIFT_K)
     events = _anomaly_events(
         node_results, test_timestamps, detection_metadata, accounts, site_order, level_k
