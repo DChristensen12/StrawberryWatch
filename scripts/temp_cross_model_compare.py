@@ -93,8 +93,9 @@ def dusk_metadata():
     path = checkpoints_dir() / "dusk_crayfish_metadata.pkl"
     if not path.exists():
         raise FileNotFoundError(f"no {path.name} in {path.parent}")
+    # Our own checkpoint metadata
     with open(path, "rb") as f:
-        return pickle.load(f)  # nosec B301: our own checkpoint metadata
+        return pickle.load(f)  # nosec B301
 
 
 def load_dusk(metadata):

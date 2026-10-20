@@ -58,6 +58,26 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def _open(request, timeout):
+    """
+    urlopen for https only. These are urlopen's own handlers minus file, ftp,
+    data and plain http, so a redirect to http fails instead of downgrading.
+    """
+    import urllib.request
+
+    opener = urllib.request.OpenerDirector()
+    for handler in (
+        urllib.request.ProxyHandler(),
+        urllib.request.UnknownHandler(),
+        urllib.request.HTTPSHandler(),
+        urllib.request.HTTPDefaultErrorHandler(),
+        urllib.request.HTTPRedirectHandler(),
+        urllib.request.HTTPErrorProcessor(),
+    ):
+        opener.add_handler(handler)
+    return opener.open(request, timeout=timeout)
+
+
 class GitHub:
     """Files at one commit of a public repository, read without signing in."""
 
@@ -93,7 +113,7 @@ class GitHub:
         if accept:
             request.add_header("Accept", accept)
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+            with _open(request, TIMEOUT_SECONDS) as response:
                 data = response.read(MAX_BYTES + 1)
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
@@ -137,7 +157,9 @@ class FolderGitHub:
     def latest(self):
         if self.offline:
             raise UpdateError("couldn't reach GitHub")
-        return hashlib.sha1((self.folder / HASHES_IN_REPO).read_bytes()).hexdigest()
+        # Only shaped like a git commit id. Nothing is checked with it
+        listed = (self.folder / HASHES_IN_REPO).read_bytes()
+        return hashlib.sha1(listed, usedforsecurity=False).hexdigest()
 
     def read(self, commit, path):
         if self.offline:

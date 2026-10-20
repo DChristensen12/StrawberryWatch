@@ -161,8 +161,8 @@ def fetch_creek_data_sql(site: str, start_time, end_time, credentials=None) -> p
                         logger.warning(f"[{site}] skipping unsafe column names: {sorted(unsafe)}")
 
                     select_sql = ", ".join(f"`{c}`" for c in safe_cols)
+                    # Both identifiers are reduced to [A-Za-z0-9_] above, and the values go in as %s
                     query = (
-                        # nosec B608: both identifiers are reduced to [A-Za-z0-9_] first, values are %s
                         f"SELECT {select_sql} FROM `{table}` "  # nosec B608
                         f"WHERE `timestamp` >= %s AND `timestamp` <= %s "
                         f"ORDER BY `timestamp` ASC"

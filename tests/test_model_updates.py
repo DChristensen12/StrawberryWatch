@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -179,7 +180,7 @@ def test_github_reads_every_file_at_one_commit(monkeypatch):
         urls.append(request.full_url)
         return Answer(commit.encode() if "api.github.com" in request.full_url else b"{}")
 
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(mu, "_open", fake)
     github = mu.GitHub("owner/repo", "main")
     assert github.latest() == commit
     github.read(commit, "checkpoints/x.pt")
@@ -190,6 +191,15 @@ def test_github_reads_every_file_at_one_commit(monkeypatch):
     # A commit, not a branch name. It can't change halfway through an update
     with pytest.raises(mu.UpdateError):
         github.read("main", "checkpoints/x.pt")
+
+
+@pytest.mark.parametrize("url", ["file:///etc/hostname", "http://example.invalid/x.pt"])
+def test_only_https_is_opened(url):
+    # Refused before any connection, so this never touches the network
+    with pytest.raises(urllib.error.URLError, match="unknown url type"):
+        mu._open(urllib.request.Request(url), timeout=1)
+    with pytest.raises(mu.UpdateError, match="couldn't reach GitHub"):
+        mu.GitHub("owner/repo")._get(url)
 
 
 # The page, on the website

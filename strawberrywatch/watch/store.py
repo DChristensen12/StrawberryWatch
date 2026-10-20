@@ -439,14 +439,13 @@ class Store:
             return [dict(r) for r in db.execute(sql + " ORDER BY time", args).fetchall()]
 
     def last_readings(self, live=None):
-        flag, args = "", []
-        if live is not None:
-            flag, args = " WHERE live = ?", [int(live)]
+        # live=None matches every row through the IS NULL
+        live = None if live is None else int(live)
         with self.db() as db:
             rows = db.execute(
                 "SELECT r.* FROM readings r JOIN (SELECT site, MAX(time) AS t FROM readings"
-                f"{flag} GROUP BY site) m ON r.site = m.site AND r.time = m.t",
-                args,
+                " WHERE ? IS NULL OR live = ? GROUP BY site) m ON r.site = m.site AND r.time = m.t",
+                [live, live],
             ).fetchall()
         return {r["site"]: dict(r) for r in rows}
 

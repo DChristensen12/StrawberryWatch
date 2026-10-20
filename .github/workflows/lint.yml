@@ -28,8 +28,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      # pip-audit checks pip too, and the one setup-python ships has known advisories
+      - run: python -m pip install --upgrade pip
       - run: pip install bandit pip-audit
-      # Medium and high fail the build. A reviewed exception carries # nosec and its reason.
+      # Medium and high fail the build. A reviewed exception carries # nosec, with its
+      # reason on the line above (bandit reads any words after nosec as test ids)
       - run: bandit -r strawberrywatch main.py scripts -x strawberrywatch/watch/events -ll
       # The CPU torch wheel keeps this small. pip-audit then checks everything that installed.
       - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -e ".[dashboard]"

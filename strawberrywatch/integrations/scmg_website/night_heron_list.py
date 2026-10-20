@@ -22,7 +22,7 @@ def addresses():
         cursor = conn.cursor()
         for table in RULE_TABLES:
             try:
-                # nosec B608: the table names are the constants above
+                # The table names are the constants above
                 cursor.execute(f"SELECT email_list FROM `{table}` WHERE active = 1")  # nosec B608
             except Exception:
                 continue  # a site without this kind of rule

@@ -430,8 +430,9 @@ def main(
                 f"Retrain with --mode train."
             )
             sys.exit(1)
+        # Our own checkpoint, written by --mode train
         with open(metadata_path, "rb") as f:
-            saved_metadata = pickle.load(f)  # nosec B301: our own checkpoint, written by train
+            saved_metadata = pickle.load(f)  # nosec B301
         trained_feature_cols = saved_metadata.get("feature_cols")
         if not trained_feature_cols:
             print("ERROR: metadata has no feature_cols. Retrain with --mode train.")

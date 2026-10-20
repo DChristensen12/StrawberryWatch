@@ -161,11 +161,12 @@ def seed(folder, event, calm=False, on=None):
 
 def shift(db, delta):
     """Every check time moved by delta, through negatives to keep primary keys from colliding."""
+    # Table and column names come from CHECK_TIMES, and delta goes in as ?
     for table, columns in CHECK_TIMES.items():
         away = ", ".join(f"{c} = -({c} + ?)" for c in columns)
-        db.execute(f"UPDATE {table} SET {away}", [delta] * len(columns))
+        db.execute(f"UPDATE {table} SET {away}", [delta] * len(columns))  # nosec B608
         back = ", ".join(f"{c} = -{c}" for c in columns)
-        db.execute(f"UPDATE {table} SET {back}")
+        db.execute(f"UPDATE {table} SET {back}")  # nosec B608
 
 
 def keep_current(store):
