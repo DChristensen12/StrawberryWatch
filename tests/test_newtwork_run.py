@@ -1,8 +1,8 @@
 """
 Newtwork Run: reading transport off firing order, and the control that refutes it.
 
-Ordering only. Nothing here supplies a travel time, because nothing in the repo
-has measured one, and the module has to be useful without them.
+Ordering only. These tests supply no travel time, since we haven't measured
+one, and the module has to be useful without them.
 """
 
 from __future__ import annotations
@@ -85,8 +85,8 @@ def test_the_order_is_what_decides_it():
 
 def test_codornices_firing_at_the_same_step_rules_out_transport():
     """
-    Item 23. Codornices is a separate watershed, so a signal at codornices and
-    at a Strawberry Creek site at the same timestep cannot have travelled.
+    Codornices is a separate watershed. A signal at codornices and at a
+    Strawberry Creek site at the same timestep can't have travelled.
     """
     nodes = [*SOUTH, "codornices"]
     seen = verdicts(nodes, {"south_fork_1": 3, "south_fork_2": 3, "codornices": 3})
@@ -115,7 +115,7 @@ def test_the_control_never_accuses_itself():
 
 
 def test_no_travel_times_are_supplied_and_the_module_says_so():
-    """Item 24. The seam is documented and empty, never filled with a guess."""
+    """The seam is documented and empty, not filled with a guess."""
     assert TRAVEL_TIMES == {}
     assert travel_window("south_fork_1", "south_fork_2") is None
 
@@ -146,8 +146,8 @@ def test_a_supplied_travel_time_is_picked_up_without_a_code_change(monkeypatch):
 )
 def test_it_spends_no_false_alarm_budget_on_either_model(model):
     """
-    Item 25. The set of firing node-timesteps has to be identical with the
-    module attached and without it.
+    The set of firing node-timesteps has to be identical with the module
+    attached and without it.
     """
     from strawberrywatch.anomalies.rain_gate import RainGate
 
@@ -167,7 +167,7 @@ def test_it_spends_no_false_alarm_budget_on_either_model(model):
     fired_with = {(r["timestep"], r["node"]) for r in with_module if r["verdict"] == base.FIRED}
     assert fired_without == fired_with
 
-    # and the record says explicitly that switching it off changes nothing
+    # and the record says that switching it off changes no firing
     for record in with_module:
         assert record["verdict_without"]["newtwork_run"] == record["verdict"]
 

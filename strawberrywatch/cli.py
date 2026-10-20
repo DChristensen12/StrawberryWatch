@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -19,8 +20,8 @@ def main(argv=None):
     commands = parser.add_subparsers(dest="command", required=True)
     dash = commands.add_parser(
         "dashboard",
-        help="Watch the creek on this computer and see it in your browser.",
-        description="Starts the local dashboard. The models check the creek every 15 minutes while it runs.",
+        help="Run the StrawberryWatch dashboard on this computer.",
+        description="Starts the dashboard on this computer. Models check the data every 15 minutes while it runs.",
     )
     dash.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help=f"Port on 127.0.0.1, default {DEFAULT_PORT}"
@@ -36,6 +37,7 @@ def main(argv=None):
 
 def dashboard(port=DEFAULT_PORT, open_browser=True):
     try:
+        from dotenv import find_dotenv, load_dotenv
         from werkzeug.serving import make_server
 
         from strawberrywatch.dashboard import create_app
@@ -52,19 +54,27 @@ def dashboard(port=DEFAULT_PORT, open_browser=True):
     # Werkzeug logs every request line, and the first one carries the login token
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
-    print("Loading the models. That imports torch, so it takes a few seconds...", flush=True)
-    app = create_app()
+    # The MYSQL login and SCMG_API_TOKEN, from the .env in the folder it was started from
+    load_dotenv(find_dotenv(usecwd=True))
+    if not os.getenv("MYSQL_HOST") and not os.getenv("SCMG_API_TOKEN"):
+        print(
+            "No data source in .env: add the MYSQL_* settings or SCMG_API_TOKEN, "
+            "or every check will fail.",
+            flush=True,
+        )
+    print("Loading the models (a few seconds)...", flush=True)
+    app = create_app(store=ready())
     context = app.extensions["strawberrywatch"]
 
-    # 127.0.0.1 and nothing else, on purpose. There's no option for another address.
+    # 127.0.0.1 only. There's no option for another address.
     try:
         server = make_server("127.0.0.1", port, app, threaded=True)
     except OSError:
         server = make_server("127.0.0.1", 0, app, threaded=True)
     url = f"http://127.0.0.1:{server.port}/login?token={context.login.token}"
-    print("StrawberryWatch is watching the creek. Open this link to see it:", flush=True)
+    print("StrawberryWatch is running. Open this link to sign in:", flush=True)
     print(f"  {url}", flush=True)
-    print("The link works once. Press Ctrl+C here to stop watching.", flush=True)
+    print("The link works once. Press Ctrl+C to stop.", flush=True)
 
     context.watcher.start()
     context.watcher.check_now()
@@ -75,11 +85,33 @@ def dashboard(port=DEFAULT_PORT, open_browser=True):
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping. Nothing is watched until StrawberryWatch is started again.", flush=True)
+        print("\nStopped. No checks run until StrawberryWatch is started again.", flush=True)
     finally:
         context.watcher.stop()
         server.server_close()
     return 0
+
+
+def ready():
+    """
+    Sets up the local store the way setup_tables sets up the website's, on the
+    sensor database with default settings. A source left over from the removed
+    source picker gets replaced.
+    """
+    from strawberrywatch import inventory as inv
+    from strawberrywatch.watch import models as watch_models
+    from strawberrywatch.watch import settings as ws
+    from strawberrywatch.watch import sources
+    from strawberrywatch.watch.store import Store
+
+    store = Store()
+    if (store.source() or {}).get("kind") != sources.SITE:
+        store.set_source(sources.SITE)
+    if store.applied()[1] is None:
+        models = watch_models.registered()
+        clean, _, _ = ws.check(ws.defaults(models), models, list(inv.load().sites))
+        store.apply(clean)
+    return store
 
 
 if __name__ == "__main__":

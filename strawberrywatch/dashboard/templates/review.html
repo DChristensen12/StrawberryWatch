@@ -4,7 +4,7 @@
 {% block content %}
 {% if problems %}
   <div class="sw-errors" role="alert" tabindex="-1" id="sw-errors">
-    <h2>StrawberryWatch found a problem</h2>
+    <h2>There is a problem</h2>
     <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
   </div>
 {% endif %}
@@ -23,7 +23,7 @@
 </dl>
 
 {% if not problems %}
-  <p>Saving makes these the settings the models use, and checks the creek straight away.</p>
+  <p>Saved settings are used from the next check.</p>
 {% endif %}
 <div class="sw-buttons">
   {% if not problems %}

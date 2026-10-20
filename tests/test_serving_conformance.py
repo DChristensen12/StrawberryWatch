@@ -73,8 +73,8 @@ def detector(request, tmp_path_factory):
         if not source.exists():
             pytest.skip(f"no {name} in checkpoints/")
         shutil.copy(source, bare / name)
-    # The fallback points at an empty folder, so a detector that quietly reached
-    # for the repo's checkpoints instead of the one it was handed fails here
+    # The fallback points at an empty folder. A detector that reached for the
+    # repo's checkpoints instead of the one it was handed fails here
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("STRAWBERRYWATCH_CHECKPOINTS_DIR", str(bare / "not_here"))
         return cls.load(bare)
@@ -94,9 +94,8 @@ def test_every_alert_type_fits_their_column(detector):
 
 def test_an_obvious_step_comes_back_as_a_finding(detector):
     """
-    Plumbing, not grading. A 1500 uS/cm step on the newest readings is something
-    every model here should say, so an empty answer means the tables never made
-    it as far as the model.
+    Plumbing, not grading. Every model here should flag a 1500 uS/cm step on the
+    newest readings. An empty answer means the tables didn't reach the model.
     """
     tables, weather = _event()
     found = detector.findings(_spiked(tables), weather)
@@ -123,7 +122,7 @@ def test_missing_sites_and_columns_are_not_errors(detector):
 
 
 def test_the_callers_tables_come_back_untouched(detector):
-    """The runner hands every model the same frames, so an edit here would feed the next model."""
+    """The runner hands every model the same frames. An edit here would feed the next model."""
     tables, weather = _event()
     spiked = _spiked(tables)
     before = {name: df.copy() for name, df in spiked.items()}
@@ -145,7 +144,7 @@ def test_naive_stamps_are_read_as_utc(detector):
 
 
 def test_a_table_not_indexed_by_time_is_refused(detector):
-    """A RangeIndex read as nanoseconds is 1970, so it has to be an error rather than a parse."""
+    """A RangeIndex read as nanoseconds is 1970. It has to be an error, not a parse."""
     tables, _ = _event()
     name = detector.table_names[0]
     with pytest.raises(DetectorError, match="DatetimeIndex"):
@@ -158,9 +157,8 @@ def _key(found):
 
 def test_scores_agree_with_findings_at_a_scale_of_one(detector):
     """
-    notice() over scores() is what a dashboard decides from, so at the tested
-    line it has to fire exactly where findings() does, and first cross at the
-    same step.
+    A dashboard decides from notice() over scores(). At the tested line it has
+    to fire exactly where findings() does, and first cross at the same step.
     """
     tables, weather = _event()
     for case in (tables, _spiked(tables)):
@@ -199,7 +197,7 @@ def test_left_out_sites_never_appear(detector):
 
 
 def test_a_model_without_leave_out_raises_when_handed_one(detector):
-    """Ignoring it quietly would go on reading a site somebody asked it not to."""
+    """Ignoring it would go on reading a site somebody asked it not to."""
     if LEAVE_OUT in site_choice(detector):
         pytest.skip(f"{detector.name} can leave sites out")
     tables, weather = _event()

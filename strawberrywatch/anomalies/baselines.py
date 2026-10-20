@@ -1,10 +1,10 @@
 """
-Two control charts on residuals, so the models have a floor to beat.
+Two control charts on residuals, as a floor for the models to beat.
 
 CUSUM accumulates signed departures until the running sum clears a slack value.
 EWMA is an exponentially weighted mean of the same residuals. Both expose
 score(batch, nulls) like a model does and go through ChannelNull and POT
-unchanged, so the numbers are comparable.
+unchanged. The numbers are then comparable.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ MEDIAN_WINDOW = 8
 CUSUM_K = 0.5  # slack in sigma, half the shift we care about
 EWMA_LAMBDA = 0.2
 
-# stops a node that never moves scoring infinite
+# stops a node that doesn't move from scoring infinite
 MIN_SCALE = 1e-2
 
 # 1 / Phi^-1(0.75), turns a MAD into a sigma
@@ -31,9 +31,9 @@ def rolling_median(values, window=MEDIAN_WINDOW):
     """Trailing median per column, expanding until the window fills."""
     v = np.asarray(values, dtype=float)
     out = np.empty_like(v)
-    # Only the first window-1 rows have a window that is still growing, so only
+    # Only the first window-1 rows have a window that is still growing, and only
     # they need a step of their own. The rest are one strided view and one median,
-    # rather than a fresh slice and a fresh median call per step.
+    # instead of a fresh slice and a fresh median call per step.
     for t in range(min(window - 1, v.shape[0])):
         out[t] = np.median(v[: t + 1], axis=0)
     if v.shape[0] >= window:
@@ -53,9 +53,9 @@ def series_with_target(batch):
     """
     The window plus the target observation as one more step, and its mask.
 
-    The models score the target, so a chart reading only batch["values"] sits a
+    The models score the target. A chart reading only batch["values"] sits a
     step behind them and misses any fault whose onset is the observation being
-    predicted. That is where creek_synthetic puts a spike.
+    predicted. That's where creek_synthetic puts a spike.
     """
     values = np.asarray(batch["values"])[0]
     target = np.asarray(batch["target"])[0]
@@ -123,11 +123,8 @@ def ewma_path(x, lam=EWMA_LAMBDA):
 
 class _ResidualChart:
     """
-    A control chart wearing the model's detector interface.
-
-    score(batch, nulls) is the whole contract the alerting path needs, so these
-    drop into any harness that scores a model and the comparison stays on one
-    code path.
+    A control chart with a model's score(batch, nulls) interface. It drops
+    into any harness that scores a model, and the comparison stays on one path.
     """
 
     channel_names = ()

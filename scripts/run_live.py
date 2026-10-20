@@ -4,15 +4,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Resolved from this file rather than the cwd, so the loop works no matter what
-# directory it gets launched from (systemd, cron, or scripts/ itself).
+# Resolved from this file, not the cwd. The loop works whatever directory it
+# gets launched from (systemd, cron, or scripts/ itself).
 _MAIN = Path(__file__).parent.parent / "main.py"
 
 
 def run_monitor():
-    """
-    Infinite loop that triggers the GNN inference every 15 minutes.
-    """
+    """Runs inference every 15 minutes, forever."""
     print("SCMG Live Monitoring Service started")
 
     while True:

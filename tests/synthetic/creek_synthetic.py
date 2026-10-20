@@ -1,23 +1,13 @@
 """
-Synthetic creek generator with known ground truth.
-
-Injected faults with known truth are how detection gets measured where no label
-exists. That makes this test infrastructure rather than scratch, which is why it
-lives under tests/ and not beside the prototypes it was written next to. It sits
-in tests/synthetic/ rather than tests/ proper because it generates data and
-asserts nothing: the six labelled events in tests/events.yaml are the real
-evidence, and this is the controlled complement to them.
+Synthetic creek generator with known ground truth, for measuring detection
+where no label exists. It generates data and makes no assertions. The
+labelled events in tests/events.yaml are the real evidence, and this is the
+controlled complement.
 
 Faults: stuck, stale, partial, drift, spike, decouple, slow_all.
 
-The window pipeline (NodeScaler, regrid_to_nodes, add_context_features) moved
-on into the package, at preprocessing/node_windows.py, once the real corpus
-needed it too. It is imported back here rather than reimplemented: the whole
-claim that a synthetic window and a real one are the same shape rests on there
-being one regrid, not two that look alike.
-
-Graph structure and canonical variables are imported from the model, so the
-generator and the model cannot disagree about the creek.
+The window pipeline comes from preprocessing/node_windows.py and the graph from
+the model. A synthetic window is built exactly like a real one.
 """
 
 from __future__ import annotations
@@ -46,8 +36,8 @@ EPOCH = pd.Timestamp("2026-01-01 00:00:00", tz="UTC")
 # Steps of travel per flow edge. One hop is an hour at a 15 minute grid.
 TRAVEL_STEPS = 4
 
-# Per site baseline, roughly the levels the real network sits at, so the scaler
-# has something site-specific to find.
+# Per site baseline, roughly the levels the real network sits at. Gives the
+# scaler something site-specific to find.
 BASELINE = {
     "north_fork_0": {
         "conductivity": 600.0,
@@ -123,11 +113,7 @@ F_LO, F_HI, F_ANCHOR = 300, 360, 340
 
 
 def flow_weights(edges=FLOW_EDGES):
-    """
-    Generator-side edge weights. A destination fed by several upstreams splits
-    evenly between them, which is the same even split the model starts from but
-    is here a fact about the data rather than a parameter.
-    """
+    """Edge weights for the generator. A site fed by several upstreams splits evenly between them."""
     inflow = {}
     for _src, dst in edges:
         inflow[dst] = inflow.get(dst, 0) + 1
@@ -137,8 +123,8 @@ def flow_weights(edges=FLOW_EDGES):
 def downstream_paths(source, edges=FLOW_EDGES):
     """
     Every site reachable downstream of source, with the product of the edge
-    weights along the way and the hop count. Flow-unconnected sites are simply
-    absent from the result, which is what makes the isolation test meaningful.
+    weights along the way and the hop count. Sites with no flow path aren't in
+    the result. The isolation test relies on that.
     """
     w = flow_weights(edges)
     out, frontier = {}, [(source, 1.0, 0)]
@@ -189,10 +175,8 @@ def _series(site, var, times, rng, spill, rain):
 
     if rain and var in ("conductivity", "float_cond"):
         lo, hi = rain["start"], rain["start"] + rain["duration"]
-        # No lag and no attenuation: rain lands on the whole catchment at once.
-        # It no longer has an exogenous signature the model can read, because
-        # rain handling moved to the web application and the weather channels
-        # left the context, so this is now purely a coherent network-wide event.
+        # No lag or attenuation, rain hits the creek all at once. The model has
+        # no weather channels and sees this as a network-wide event.
         v = v + np.where((steps >= lo) & (steps < hi), rain["magnitude"], 0.0)
 
     return v
@@ -233,8 +217,8 @@ def make_synthetic_creek(
     dropout: {site or "site.var": [(start, end), ...]} in grid steps
     cadence: {site: minutes between observations}, default 15 and on-grid
 
-    Returns the dict build_window returns, plus "truth". Note that no weather is
-    written into the context: it is two clock features and nothing else.
+    Returns build_window's dict plus "truth". The context is only the two clock
+    features, no weather.
     """
     sites = list(sites or SITE_ORDER)
     inventory = inventory or SITE_INVENTORY
@@ -301,8 +285,8 @@ def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, 
     (T, N) scaled series, target is the modified (N,) observation at the anchor
     step, and truth names what was done.
 
-    Nothing here reads the model, and the returned truth is the only thing the
-    scoring is allowed to compare against.
+    This doesn't read the model. Scoring may compare against the returned truth
+    and only that.
     """
     v = win["values"].copy()
     t = win["target_val"][anchor].copy()
@@ -330,18 +314,16 @@ def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, 
         v[anchor:hi, node_index] += mag
         t[node_index] += mag
     elif shape == "decouple":
-        # Reflect about the window mean. Mean and variance are preserved
-        # exactly, so the marginal distribution is untouched and only the
-        # correlation with the node's siblings is inverted. This is calibration
-        # drift, and it is the case reconstruction is claimed to catch when
-        # forecast and leave-one-out cannot.
+        # Reflect about the window mean. Mean and variance stay exactly the same
+        # and only the correlation with the node's siblings flips, which is the
+        # case reconstruction should catch and the other channels can't.
         seg = v[lo:hi, node_index]
         v[lo:hi, node_index] = 2.0 * seg.mean() - seg
         t[node_index] = v[anchor, node_index]
     elif shape == "slow_all":
-        # Every node drifts together. The forecast sees a tiny per-step delta
-        # and the leave-one-out channel sees neighbours that agree, so both
-        # should be weak; the window shape is the only thing that changed.
+        # All nodes drift together. The forecast sees a tiny per-step delta
+        # and the leave-one-out channel sees neighbours that agree. Both
+        # should be weak; only the window shape changed.
         faulted = list(range(v.shape[1]))
         for i in faulted:
             ramp = np.linspace(0.0, node_magnitude(win, i, mag), hi - lo)
@@ -366,8 +348,8 @@ def fault_cases(win, shapes=SHAPES, mults=MULTS, fracs=PARTIAL_FRACS, seed=0):
     """
     Every fault case in the sweep: shape, node, magnitude where applicable.
 
-    Yields (values, target, truth). slow_all is emitted once per magnitude
-    rather than once per node, because it faults every node at once.
+    Yields (values, target, truth). slow_all is emitted once per magnitude,
+    not once per node, since it faults all nodes at once.
     """
     n = win["values"].shape[1]
     for shape in shapes:

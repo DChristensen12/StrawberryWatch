@@ -1,14 +1,7 @@
 """
-The design document against the code.
-
-documents/Dusk-Crayfish/Math_and_Design_of_DuskCrayfish.tex states the deployed
-configuration, the graph, the score and the thresholds as facts. They drifted
-apart once already: the document described a pure step rain rule, a five node
-graph and one shared prediction for every node, none of which had been true for
-some time. These assertions are what stops that happening again.
-
-Read the document, not a copy of its numbers, so editing the .tex without
-editing the code fails here.
+The Dusk Crayfish design document against the code. The two drifted apart once,
+so these read documents/Dusk-Crayfish/Math_and_Design_of_DuskCrayfish.tex itself
+and fail when either side changes alone.
 """
 
 import re
@@ -40,11 +33,7 @@ def doc():
 
 @pytest.fixture(scope="module")
 def flat(doc):
-    """
-    The document with runs of whitespace collapsed. Prose assertions match
-    against this so that reflowing a paragraph, which changes nothing anyone
-    cares about, does not fail the suite.
-    """
+    """The document with whitespace collapsed. Reflowing a paragraph doesn't fail a test."""
     return re.sub(r"\s+", " ", doc)
 
 
@@ -177,8 +166,8 @@ def test_loss_channel_restriction_is_documented(doc, flat):
 
 def test_rain_rule_is_step_plus_taper_not_a_pure_step(doc, flat):
     """
-    The taper is deliberate and covers the delayed first flush. Pin both the
-    document and the code so neither silently reverts to the step.
+    The taper covers the delayed first flush. Pin both the document and the
+    code, and neither can revert to the step unnoticed.
     """
     assert r"D = 36" in flat or "Post rain decay window" in flat
     assert "decay" in flat.lower(), "document no longer describes the taper"

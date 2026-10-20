@@ -1,10 +1,10 @@
 """
 The model-free baselines, and the properties the comparison rests on.
 
-These detectors are a fair floor, so most of the tests are about fairness: same
-input, same step, same null path, no lookahead. The two blind spots, a frozen
-node and a reflected one, get asserted rather than described. They are the
-finding, and a quiet regression into "it catches everything" would erase it.
+These detectors are a fair floor, and most of the tests are about fairness:
+same input, same step, same null path, no lookahead. We assert the two blind
+spots, a frozen node and a reflected one, instead of describing them. They are
+the finding, and a regression into "it catches everything" would erase it.
 """
 
 from __future__ import annotations
@@ -47,9 +47,9 @@ def test_the_median_window_is_shorter_than_the_scored_window():
 
 
 def test_an_unobserved_step_contributes_nothing():
-    # A one-step excursion at the end, so the trailing median has not absorbed
-    # it. A sustained shift would read zero either way once the median catches
-    # up, which is the chart working, not the mask.
+    # A one-step excursion at the end, before the trailing median absorbs it.
+    # A sustained shift would read zero either way once the median catches up.
+    # That's the chart working, not the mask.
     v = np.zeros((12, 1))
     v[3] = 1.0
     v[-1] = 50.0
@@ -87,7 +87,7 @@ def test_ewma_early_steps_are_not_inflated_by_a_small_denominator():
 
 
 def test_the_chart_scores_the_same_step_the_models_score():
-    """batch['target'], where the spike lands, rather than the window's last row."""
+    """batch['target'], where the spike is, not the window's last row."""
     batch = bs.clean_batch(0)
     values, observed = bl.series_with_target(batch)
     assert values.shape[0] == np.asarray(batch["values"]).shape[1] + 1
@@ -106,7 +106,7 @@ def test_no_target_carries_the_last_value_forward_rather_than_a_nan():
 
 
 def test_the_detector_interface_matches_the_models():
-    """Duck typed on purpose, so one harness scores a chart and a network alike."""
+    """Duck typed. One harness scores a chart and a network alike."""
     from strawberrywatch.models.Cobble_Shoal import CobbleShoal
 
     for cls in bl.BASELINES.values():
@@ -166,8 +166,8 @@ def test_a_spike_on_the_scored_step_outscores_the_clean_window(calibrated, name)
 def test_a_frozen_node_is_invisible_to_a_residual_chart(calibrated, name):
     """
     The finding, asserted. A stuck sensor has no residual against its own
-    trailing median, so a residual chart scores it below a healthy node instead
-    of above one. Dispersion catches this and a chart has no dispersion channel.
+    trailing median, and a residual chart scores it below a healthy node
+    instead of above one. Dispersion catches this and a chart has no dispersion channel.
     If this starts failing, the baseline grew a second channel.
     """
     det, nulls, _pot = calibrated[name]
@@ -181,7 +181,7 @@ def test_a_frozen_node_is_invisible_to_a_residual_chart(calibrated, name):
 def test_a_reflected_node_is_invisible_too(calibrated, name):
     """
     decouple preserves mean and variance and only inverts the correlation with
-    the node's siblings, which a marginal chart never looks at.
+    the node's siblings, which a marginal chart doesn't look at.
     """
     det, nulls, _pot = calibrated[name]
     node = 0

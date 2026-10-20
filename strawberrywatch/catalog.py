@@ -1,11 +1,8 @@
 """
-The Models page's cards: a name, two plain sentences, a picture and where to read
-more. One place to fix the words, rather than spread through templates.
-
-Pictures are the README's, under strawberrywatch/dashboard/static/models/,
-shrunk to ship with the package. Whether a model can run isn't written here:
-it's whatever serving.available() says, so a model appears as runnable once
-it's registered and passes the conformance tests.
+The Models page's cards: a name, two sentences, a picture and where to read
+more, kept in one place instead of spread through the templates. Pictures are
+the README's, shrunk to ship with the package. Whether a model can run comes
+from serving.available().
 """
 
 from __future__ import annotations
@@ -17,9 +14,8 @@ CARDS = (
         "name": "dusk_crayfish",
         "title": "Dusk Crayfish",
         "about": (
-            "Learns how the creek normally behaves as a whole and notices when readings "
-            "stop matching. It predicts each site's next reading and watches how far "
-            "the real one lands from it."
+            "Forecasts each site's next conductivity reading from the whole creek, and "
+            "raises an alert when the real reading is far from the forecast."
         ),
         "picture": "dusk_crayfish.jpg",
         "alt": "A crayfish on the creek bed",
@@ -28,8 +24,8 @@ CARDS = (
         "name": "cobble_shoal",
         "title": "Cobble Shoal",
         "about": (
-            "Checks every sensor at every site on its own, so it can say which probe "
-            "looks wrong. It keeps working when some sensors go quiet."
+            "Checks each sensor at each site separately, so an alert names the sensor. "
+            "Keeps working when some sensors are offline."
         ),
         "picture": "cobble_shoal.jpg",
         "alt": "A fish over cobbles in shallow water",
@@ -38,8 +34,8 @@ CARDS = (
         "name": "flame_skimmer",
         "title": "Flame Skimmer",
         "about": (
-            "A planned model that says how sure it is about every prediction. It would "
-            "learn a range for each forecast instead of a single number."
+            "Works like Cobble Shoal, but forecasts a range instead of a single value, "
+            "so it can show how certain it is."
         ),
         "picture": "flame_skimmer.jpg",
         "alt": "A flame skimmer dragonfly on a stem",
@@ -48,8 +44,7 @@ CARDS = (
         "name": "berry_delight",
         "title": "Berry Delight",
         "about": (
-            "A planned model built on logistic regression, one of the simplest methods "
-            "there is. Its answers would be easy to explain."
+            "Planned. A logistic regression model, chosen because its results are easy to explain."
         ),
         "picture": "berry_delight.jpg",
         "alt": "Blackberries ripening on the bush",
@@ -57,25 +52,28 @@ CARDS = (
     {
         "name": "water_strider",
         "title": "Water Strider",
-        "about": "A name saved for a future model. What kind hasn't been decided yet.",
+        "about": (
+            "Checks each sensor for spikes, lasting shifts and slow drift, using statistics "
+            "fitted to past data. Each alert can be explained in one sentence."
+        ),
         "picture": "water_strider.jpg",
         "alt": "A water strider on the surface of the creek",
     },
     {
         "name": "crimson_parker",
         "title": "Crimson Parker",
-        "about": "Another name saved for a future model. What kind hasn't been decided yet.",
+        "about": "Name reserved for a future model.",
         "picture": "crimson_parker.jpg",
         "alt": "A white spider on a purple iris",
     },
 )
 
 
-# One plain sentence per support module, from the build spec's own descriptions
+# One sentence per support module, from the build spec
 SUPPORT = {
-    "settling_pool": "Flags readings not to trust and holds them back before the model reads them.",
-    "newtwork_run": "Says whether something travelled downstream or showed up everywhere at once.",
-    "trial_bed": "Names the pollutant the readings look most like, when the sensors can tell.",
+    "settling_pool": "Holds back readings that look like sensor faults before the model sees them.",
+    "newtwork_run": "Shows whether a change moved downstream or appeared everywhere at once.",
+    "trial_bed": "Suggests the likely pollutant, when the site has the sensors to tell.",
 }
 
 

@@ -4,34 +4,32 @@ Retrain Cobble Shoal on the real archive instead of the synthetic generator.
 The shipped weights were fitted on generated windows, and refit_cobble_calibration
 only moved the null and the threshold on top of them. This moves the weights.
 
-Two variants, so the comparison means something:
+Two variants, for a fair comparison:
 
     --context clock     hour_sin, hour_cos. The shipped contract, real corpus.
     --context weather   the same two plus five Open-Meteo channels.
 
-Training one and reporting it against the synthetic checkpoint would confound
-two changes at once (new corpus, new inputs), so run both and diff them.
+Training only one and comparing it with the synthetic checkpoint would mix up
+two changes (new corpus, new inputs). Run both and diff them.
 
     python scripts/train_cobble_shoal_real.py --context weather
     python scripts/train_cobble_shoal_real.py --context clock
 
---split chronological (the default) holds out the tail of the corpus, which is
-the right shape for a detector deployed forward in time. On this archive it also
-puts the dry season in training and most of the rain in validation, so
---split blocked alternates whole months when the question is about the weather
-channels rather than about forward generalisation.
+--split chronological (the default) holds out the tail of the corpus. That
+suits a detector deployed forward in time. On this archive it also puts the dry
+season in training and most of the rain in validation. When the question is
+about the weather channels, use --split blocked, which alternates whole months.
 
 Writes checkpoints/cobble_shoal_temp_{tag}.pt and its calibration beside it,
 where tag defaults to the context name. Use --tag to keep several around.
-Nothing shipped is overwritten. Grade the result with:
+Shipped files aren't overwritten. Grade the result with:
 
     python scripts/run_audit_comparison.py --model weather
 
-Caveat worth reading before trusting the weather variant: the shipped design
-took weather out of the model on purpose (see Cobble_Shoal.CONTEXT_FEATURES and
-anomalies/rain_gate.py) because rain handling lives in the web application and
-the model has no weather at inference. A weather-fed model can only be served if
-the serving path fetches Open-Meteo too. That is why these land under temp_.
+Before trusting the weather variant: the shipped design keeps weather out of
+the model (see Cobble_Shoal.CONTEXT_FEATURES and anomalies/rain_gate.py), and
+there's no weather at inference. Serving a weather-fed model would mean
+fetching Open-Meteo on the serving path too. That's why these are temp_ files.
 """
 
 from __future__ import annotations
@@ -78,13 +76,13 @@ GRID_PER_HOUR = 60 // nw.GRID_MINUTES
 # start until June 2025, and a corpus that starts earlier is mostly holes.
 DEFAULT_START = "2025-06-04"
 DEFAULT_END = "2026-04-29"
-# Chronological, not shuffled. A random split leaks: adjacent 15-min windows
-# overlap by 23 of 24 steps, so a shuffled val set is the training set.
+# Chronological, not shuffled. Neighbouring windows share 23 of 24 steps, and a
+# shuffled validation set would just be the training set.
 DEFAULT_VAL_START = "2026-02-01"
 
 WEATHER_CHANNELS = ["rain_mm", "rain_6h", "rain_72h", "air_temp_c", "shortwave_radiation"]
-# Rain is mostly zero with a long tail, so z-scoring it raw leaves a channel
-# that is flat for weeks and then spikes past 40 sigma.
+# Rain is mostly zero with a long tail. Z-scored raw, it sits flat for weeks
+# and then spikes past 40 sigma.
 LOG1P_CHANNELS = ("rain_mm", "rain_6h", "rain_72h")
 
 CONTEXT_SETS = {
@@ -94,10 +92,10 @@ CONTEXT_SETS = {
 
 
 # Physical bounds on a Berkeley creek reading, in inventory variable names.
-# Not a quality claim: -9999 is the only sentinel the inventory knows, and
-# north_fork_0 logged 332 C and 113.6 C on 2026-04-22, which sail straight past
-# it into the scaler. Wide enough that nothing real is clipped (the archive's
-# actual extremes are 5.2..34.7 C, 0..1318 uS, -1420..1458 mm).
+# Not a quality claim. -9999 is the only sentinel the inventory knows, and
+# north_fork_0 logged 332 C and 113.6 C on 2026-04-22, which went straight into
+# the scaler. The bounds are wide enough to keep every real reading (the
+# archive's extremes are 5.2..34.7 C, 0..1318 uS, -1420..1458 mm).
 PLAUSIBLE_RANGE = {
     "temperature": (0.0, 40.0),
     "conductivity": (0.0, 5000.0),
@@ -125,13 +123,13 @@ def drop_implausible(tables):
 
 def hold_offline(win, node_index):
     """
-    Force a node to look like a dead sensor for the whole corpus.
+    Force a node to look like a dead sensor across the corpus.
 
-    For a node the training span never observed there is no scale, so NodeScaler
-    leaves it at mean 0 / std 1 and its raw value goes into the encoder
-    untouched. footbridge.float_cond does that at 457, which is not a
-    z-score. The model already has a word for a node it knows nothing about, so
-    say that instead: zero value, staleness at the ceiling, nothing to score.
+    A node the training span never observed has no scale. NodeScaler leaves it
+    at mean 0, std 1, and its raw value reaches the encoder untouched
+    (footbridge.float_cond arrives at 457, hardly a z-score). The model already
+    knows what a dead sensor looks like, so we use that: zero value, staleness
+    at the ceiling, no target.
     """
     ceiling = float(len(win["grid"]))
     for k in node_index:
@@ -150,8 +148,7 @@ def weather_frame(grid, cache_dir=None):
     the catchment already was. A centred window would be lookahead, and the
     thing that makes conductivity dilution predictable is what already fell.
     """
-    # Pulled from 3 days before the grid so rain_72h is a full sum at the first
-    # step instead of ramping up out of nothing.
+    # Starts 3 days before the grid, for a full rain_72h sum at the first step
     warmup = pd.Timedelta(days=3)
     raw = weather_archive.load_weather(grid[0] - warmup, grid[-1], cache_dir=cache_dir)
     full = pd.date_range(grid[0] - warmup, grid[-1], freq=nw.GRID_FREQ, tz="UTC")
@@ -222,9 +219,9 @@ def attach_context(win, extra, scaler):
     """
     Swap the window's context block for clock plus scaled weather.
 
-    node_windows.add_context_features deliberately builds clock only, so this
-    widens the array here rather than editing that. build_window's output is a
-    plain dict and to_batch just slices context, so nothing else has to know.
+    node_windows.add_context_features builds the clock only, and we widen the
+    array here instead of changing that. build_window returns a plain dict and
+    to_batch just slices context, and no other code needs to know.
     """
     if not scaler.columns:
         return win
@@ -267,11 +264,10 @@ def split_mask(grid, mode, val_start):
     """
     Boolean over the grid, True where a step belongs to the training side.
 
-    chronological is the honest split for a detector that will be deployed
-    forward in time, but on this corpus it also splits the seasons: training
-    lands in the dry half of the year and most of the rain lands in val, which
-    is exactly the wrong shape for judging weather channels. blocked alternates
-    whole months so both sides span the dry season and the wet one.
+    chronological suits a detector deployed forward in time, but on this corpus
+    it also splits the seasons. Training gets the dry half of the year and
+    validation most of the rain. That's no good for judging weather channels.
+    blocked alternates whole months, and both sides get wet and dry weather.
     """
     if mode == "chronological":
         return np.asarray(grid < pd.Timestamp(val_start, tz="UTC"))
@@ -283,8 +279,8 @@ def assign_anchors(anchors, train_rows, window=WINDOW):
     """
     Send each anchor to the side its whole window sits on, and drop the rest.
 
-    An anchor straddling the boundary is scored on inputs from both sides, so it
-    belongs to neither. With month blocks that costs 6 hours per boundary.
+    An anchor straddling the boundary sees inputs from both sides and belongs
+    to neither. With month blocks that costs 6 hours per boundary.
     """
     train, val = [], []
     for a in anchors:
@@ -364,7 +360,7 @@ def train(net, win, train_anchors, val_anchors, graph, args):
 
 
 def channel_dicts(net, win, anchors, graph, label=""):
-    """Per-window channel scores. channels() goes through predict_all_masked, so B is 1."""
+    """Per-window channel scores. channels() goes through predict_all_masked, which needs B == 1."""
     out, t0 = [], time.time()
     for n, anchor in enumerate(anchors, 1):
         chans = net.channels(stack_batch(win, [anchor], graph))
@@ -378,10 +374,9 @@ def calibrate(net, win, fit_anchors, held_anchors, graph, q):
     """
     Fault-free nulls and POT for the weights that just came out of training.
 
-    Fitted on the training span, empirical rate measured on the held-out one, so
-    the rate reported is not the rate on the sample the fit saw. Channels are
-    kept rather than recomputed: score() would run the whole forward again just
-    to rebuild what the null fit already had.
+    Fitted on the training span, with the empirical rate measured on the
+    held-out one. We keep the channels from the null fit, because score()
+    would run the forward pass again to rebuild them.
     """
     fit_chans = channel_dicts(net, win, fit_anchors, graph, "null ")
     nulls = scoring.ChannelNulls().fit(
@@ -429,9 +424,9 @@ class TempModel:
         """
         Put a freshly built window into the space these weights were trained in.
 
-        Context first, then the nodes the training span never saw. Both were true
-        of every window the model learned from, and a window missing either is
-        scored by weights that were never shown anything like it.
+        Context first, then the nodes the training span never saw. Every window
+        the model learned from had both, and these weights haven't seen a
+        window without them.
         """
         if self.ctx_scaler.columns:
             win = attach_context(win, weather_frame(win["grid"]), self.ctx_scaler)
@@ -520,10 +515,9 @@ def main(argv=None):
         detail = ", ".join(f"{k} x{v}" for k, v in sorted(dropped.items()))
         print(f"out-of-range readings dropped: {detail}")
 
-    # The NodeScaler has to see training data only. build_window above fitted one
-    # over the whole span, which puts val statistics into the training space, so
-    # undo it and refit on the train side. inverse() is exact, and the fit reads
-    # observed rows only, so the carried-forward fill it recovers never counts.
+    # The NodeScaler should only see training data. build_window above fitted one
+    # over the full span. We undo it and refit on the training side.
+    # inverse() is exact, and the fit only reads observed rows.
     train_rows = split_mask(grid, args.split, args.val_start)
     raw = win["scaler"].inverse(win["values"])
     scaler = nw.NodeScaler().fit(raw[train_rows], win["target_mask"][train_rows])
@@ -657,7 +651,7 @@ def main(argv=None):
 
 
 def _thin(items, count):
-    """Evenly spaced subsample, so a cap keeps the whole span rather than its front."""
+    """Evenly spaced subsample. A cap still covers the full span."""
     if count is None or len(items) <= count:
         return list(items)
     idx = np.linspace(0, len(items) - 1, count).round().astype(int)

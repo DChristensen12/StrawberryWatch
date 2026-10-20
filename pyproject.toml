@@ -29,8 +29,9 @@ dev = ["ruff", "pre-commit", "pytest"]
 dashboard = [
     "flask>=3.1",
     "flask-wtf>=1.2",
-    "keyring>=25",
     "platformdirs>=4",
+    # Checks a recipient's address and that its domain takes mail, before it's saved
+    "email-validator>=2.2",
 ]
 
 [project.scripts]
@@ -43,6 +44,7 @@ include = ["strawberrywatch*"]
 strawberrywatch = ["settings.yaml", "inventory.yaml"]
 "strawberrywatch.dashboard" = ["templates/*.html", "static/*", "static/*/*"]
 "strawberrywatch.watch" = ["model_files.sha256.json", "events/events.json", "events/*/*.csv"]
+"strawberrywatch.integrations.scmg_website" = ["INSTALL.md"]
 
 [tool.ruff]
 line-length = 100
@@ -55,21 +57,20 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG"]
-# night_heron is a stub, not wired to anything yet. Re-lint it before it ships.
+# night_heron is a stub, not wired up yet. Re-lint it before it ships.
 "integrations/night_heron/*" = ["F821"]
 # These three insert the repo root on sys.path so they run from any directory,
 # which every later import depends on.
 "scripts/deployment_readiness.py" = ["E402"]
 "scripts/forecast_skill_baseline.py" = ["E402"]
 "scripts/verify_livepath.py" = ["E402"]
-# _rain_adjust_level_k takes rain_series and ignores it on purpose. It is an
-# explicit no-op hook for Rule 2, kept so wiring rain in later is a body change
-# rather than a signature change at every call site.
+# _rain_adjust_level_k takes rain_series and ignores it. It's an explicit no-op
+# hook for Rule 2. Wiring rain in later is then a body change, not a signature
+# change at every call site.
 "strawberrywatch/anomalies/anomaly_detector.py" = ["ARG001"]
 # Stranded until --visualize is ported to the per-node shape, see main.py. The
 # unused arguments are the old collapsed-scalar signature.
 "strawberrywatch/utils/visualizations.py" = ["ARG001"]
-
 # explain() takes the standard window and reads only the fired grid.
 "strawberrywatch/support_modules/newtwork_run.py" = ["ARG002"]
 

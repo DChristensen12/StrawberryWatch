@@ -1,10 +1,7 @@
-# These are connectivity smoke checks, not assertions about correctness. Every
-# one of them hits a live endpoint, so a pass means the network and credentials
-# worked today and a failure may be an outage rather than a regression. Four of
-# them (test_api, test_nws, test_sql, test_integration) return a bool instead of
-# asserting, which pytest reports as PytestReturnNotNoneWarning and, more to the
-# point, means they pass whatever the endpoint returns. Do not read a green run
-# here as the clients being verified.
+# Connectivity smoke checks against live endpoints, not correctness tests. A pass
+# means the network and credentials worked today, and a failure may just be an
+# outage. Four of them return a bool instead of asserting, and pass whatever
+# the endpoint says.
 import argparse
 import sys
 import traceback

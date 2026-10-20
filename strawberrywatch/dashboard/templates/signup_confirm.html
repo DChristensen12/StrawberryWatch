@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Confirm alerts{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<h1>StrawberryWatch alerts</h1>
+{% if state == 'ask' %}
+  <p>Send StrawberryWatch's alerts about Strawberry Creek to {{ address }}?</p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="sw-buttons"><button type="submit" class="sw-button">Confirm</button></div>
+  </form>
+{% elif state == 'done' %}
+  <div class="sw-headline">
+    <p class="lead">You're on the list</p>
+    <p>Every alert email has a link to unsubscribe.</p>
+  </div>
+{% else %}
+  <div class="sw-headline sw-headline--late">
+    <p class="lead">This link has expired or was already used</p>
+    <p><a href="{{ url_for('main.signup') }}">Sign up again</a> to get a new one.</p>
+  </div>
+{% endif %}
+{% endblock %}

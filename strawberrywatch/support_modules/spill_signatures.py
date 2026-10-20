@@ -2,9 +2,8 @@
 The pollutant signature table.
 
 Every cell carries the mechanism that justifies its direction. The mechanism
-sits on the row rather than in a header here because a direction without its
-reason is not reviewable: the next person to argue with a cell needs to see
-what claim they are arguing with.
+sits on the row, not in a header, because a direction without its reason can't
+be reviewed. The next person to argue with a cell needs to see the claim.
 """
 
 from __future__ import annotations
@@ -24,9 +23,8 @@ DISCRIMINATING = ("dissolved_oxygen", "ph", "floating_conductivity")
 NEW_TYPE_SCORE_FLOOR = 0.5
 MIN_DISCRIMINATING_FOR_DIAGNOSIS = 1
 
-# Berkeley tap water. Encoded as numbers rather than
-# directions because "down" is weaker evidence than "down to about 13C" when the
-# creek is already at 13.
+# Berkeley tap water. Encoded as numbers, not directions, because "down" is
+# weaker evidence than "down to about 13C" when the creek is already at 13.
 TAPWATER_TEMP_C = 13.0
 TAPWATER_PH = 9.4
 
@@ -130,8 +128,8 @@ PARAMETERS = [
     "floating_conductivity",
 ]
 
-# Labelled events that contradict a row. Kept beside the table so nobody
-# rediscovers them, and kept as exceptions so the row itself stays as sourced.
+# Labelled events that contradict a row. Kept beside the table to save
+# rediscovering them, and kept as exceptions to leave the row as sourced.
 #
 # The March 2026 hydrant break is the one that matters. A fire hydrant on Euclid
 # Avenue ran down the street into a storm drain and into the North Fork, and
@@ -195,8 +193,8 @@ def required_parameters(pollutant, table=None):
     """
     Parameters this row asserts a direction for, in PARAMETERS order.
 
-    An INDET cell is not required. The row says the parameter does not
-    discriminate, so its absence costs the row nothing.
+    An INDET cell isn't required. The row says the parameter doesn't
+    discriminate, and its absence costs the row nothing.
     """
     return [param for param in PARAMETERS if direction(pollutant, param, table) != INDET]
 
@@ -211,7 +209,7 @@ def evaluable_on(available, table=None):
     Which rows can be judged given a set of available parameters.
 
     Scoring a row on the parameters that happen to be there would report a
-    partial signature as though it were the whole one.
+    partial signature as though it were complete.
     """
     have = set(available)
     rows = SIGNATURES if table is None else table

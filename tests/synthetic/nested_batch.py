@@ -2,8 +2,8 @@
 Builds the nested-node batch the per-node models read.
 
 The generator makes (T, N) grids, the encoder wants a batched dict plus the
-graph tensors. Two callers need it, so it lives here instead of being copied.
-Same seed, window and anchor every time, so scores through it are reproducible.
+graph tensors. Two callers need it, and it lives here instead of being copied.
+Same seed, window and anchor every time. Scores through it are reproducible.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from strawberrywatch.models.Cobble_Shoal import (
 from tests.synthetic import creek_synthetic
 
 # Window length the reconstruction head was built for. A batch whose time axis
-# disagrees with it does not fail loudly, it fails at the matmul, so it is
-# stated here once.
+# disagrees with it fails at the matmul, not with a clear error. We state it
+# here once.
 WINDOW = 24
 
 # Anchor step inside the generated series. Far enough in that every node has a
@@ -33,9 +33,9 @@ def build_batch(seed=0, window=WINDOW, anchor=ANCHOR, values=None, target=None):
     """
     One (B=1) window as the encoder wants it.
 
-    values/target override the generated arrays, which is how a faulted window
-    is scored against the same graph tensors as the clean one it came from.
-    predict_all_masked asserts B == 1, so the batch axis stays singleton.
+    values/target override the generated arrays. A faulted window is then
+    scored against the same graph tensors as the clean one it came from.
+    predict_all_masked asserts B == 1, and the batch axis stays singleton.
     """
     win = creek_synthetic.make_synthetic_creek(n_steps=anchor + window, seed=seed)
     nodes, node_site, node_var = build_node_registry()
@@ -51,7 +51,7 @@ def build_batch(seed=0, window=WINDOW, anchor=ANCHOR, values=None, target=None):
     tgt = torch.tensor(tgt, dtype=torch.float32).unsqueeze(0)
     tgt_mask = torch.tensor(win["target_mask"][hi], dtype=torch.bool).unsqueeze(0)
 
-    # A step counts as observed when the reading landed on it rather than being
+    # A step counts as observed when the reading fell on it, not when it was
     # carried forward into it. Dispersion needs the difference: a node that is
     # merely offline is flat for the same arithmetic reason a frozen one is.
     obs_mask = stale < 1.0

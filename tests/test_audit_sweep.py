@@ -1,8 +1,8 @@
 """
 Standing audit sweep over the package. One test per recurring defect class.
 
-These classes have each cost real time in this project, so they are checked
-mechanically rather than by inspection:
+Each of these has cost real time in this project. We check them mechanically
+instead of by inspection:
 
   metrics that cannot vary   a residual correlation sat pinned at -1/(n-1)
                              for weeks before anyone noticed
@@ -10,7 +10,7 @@ mechanically rather than by inspection:
   duplicated rules           three rain formulas; two copies of the alerting
                              constants; decisions() carrying its own fired()
   fit-at-inference           a scaler refitted on a serving path
-  zip length mismatch        silently truncating to the shorter sequence
+  zip length mismatch        truncating to the shorter sequence unnoticed
 
     .venv/bin/python -m pytest tests/test_audit_sweep.py -q
 """
@@ -55,10 +55,8 @@ def test_rain_multipliers_respond_to_rain_and_to_every_knob():
     differs(m_wet, ad._rain_multipliers(g, wet, 12, 2.0, 99.0, 36)[0], "vs amount")
     differs(m_wet, ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 4)[0], "vs decay_hours")
 
-    # decay_hours sets the taper slope as well as how far back the decay branch
-    # looks for the last wet reading. Comparing 36 against 72 keeps the rain
-    # inside both lookbacks, so only the slope can move the answer, which is
-    # what a mutation to the fraction alone has to trip.
+    # decay_hours sets both the taper slope and how far back it looks for rain.
+    # 36 against 72 keeps the rain inside both. Only the slope can change it.
     slow = ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 36)[0]
     slower = ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 72)[0]
     tapering = (slow > 1.0) & (slow < 2.0)
@@ -95,9 +93,9 @@ def test_both_rules_vary_with_signal_and_with_their_threshold():
 
 def test_rain_adjust_level_k_is_a_documented_no_op():
     """
-    This one IS constant, deliberately: an explicit pass-through hook, left
-    unwired because inheriting Rule 1's multiplier is convenient rather than
-    justified. Asserted so that wiring it up trips this test.
+    This one IS constant: an explicit pass-through hook, left unwired because
+    inheriting Rule 1's multiplier is convenient but not justified. Wiring it
+    up trips this test.
     """
     g = _grid(50)
     dry = pd.Series(np.zeros(len(g)), index=g)
@@ -141,9 +139,8 @@ def test_real_mask_responds_and_fails_closed():
 
 def test_alerting_constants_have_one_definition():
     """
-    The test module must not carry its own copy of the alerting thresholds.
-    It used to, and a test grading against its own copy of a rule stops being
-    evidence about production the moment either side moves.
+    The test module mustn't keep its own copy of the alerting thresholds, or it
+    stops testing production the moment either side moves.
     """
     import tests.test_anomaly_detection as t
 
@@ -152,18 +149,13 @@ def test_alerting_constants_have_one_definition():
 
 
 def test_rain_rule_has_one_definition():
-    """
-    There were three rain formulas: production's, a different one in this test
-    suite, and a third in the design document. The test suite's copy is gone
-    and its helper now delegates.
-    """
+    """The tests' rain helper has to call production's rule, not carry its own formula."""
     import tests.test_anomaly_detection as t
 
     src = inspect.getsource(t._rain_adjusted_thresholds)
     assert "_rain_multipliers(" in src, "the test rain rule stopped delegating"
 
-    # Code only. The docstring explains the history and is allowed to name the
-    # arithmetic it replaced; the body is not allowed to perform it.
+    # Code only. The docstring may mention the arithmetic, the body mustn't do it.
     fn = ast.parse(textwrap.dedent(src)).body[0]
     body = fn.body[1:] if ast.get_docstring(fn) else fn.body
     code = "\n".join(ast.unparse(stmt) for stmt in body)
@@ -225,7 +217,7 @@ def test_serving_path_reuses_the_trained_scaler():
 def test_no_unguarded_zip_anywhere_editable():
     """
     Every zip over sequences that must be the same length needs strict=True,
-    or a length mismatch truncates silently instead of raising.
+    or a length mismatch truncates instead of raising.
     """
     offenders = []
     for d in PACKAGE_DIRS:
@@ -243,8 +235,8 @@ def test_no_unguarded_zip_anywhere_editable():
 
 def test_rain_config_has_no_orphan_keys():
     """
-    RAIN_SATURATION_MM was the upper end of an amount-scaled ramp nothing
-    implemented. Every rain knob left on Config must have a reader.
+    RAIN_SATURATION_MM was the upper end of an amount-scaled ramp that was
+    never implemented. Each rain knob left on Config must have a reader.
     """
     readers = "\n".join(p.read_text() for d in PACKAGE_DIRS for p in (ROOT / d).rglob("*.py"))
     for name in [n for n in dir(Config) if n.startswith("RAIN_") or "RAIN" in n]:
@@ -259,7 +251,7 @@ def test_synthetic_generator_never_refits_a_supplied_scaler():
     computed from data containing the fault shrinks the signal the sweep is
     there to measure.
 
-    Object identity, so a silent refit cannot pass as merely equal.
+    Object identity. A refit can't pass by being equal.
     """
     from tests.synthetic import creek_synthetic
 

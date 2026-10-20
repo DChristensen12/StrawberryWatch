@@ -6,11 +6,11 @@ anomaly_2026_01_botanical_actuator turned out to hold the same data (one
 overwrote the other when the folder was built). Use this to regenerate a
 corrupted site file from the raw archive instead of hand-patching it.
 
-How the fixtures actually get built (confirmed by matching raw_data against 7 of
+How the fixtures get built (confirmed by matching raw_data against 7 of
 oxford's other, uncorrupted fixture files row-for-row): take that site's raw_data,
 filter to the event's date window, and write it out in whatever order raw_data
 already has it in. No sorting, no snapping to a shared grid. Sites like north_fork_0
-just happen to have raw_data that's already chronological, so their fixtures look
+just happen to have raw_data that's already chronological. Their fixtures look
 sorted, but that's a side effect, not a rule.
 
 Usage:
@@ -61,8 +61,8 @@ def _raw_path_for_site(site):
 def _read_flexible_csv(path):
     """
     Raw files aren't consistent about delimiter. Sniff first with sep=None; if
-    that collapses everything into one fused column (its name has a tab or
-    comma baked into it), the sniffer picked wrong, so retry with tab then comma.
+    that collapses the file into one fused column (its name has a tab or comma
+    baked into it), the sniffer picked wrong. Retry with tab, then comma.
     """
     df = pd.read_csv(path, sep=None, engine="python")
     if len(df.columns) == 1 and ("\t" in df.columns[0] or "," in df.columns[0]):
@@ -133,7 +133,7 @@ def _rain_cache_path(start, end):
 
 
 def _find_covering_rain_cache(start, end):
-    """Returns a cached rain_mm series covering [start, end], or None if nothing covers it."""
+    """Returns a cached rain_mm series covering [start, end], or None if no cache covers it."""
     if not os.path.isdir(RAIN_CACHE_DIR):
         return None
     for fname in sorted(os.listdir(RAIN_CACHE_DIR)):
@@ -158,7 +158,7 @@ def _get_weather_hourly(start, end):
     """
     Returns hourly air_temp_c, rain_mm, shortwave_radiation for [start, end].
     Rain reuses data/rain_cache/ when a cache file already covers the range.
-    air_temp_c/shortwave_radiation have no cache of their own, so they always
+    air_temp_c/shortwave_radiation have no cache of their own and always
     come straight from Open-Meteo. If rain wasn't cached, this fetch supplies
     it too and gets written to rain_cache under the usual rain_{start}_{end}.csv name.
     """

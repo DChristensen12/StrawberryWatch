@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Alert examples{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.unusual') }}">Alerts</a>
+<h1>Alert examples</h1>
+<p class="narrow">Every way an alert can look, in every place it shows up, filled with made-up data. None of these are real alerts. Wording marked <strong>Proposed</strong> isn't approved yet.</p>
+
+<h2>Sentences</h2>
+<div class="sw-table-scroll">
+  <table class="sw-table">
+    <caption class="visually-hidden">Every sentence an alert can use</caption>
+    <thead><tr><th scope="col">Part</th><th scope="col">When</th><th scope="col">Text</th></tr></thead>
+    <tbody>
+      {% for part, variant, text, proposed in sentences %}
+        <tr>
+          <td>{{ part }}</td>
+          <td>{{ variant }}{% if proposed %} <strong>Proposed</strong>{% endif %}</td>
+          <td>{{ text }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2>Overview box</h2>
+{% for name, box in boxes %}
+  <h3 class="as-small">{{ name }}</h3>
+  {{ sw.overview_box(box.waiting, box.flagged or [], box.late or [], box.stale, box.stale_text, '#alerts-tab') }}
+{% endfor %}
+
+<h2 id="alerts-tab">Alerts tab</h2>
+<h3 class="as-small">Nothing current</h3>
+{{ sw.no_alerts(url_for('main.history', show='unusual')) }}
+{% for s in samples %}
+  <h3 class="as-small">{{ s.name }}{% if s.proposed %} <strong>Proposed</strong>{% endif %}</h3>
+  {{ sw.alert_card(s.view, '#detail-' ~ s.view.id, reading if loop.first else None, 'example-reading', 'h4') }}
+{% endfor %}
+
+<h2>Alert page</h2>
+<p class="narrow">The top of each alert's own page. The chart is the same for every alert, so only the first has one.</p>
+{% for s in samples %}
+  <details class="sw-details" id="detail-{{ s.view.id }}"{% if loop.first %} open{% endif %}>
+    <summary>{{ s.name }}{% if s.proposed %} (Proposed){% endif %}</summary>
+    {{ sw.alert_header(s.view, score if loop.first else None, 'example-score', 'h3', 'h4') }}
+  </details>
+{% endfor %}
+
+<h2>History</h2>
+<p class="narrow">How each alert reads in a day's list on History, with a note under the first.</p>
+{{ sw.hour_row({'label': 'Examples', 'entries': samples | map(attribute='history') | list, 'checks': 0, 'problems': 0}) }}
+
+<h2>Email</h2>
+{% if website %}
+  <p class="narrow">Each person gets their own copy, with their own unsubscribe link. The HTML version has the emblem at the top and the sponsors at the bottom.</p>
+{% else %}
+  <p class="narrow">On this computer the email is plain text, without the unsubscribe line. The website sends the HTML version.</p>
+{% endif %}
+<h3 class="as-small">Several alerts in one check</h3>
+<p><strong>Subject:</strong> {{ several.subject }}</p>
+<pre class="sw-email">{{ several.email }}</pre>
+<p><a href="{{ url_for('main.alert_example_email', kind='several') }}">Open the HTML version</a></p>
+{% for s in samples %}
+  <details class="sw-details">
+    <summary>{{ s.name }}{% if s.proposed %} (Proposed){% endif %}</summary>
+    <p><strong>Subject:</strong> {{ s.subject }}</p>
+    <pre class="sw-email">{{ s.email }}</pre>
+    <p><a href="{{ url_for('main.alert_example_email', kind=s.view.id) }}">Open the HTML version</a></p>
+  </details>
+{% endfor %}
+{% if website %}
+  <h3 class="as-small">Sign-up confirmation</h3>
+  <p><strong>Subject:</strong> {{ confirmation[0] }}</p>
+  <pre class="sw-email">{{ confirmation[1] }}</pre>
+  <p><a href="{{ url_for('main.alert_example_email', kind='confirmation') }}">Open the HTML version</a></p>
+{% endif %}
+{% endblock %}

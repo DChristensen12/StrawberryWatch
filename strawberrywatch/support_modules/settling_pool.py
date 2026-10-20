@@ -2,7 +2,7 @@
 Settling Pool: flags readings the model should not treat as measurements.
 
 It reads the inventory for thresholds and sensor state, calls the tests in
-qc_tests.py, and returns flags. It corrects nothing and drops nothing. What a
+qc_tests.py, and returns flags. It doesn't correct or drop readings. What a
 consumer does with a flag is set by that model's FLAG_POLICY, not here.
 """
 
@@ -15,9 +15,9 @@ from strawberrywatch import inventory as inv
 from strawberrywatch.support_modules import qc_tests as qc
 from strawberrywatch.support_modules.base import SupportScreen
 
-# How an inventory state lands on a QARTOD level when no test has run yet.
-# NOT_INSTALLED is UNKNOWN rather than MISSING on purpose: QARTOD's 2 means not
-# evaluated, and a probe that was never in the creek has nothing to evaluate.
+# How an inventory state maps to a QARTOD level when no test has run yet.
+# NOT_INSTALLED is UNKNOWN, not MISSING: QARTOD's 2 means not evaluated, and a
+# probe that wasn't in the creek has no readings to evaluate.
 STATE_FLAGS = {
     inv.NOT_INSTALLED: qc.UNKNOWN,
     inv.PRESENT: qc.GOOD,
@@ -117,8 +117,8 @@ class SettlingPool(SupportScreen):
         """
         Flag every (site, variable, timestamp) the window covers.
 
-        Returns {(site, variable): flag array}. Keyed by the pair and nothing
-        else, so neither model's tensor layout reaches this module.
+        Returns {(site, variable): flag array}. Keyed by the pair alone, and
+        neither model's tensor layout reaches this module.
         """
         raw = (window or {}).get("raw")
         stamps = (window or {}).get("timestamps")
@@ -139,8 +139,8 @@ class SettlingPool(SupportScreen):
                     values.to_numpy(), index, site, variable, self.inventory
                 )
 
-                # State outranks the tests where it says the reading was never a
-                # measurement. A test on a probe that is not there means nothing.
+                # State outranks the tests where it says the reading wasn't a
+                # measurement. A test on a probe that isn't there is meaningless.
                 from_state = np.array([STATE_FLAGS[s] for s in states.to_numpy()], dtype=np.uint8)
                 not_measured = np.isin(from_state, [qc.UNKNOWN, qc.MISSING, qc.SUSPECT]) & (
                     states.to_numpy() != inv.PRESENT

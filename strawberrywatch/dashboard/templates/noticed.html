@@ -1,25 +1,11 @@
 {% extends "base.html" %}
-{% block title %}{{ item.site }}, {{ item.label }}{% endblock %}
+{% block title %}{{ item.label | capitalize }} alert at {{ item.site_name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ back.href }}">{{ back.text }}</a>
-<p class="caption">{{ item.day }}</p>
-<h1>{{ item.site }}, {{ item.label }}</h1>
-<p>{{ item.happened }} {{ item.title }} noticed.</p>
-{% if item.extras %}
-  <div class="sw-extras">
-    {% for line in item.extras %}<p>{{ line }}</p>{% endfor %}
-  </div>
-{% endif %}
-
-{% if chart %}
-  <h2>Why was it noticed?</h2>
-  <p>From 36 hours before to 12 hours after: how unusual {{ item.label }} looked, against the line it had to cross, with rain underneath. The red dot is where it first crossed.</p>
-  {{ sw.chart_data("chart-item", chart) }}
-  <div class="sw-chart" data-sw-chart="score" data-sw-source="chart-item" role="img" aria-label="How unusual {{ item.label }} looked, against the line it had to cross"></div>
-{% endif %}
+{{ sw.alert_header(item, chart) }}
 
 <div class="narrow">
-  <h2>What did each extra say?</h2>
+  <h2>Support module output</h2>
   {% if said %}
     <dl class="sw-summary">
       {% for s in said %}
@@ -27,15 +13,15 @@
       {% endfor %}
     </dl>
   {% else %}
-    <p>No extras were on for {{ item.title }} when it noticed this.</p>
+    <p>No support modules were on for {{ item.title }} at the time.</p>
   {% endif %}
 
   <h2>Notes</h2>
   {% for n in notes %}
     <div class="sw-note">
-      <p class="small muted">{{ n.when }}{% if n.author %} · Note by {{ n.author }}{% endif %}</p>
+      <p class="small muted">{{ n.when }}{% if n.author %} · {{ n.author }}{% endif %}</p>
       <p class="sw-note-text">{{ n.text }}</p>
-      <form method="post" action="{{ url_for('main.delete_note', note_id=n.id, **({'from': 'unusual'} if request.args.get('from') == 'unusual' else {})) }}" data-sw-confirm="Delete this note? It can't be undone.">
+      <form method="post" action="{{ url_for('main.delete_note', note_id=n.id, **({'from': 'unusual'} if request.args.get('from') == 'unusual' else {})) }}" data-sw-confirm="Delete this note? This can't be undone.">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="sw-link-button">Delete<span class="visually-hidden"> the note from {{ n.when }}</span></button>
       </form>
@@ -48,6 +34,6 @@
     {{ sw.textarea(form.note, label='Add a note') }}
     <div class="sw-buttons"><button type="submit" class="sw-button">Add note</button></div>
   </form>
-  <p class="small"><a href="{{ url_for('main.notes') }}">See all your notes</a></p>
+  <p class="small"><a href="{{ url_for('main.notes') }}">View all notes</a></p>
 </div>
 {% endblock %}

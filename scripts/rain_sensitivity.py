@@ -1,11 +1,11 @@
 """
 How much a weather-context Cobble Shoal depends on its rain channels being right.
 
-The question this answers is not "is Open-Meteo accurate", it is "what happens
-when the rain source is wrong, and in which direction does that hurt". On
-2026-09-03 a storm fell on the catchment that most weather products did not
-report at all, so the zeroed variant below is not a thought experiment, it is
-what those products would have handed the model that day.
+We're not asking "is Open-Meteo accurate" but "what happens when the rain
+source is wrong, and in which direction does that hurt". On 2026-09-03 a storm
+fell on the catchment that most weather products didn't report at all. The
+zeroed variant below is what those products would have handed the model that
+day.
 
 Three context variants, same weights, same windows, same threshold. Only the
 three rain channels change:
@@ -18,17 +18,17 @@ three rain channels change:
     python scripts/rain_sensitivity.py --model weather_blocked
 
 Only meaningful for a checkpoint that was trained with weather context. A clock
-model has no rain channels and every column will read the same.
+model has no rain channels and all columns will read the same.
 
-Reads the labelled fixtures under data/anomalies/ directly rather than the test
-catalog, because the rain events are the whole point here and they are no longer
-listed in tests/events.yaml (see future_work.md). Writes nothing.
+Reads the labelled fixtures under data/anomalies/ directly instead of the test
+catalog. We need the rain events here, and they're no longer listed in
+tests/events.yaml (see future_work.md). Writes no files.
 
 Caveat on the thresholds. Counts here are each model's own z_q, not a matched
-false-alarm rate, so the columns compare against themselves and not against each
+false-alarm rate. The columns compare against themselves and not against each
 other. The chronological weather model's held-out exceedance rate misses its
-nominal 1e-3 by about 22x, which means its z_q does not mean what it claims;
-compare within a column, not across models.
+nominal 1e-3 by about 22x. Its z_q doesn't mean what it claims; compare within
+a column, not across models.
 """
 
 from __future__ import annotations
@@ -58,8 +58,8 @@ from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 WINDOW = 24
 RAIN_COLS = ["rain_mm", "rain_6h", "rain_72h"]
 
-# Two wet and three dry, so a column that only moves on the wet rows is visible
-# as such. The two rain fixtures are still on disk after being delisted.
+# Two wet and three dry. A column that only moves on the wet rows shows up as
+# such. The two rain fixtures are still on disk after being delisted.
 FOLDERS = [
     ("apr26_rainfall", "anomaly_2026_04_01_rainfall"),
     ("nov25_rain", "anomaly_2025_11_13_rain_nf1"),
@@ -76,7 +76,7 @@ VARIANTS = {
 
 
 def event_span(folder):
-    """The grid an event's CSVs cover, or None if nothing is readable."""
+    """The grid an event's CSVs cover, or None if none are readable."""
     tables = event_tables(folder)
     if not tables:
         return None

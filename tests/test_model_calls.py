@@ -3,9 +3,9 @@ The calling-contract layer, and the Dusk Crayfish gate that goes with it.
 
 Dusk Crayfish's weights are the audit baseline. The two-failed-four-passed
 suite, the hydrant diagnosis and the -23.9 oxford skill number are all measured
-against them, so if routing its forward pass through model_calls.py moved its
-output by a single bit those numbers would stop being comparable to anything
-recorded before.
+against them. If routing its forward pass through model_calls.py moved its
+output by a single bit, those numbers would no longer compare with earlier
+records.
 """
 
 import pytest
@@ -57,7 +57,7 @@ def test_dusk_crayfish_is_bit_identical_through_the_dispatch():
         routed_m = model_calls.run_sequence_model(model, seq, edge_index, mask)
     assert torch.equal(direct_m, routed_m), "dispatch changed the masked forward pass"
 
-    # and the mask still does something, or the check above proves nothing
+    # and the mask still has an effect, or the check above proves little
     assert not torch.equal(direct, direct_m), "node_mask stopped changing the output"
     moved = float((direct - direct_m).abs().max())
     print(
@@ -128,8 +128,8 @@ def test_forward_kwargs_track_the_batch_they_are_given():
 
 def test_cobble_shoal_score_is_one_number_per_node():
     """
-    The detector-facing contract: the alerting path sees a score, never a
-    channel. Guarded here so a future refactor cannot widen it back.
+    The detector-facing contract: the alerting path sees a score, not a
+    channel. Guarded here against a future refactor widening it back.
     """
     import inspect
 

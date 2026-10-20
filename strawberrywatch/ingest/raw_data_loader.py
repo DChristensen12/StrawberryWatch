@@ -83,8 +83,8 @@ def load_all_raw_sites(raw_dir=None):
     return sites
 
 
-# Every channel the raw tables carry, including the ones the corpus does not use.
-# Keyed the way the inventory names variables, so a caller can join the two.
+# Every channel the raw tables carry, including the ones the corpus doesn't use.
+# Keyed the way the inventory names variables, for joining the two.
 _ALL_CHANNEL_MAPPING = {
     "Meter_Hydros21_Cond": "conductivity",
     "Meter_Hydros21_Depth": "depth",
@@ -98,11 +98,11 @@ _ALL_CHANNEL_MAPPING = {
 
 def _table_name_for_file(path):
     """
-    Map a raw filename to its SQL table name, which is what the inventory keys on.
+    Map a raw filename to its SQL table name, which the inventory keys on.
 
-    Deliberately not _site_name_for_file. That one renames scnf010 to footbridge
-    for the corpus; the inventory speaks table names, and renaming here would
-    make every lookup miss.
+    Not _site_name_for_file. That one renames scnf010 to footbridge for the
+    corpus; the inventory uses table names, and renaming here would make every
+    lookup miss.
     """
     stem = os.path.splitext(os.path.basename(path))[0]
     if stem.startswith("university_house"):
@@ -115,9 +115,9 @@ def tidy_channels(df):
     One table's rows under the inventory's names, as numbers, one row per stamp.
 
     df is indexed by UTC reading time and carries the raw logger columns. The
-    archive loader below and the live serving path both come through here, so a
-    table read off disk and the same table read out of MySQL cannot end up
-    shaped differently.
+    archive loader below and the live serving path both come through here. A
+    table read off disk and the same table read out of MySQL end up shaped the
+    same.
     """
     df = df.rename(columns=_ALL_CHANNEL_MAPPING)
     cols = [c for c in _ALL_CHANNEL_MAPPING.values() if c in df.columns]
@@ -134,11 +134,11 @@ def load_archive_by_table(raw_dir=None, earliest=None, with_report=False):
     Sentinels stay in. Naming a sentinel is a quality test's job, and dropping
     them here would hide the wrong SDI-12 address the test exists to report.
 
-    Rows stamped before `earliest` are dropped as logger clock resets rather
-    than kept as readings. kingman_hall has one stamped 2000-06-17, which is a
-    Mayfly that booted with no time set, and keeping it stretches that site's
-    history back 25 years. Nothing is dropped quietly: pass with_report=True to
-    get (tables, dropped) and say what went and why.
+    Rows stamped before `earliest` are dropped as logger clock resets, not
+    kept as readings. kingman_hall has one stamped 2000-06-17, a Mayfly that
+    booted with no time set, and keeping it stretches that site's history back
+    25 years. Pass with_report=True to get (tables, dropped) and say what went
+    and why.
     """
     raw_dir = raw_dir or paths.raw_data_dir()
     earliest = pd.Timestamp(earliest, tz="UTC") if isinstance(earliest, str) else earliest

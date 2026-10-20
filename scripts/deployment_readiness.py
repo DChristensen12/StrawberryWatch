@@ -1,17 +1,16 @@
 """
 Deployment readiness gate for Dusk Crayfish. Four questions: does it generalize
-past the training window, does it stay quiet on clean data, does it actually
-detect and localize a real perturbation, and what's the smallest spill it
-reliably catches. The skill baseline test only answered "is the forecast
-better than a lagged copy". This is the next gate up, whether the thing is
-safe to point at production.
+past the training window, does it stay quiet on clean data, does it detect
+and localize a real perturbation, and what's the smallest spill it reliably
+catches. The skill baseline test only answered "is the forecast better than a
+lagged copy". This is the next gate up: is it safe to point at production.
 
 Read-only. Doesn't touch the model, the corpus, or existing files. Reuses the
 imputation-detection method from forecast_skill_baseline.py and the real
 detection path (robust-normalized error, rain-adjusted threshold, _is_flagged)
-from tests/test_anomaly_detection.py rather than re-deriving either.
+from tests/test_anomaly_detection.py instead of re-deriving either.
 
-conductivity only, per node (never averaged), real observations only.
+conductivity only, per node (not averaged), real observations only.
 """
 
 import sys
@@ -68,7 +67,7 @@ SECTION4_MAGNITUDES = (
     2000.0,
 )  # 500/2000 exist to settle
 # whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one, see 4b
-RELIABLE_DETECTION_RATE = 0.5  # "reliably detected" = flagged in most windows, per the spec
+RELIABLE_DETECTION_RATE = 0.5  # "reliably detected" = flagged in most windows
 
 FP_RATE_CAVEAT = 0.2  # false positive rate above this gets flagged in the verdict
 DETECT_RATE_CAVEAT = 0.5  # detection rate below this (at CONFIRM_MAGNITUDE) gets flagged
@@ -83,12 +82,10 @@ def load_corpus():
 
 def held_out_range(corpus):
     """
-    Same boundary main.py's split produces, derived directly from the corpus
-    index instead of re-running the full sequence build (which takes a couple
-    minutes just to pivot). Every timestep in this corpus is a valid sequence
-    position. Section 1 confirmed valid_mask is all-True, 29,099 sequences
-    from 29,123 timesteps, exactly len - SEQUENCE_LENGTH. So the sequence
-    split index maps onto the timestamp index with a fixed offset.
+    The boundary main.py's split produces, worked out from the corpus index
+    instead of rebuilding each sequence. Every timestep is a valid sequence
+    position (29,099 sequences from 29,123 timesteps), and the split maps onto
+    timestamps with a fixed offset.
     """
     all_ts = corpus.index.sort_values().unique()
     n_sequences = len(all_ts) - Config.SEQUENCE_LENGTH
@@ -100,12 +97,10 @@ def held_out_range(corpus):
 
 def all_anomaly_windows(pad=ANOMALY_PAD):
     """
-    Every folder under data/anomalies/, min/max timestamp padded 12h each
-    side, same derivation build_training_corpus.py uses, EXCEPT this
-    doesn't skip botanical_actuator. That event stays in the training corpus
-    on purpose (it's being dropped from the catalog, treated as ordinary wet
-    season data), but it's still a real labeled event, and calling its window
-    "clean" for a false-positive test would be circular.
+    Every folder under data/anomalies/, padded 12 hours each side like
+    build_training_corpus.py, except botanical_actuator isn't skipped. It stays
+    in the training corpus, but it's still a real labeled event. Calling its
+    window clean here would be circular.
     """
     windows = []
     for folder in sorted(ANOMALY_DIR.glob("*")):
@@ -133,20 +128,11 @@ def build_clean_windows(
     corpus, held_start, held_end, window_steps=WINDOW_STEPS, min_steps=MIN_WINDOW_STEPS
 ):
     """
-    Contiguous 15-min-grid stretches inside the held-out span that (a) exist
-    as real rows in the corpus. Anomaly-window rows were already stripped
-    when the corpus was built, so most of the "does this overlap a known
-    anomaly" work is already done for us, and (b) don't fall inside ANY
-    known anomaly window including botanical_actuator (see
-    all_anomaly_windows). Chops each contiguous stretch into non-overlapping
-    window_steps chunks, keeping a final remainder if it still clears
-    min_steps.
-
-    A sequence built across a gap (say, from just before the hydrant_nf0
-    exclusion to just after it) would silently jump 2 days between two
-    "consecutive" array positions without anything flagging it, so windows
-    have to come from genuinely wall-clock-contiguous stretches, not just
-    whatever rows happen to exist.
+    Contiguous stretches of the held-out span that exist as real rows and sit
+    outside every known anomaly window (botanical_actuator included), cut into
+    window_steps chunks plus a last remainder if it clears min_steps. They have
+    to be contiguous in time, or a sequence across a gap jumps days between
+    neighbouring positions without warning.
     """
     full_grid = pd.date_range(corpus.index.min(), corpus.index.max(), freq="15min")
     present = pd.Series(full_grid.isin(corpus.index), index=full_grid)
@@ -188,14 +174,10 @@ def build_clean_windows(
 
 def build_window_arrays(corpus, window_ts, feature_cols, location_to_idx, raw_cond, qc_valid):
     """
-    (T, num_nodes, num_features) raw array for one clean window, straight off
-    the corpus. No imputation, these windows were chosen specifically
-    because the underlying rows are real. node_mask combines "conductivity is
-    actually present" with "{site}_valid": a node is only trusted if BOTH
-    hold. QC-valid alone isn't enough. A node can be un-flagged by QC and
-    still have a plain data gap, and if node_mask said "trust this" for a gap,
-    feature propagation would never kick in to fix it, and the model would
-    see a fabricated raw zero as if it were a real reading.
+    Raw (T, nodes, features) array for one clean window, no imputation.
+    node_mask needs both real conductivity and {site}_valid. QC alone can leave
+    a plain gap marked trusted. Propagation then skips it and the model reads
+    a made-up zero.
     """
     num_nodes = len(location_to_idx)
     num_features = len(feature_cols)
@@ -239,8 +221,8 @@ def run_window_model(model, edge_index, normalized, node_mask, num_nodes, batch_
     Batched forward pass over one window's sliding sequences. Returns
     (predictions, targets), both (n_positions, num_nodes, num_features)
     normalized, or (None, None) if the window is too short for one sequence.
-    Every node's predictions come out of the same pass, so this only needs to
-    run once per window, not once per target node.
+    All nodes' predictions come out of the same pass. We run it once per
+    window, not once per target node.
     """
     seq_len = Config.SEQUENCE_LENGTH
     n_positions = len(normalized) - seq_len
@@ -292,12 +274,10 @@ def flagged_for_site(
 
 def node_fully_real(target_ts, site, raw_cond, qc_valid):
     """
-    True if site has a real, QC-valid conductivity reading at EVERY scored
-    position in this window. Required for the injected node (so the
-    perturbation lands on genuine readings, not a fabricated placeholder) and
-    for any node we're checking for false localization (a node that was going
-    to be diffused/propagated the whole time regardless of the injection
-    can't tell us anything about smearing).
+    True if the site has a real, QC-valid reading at every scored position.
+    Needed for the injected node, to put the perturbation on real readings,
+    and for neighbours checked for false localization, since a node that was
+    propagated all along can't show smearing.
     """
     real = raw_cond[site].reindex(target_ts).notna().to_numpy()
     valid = qc_valid[site].reindex(target_ts).fillna(False).to_numpy()
@@ -306,14 +286,11 @@ def node_fully_real(target_ts, site, raw_cond, qc_valid):
 
 def apply_injection(data_3d, node_idx, cond_idx, start_pos, shape, magnitude):
     """
-     Adds a synthetic perturbation to data_3d[:, node_idx, cond_idx] in RAW
-     conductivity units, from start_pos through the end of the window. Doesn't
-     mutate the input. Injected into the same array used to build both the
-     model's input sequences and its targets, so the target the model gets
-     scored against is the perturbed (i.e. "actual sensor reading now") value
-    , exactly what a real spill would look like: clean history in, anomalous
-     reading out, error is the gap between what the model expected and what's
-     actually there.
+    Adds a synthetic perturbation to data_3d[:, node_idx, cond_idx] in raw
+    conductivity units, from start_pos to the end, without changing the input.
+    The same array builds both inputs and targets. The model is scored against
+    the perturbed reading, like a real spill: clean history in, unusual reading
+    out.
     """
     out = data_3d.copy()
     T = out.shape[0]
@@ -339,18 +316,10 @@ def apply_injection(data_3d, node_idx, cond_idx, start_pos, shape, magnitude):
 
 def load_full_split(metadata):
     """
-    Same corpus load + sequence build as forecast_skill_baseline.py, but keeps
-    both the train and held-out portions instead of just held-out. Section 1
-    needs both to compare.
-
-    The trained scaler is passed in rather than refitted. This used to refit,
-    which put the sequences in one normalised space while every threshold,
-    median and IQR read out of metadata stayed in the space the model was
-    trained in. Section1 then de-normalised conductivity with
-    metadata["scaler"] against sequences built from a different one. Readiness
-    numbers measured across that mismatch are not measuring the deployed model.
-    Production does it this way too, see main.py's prepare_sequences_normalized
-    call, which passes saved_metadata["scaler"] whenever it is not training.
+    The same corpus load and sequence build as forecast_skill_baseline.py,
+    keeping both the training and held-out parts for Section 1 to compare. The
+    trained scaler is passed in, like main.py does. The sequences then share a
+    space with the thresholds, medians and IQRs in metadata.
     """
     edge_index, _, location_to_idx = create_graph_topology()
     df_featured, _, _ = load_and_preprocess_data(
@@ -819,8 +788,8 @@ def section4(
     """
     Step injection only, one node at a time, sweeping magnitude instead of
     shape. Same clean windows as Section 3 for consistency. Restricted to
-    north_fork_0 and south_fork_2 because those are the only two nodes with
-    enough fully-real windows for a sweep to mean anything. Oxford's
+    north_fork_0 and south_fork_2, the only two nodes with enough fully-real
+    windows for a meaningful sweep. Oxford's
     duplication gaps and footbridge's sparse cadence make node_fully_real
     rare enough that a 6-point sweep would mostly be "no data".
     """

@@ -2,13 +2,13 @@
 Nested variable/location graph encoder with a joint forecast, leave-one-out and
 reconstruction objective.
 
-score() returns one number per node, the combined Fisher statistic. Channels
-are how that number gets built, not something the alerting path should know
-about, so channels() is there for diagnostics and nothing downstream calls it.
+score() returns one number per node, the combined Fisher statistic. The
+channels are how we build that number. channels() is there for diagnostics,
+and the alerting path doesn't call it.
 
-The hidden state decays between irregular observations. The observation mask
-is deliberately not an input: missingness here is flat batteries, and a model
-that learns "offline implies anomalous" turns every power cut into an alert.
+The hidden state decays between irregular observations. We don't feed in the
+observation mask: here missingness means flat batteries, and a model that
+learned "offline means anomalous" would alert on every power cut.
 """
 
 from __future__ import annotations
@@ -31,13 +31,13 @@ from strawberrywatch.models import model_calls
 GRID_MINUTES = 15
 GRID_FREQ = f"{GRID_MINUTES}min"
 
-# An observation this close to a grid point is that grid point's target. The
-# old rule wanted an exact match, which cost footbridge six times its usable
-# supervision because its logger reports at :17 and :28 rather than :15.
+# An observation this close to a grid point counts as its target. Requiring an
+# exact match cost footbridge six times its usable supervision, because its
+# logger reports at :17 and :28 instead of :15.
 TARGET_TOLERANCE = pd.Timedelta(minutes=GRID_MINUTES / 2)
 
-# Separately, and for a different reason: an anchor older than this is not
-# trusted enough to predict a delta from. Nothing is dropped at ingestion.
+# A separate limit: we don't predict a delta from an anchor older than this.
+# Ingestion still keeps those readings.
 MAX_ANCHOR_STALENESS_STEPS = 4.0
 
 SENTINELS = (-9999.0,)
@@ -56,10 +56,8 @@ HALF_LIFE_PRIOR_HOURS = {
     "float_cond": 4.0,
 }
 
-# Clock only. Everything weather-shaped left with the rain handling, and day of
-# year went with it: a year-scale seasonal term cannot be estimated from the
-# window lengths this model trains on, and it was the channel that made a
-# seasonal baseline shift look like a coherent network-wide fault.
+# Clock only. Day of year can't be estimated from windows this short, and it
+# made a seasonal baseline shift look like a network-wide fault.
 CONTEXT_FEATURES = ["hour_sin", "hour_cos"]
 
 COLUMN_MAP = {
@@ -175,11 +173,11 @@ def inventory_matrix(sites=SITE_ORDER, inventory=SITE_INVENTORY):
 
 def gaussian_nll(pred, scale, target, mask):
     """
-    Negative log likelihood in place of squared error, masked to the entries
-    where it can honestly be computed.
+    Negative log likelihood in place of squared error, masked to the entries we
+    can actually score.
 
-    The log scale term is what stops the model from claiming certainty
-    everywhere, and it is what makes the dispersion channel mean anything.
+    The log scale term keeps the model from claiming certainty everywhere, and
+    the dispersion channel depends on it.
     """
     if not bool(mask.any()):
         return pred.sum() * 0.0
@@ -199,21 +197,15 @@ def masked_message(weights, messages):
 
 class DecayLSTMCell(nn.Module):
     """
-    LSTM whose state and input decay with elapsed time between observations,
-    since the rest of the system is LSTM shaped. Both decays are driven only by
-    elapsed time.
+    LSTM whose state and input decay with the time between observations.
 
-    Parameterised as log half life rather than a raw rate. The previous form
-    used exp(-clamp(delta * w.abs())) initialised at w = 0, where the absolute
-    value has no gradient, so nothing ever moved it off zero and the decay was
-    dead rather than merely inert. Half life is always positive and
-    differentiable everywhere, and it initialises to a stated prior.
+    Parameterised as log half life. A raw rate initialised at zero got no
+    gradient through its absolute value and stayed stuck. Half life is
+    positive, differentiable everywhere, and starts at a stated prior.
 
-    The observation mask is deliberately not an input. Feeding it in exploits
-    informative missingness, which is right where a missing measurement is a
-    clinical decision. Here missingness is flat batteries and network outages,
-    and a model that learns "offline implies anomalous" turns every power
-    failure into an alert.
+    The observation mask isn't an input. Missingness here is flat batteries and
+    outages, and a model that learned "offline means anomalous" would alert on
+    every power cut.
     """
 
     def __init__(self, input_dim, hidden_dim, prior_hours):
@@ -237,26 +229,16 @@ class DecayLSTMCell(nn.Module):
 
 class TailUp(nn.Module):
     """
-    Directed downstream transport over the site graph. Forward only.
+    Directed downstream transport over the site graph, forward only. We tried an
+    upstream path too, and detection was bit-identical with it zeroed.
 
-    The reverse path from the previous pass is deleted. It was there because an
-    upstream site and its downstream neighbour share a storm and a baseflow
-    regime, so a downstream reading is informative about an upstream one even
-    though water does not flow that way. With weather out of the model that
-    argument still holds for baseflow, but the measurement settled it: detection
-    was bit-identical with theta_rev zeroed, so the reverse path was carrying
-    nothing the forward path and the sibling graph did not already carry.
+    The junction split is learned. We have no discharge measurements, and a
+    hardcoded 0.5 would be a guess. The learned split is a physical claim a
+    field survey can check.
 
-    What stays: the junction split is learned rather than assumed. Tail-up
-    weighting wants a discharge ratio, nothing in the data measures discharge,
-    and a hardcoded 0.5 is an assumption the model has to work around. A softmax
-    over each junction's contributors makes it something the data fits, and the
-    learned value becomes a physical claim a field survey can check later.
-
-    Flow isolation is the property to check on the trained weights: the forward
-    matrix is nonzero only along downstream paths, so on a tree it never
-    connects the north fork to the south fork at any number of hops, and cross
-    fork response stays exactly zero rather than merely small.
+    On trained weights, check flow isolation: the forward matrix is nonzero
+    only along downstream paths, which keeps the north and south forks apart
+    and cross-fork response at exactly zero.
     """
 
     def __init__(self, hidden, num_sites, upstream, k_hops=2):
@@ -271,15 +253,12 @@ class TailUp(nn.Module):
                 if len(src) > 1
             }
         )
-        # Not zeros. At zero the hop weight kills the gradient to msg entirely,
-        # which is the dead-parameter-at-init failure the old decay rate already
-        # cost us once. Uniform over hops starts as a plain average and is free
-        # to move.
+        # Not zeros, which would kill the gradient to msg. Uniform starts as a
+        # plain average and is free to move.
         self.theta = nn.Parameter(torch.full((k_hops,), 1.0 / k_hops))
         self.msg = nn.Linear(hidden, hidden)
-        # Follows the module through .double()/.to(), so direct_matrix can
-        # allocate in the right dtype even for a topology with no junctions and
-        # therefore no parameters to read it from.
+        # Follows the module through .double()/.to(). direct_matrix reads the
+        # dtype off it, since a topology with no junctions has no parameters.
         self.register_buffer("dtype_probe", torch.zeros(0))
 
     def direct_matrix(self, device, dtype=None):
@@ -347,9 +326,8 @@ class EncoderOut(NamedTuple):
 
 class NestedEncoder(nn.Module):
     """
-    The shared trunk. All three models are this encoder plus different heads,
-    which is the whole point: if the trunks differ the comparison measures
-    trunks rather than heads.
+    The shared trunk. All three models are this encoder with different heads,
+    which keeps a comparison about the heads.
 
     Order of operations, per timestep:
       value decayed by the per-variable half life, then masked if the node is
@@ -359,23 +337,18 @@ class NestedEncoder(nn.Module):
       LSTM; LayerNorm; sibling exchange over a_var.
     Then once, at the end: pool to sites, tail-up transport, site_mix.
 
-    Sibling messaging runs at every step rather than once at the end. It costs
-    about 1.4x per epoch, it does not improve mean error, and it was the more
-    reliable configuration on every seed, which is why it is the only one here.
+    Sibling messaging runs every step rather than once at the end. It costs
+    about 1.4x per epoch and doesn't improve mean error, but it was the more
+    reliable setup on every seed.
 
-    LayerNorm on the recurrent output is purely about training dynamics: this
-    architecture reaches a loss basin roughly a third better than the site-node
-    baseline, but at a shared learning rate it gets there by luck, with
-    transient excursions after it has already descended.
+    LayerNorm on the recurrent output is for training stability. Without it the
+    better loss basin (about a third below the site-node baseline) is reached
+    by luck.
 
-    node_mask is (B, N) bool, True where the node's own reading is hidden. For a
-    hidden node BOTH the value channel and the staleness channel are zeroed at
-    every timestep, and the anchor is zeroed too. Embeddings and context stay,
-    so a masked node still carries which sensor at which site it is and what time
-    it is; what it loses is every path to its own readings. Freshness gating of
-    the sibling and site graphs still reads the raw staleness, which is timing
-    rather than measurement: it gates who talks, not what is said, and the
-    leak assertion below holds because of it, not in spite of it.
+    node_mask is (B, N) bool, True where a node's own reading is hidden. We zero
+    its value, staleness and anchor. It keeps its identity and the time, but
+    loses every path to its readings. Freshness gating still reads the raw
+    staleness, which only decides who talks.
     """
 
     def __init__(
@@ -444,8 +417,8 @@ class NestedEncoder(nn.Module):
 
         for step in range(t):
             d = staleness[:, step]
-            # Post scaling the node mean is zero, so a stale reading decays
-            # toward zero and there is no separate mean to carry around.
+            # After scaling the node mean is zero. A stale reading decays toward
+            # it, with no separate mean to carry.
             own_val = values[:, step] * self.rnn.input_decay(d, node_var)
             own_stale = torch.log1p(d)
             if keep is not None:
@@ -540,11 +513,10 @@ class ReconHead(nn.Module):
     Decodes the whole input window for one node from its final state, as a
     per-step mu and scale.
 
-    The bottleneck is 8 against hidden 64 and it has to stay tight: widen it and
-    reconstruction degenerates into an identity map, at which point the channel
-    measures nothing and scores beautifully while doing it. The asymmetry
-    follows ML4ITS/mtad-gat-pytorch, where the forecast head is the deeper one
-    and reconstruction is shallow.
+    The bottleneck is 8 against hidden 64, and it has to stay tight. Widen it
+    and reconstruction turns into an identity map that scores beautifully and
+    measures little. The asymmetry follows ML4ITS/mtad-gat-pytorch, where the
+    forecast head is the deeper one.
     """
 
     def __init__(self, hidden, window, bottleneck=8, min_scale=MIN_SCALE):
@@ -611,18 +583,16 @@ class _Nested(nn.Module):
 
     def loo_forecast(self, h, anchor):
         """
-        ModelA has no leave-one-out head, so it falls back to its forecast head.
-        Nothing scores that path, since A has no leave-one-out channel, but it lets the
-        masked-input leak assertion run against all three models, which is what
-        the assertion is for: the mask lives in the shared encoder, so a leak
-        would be a leak for every model that uses it.
+        Falls back to the forecast head when there's no leave-one-out head. We
+        don't score that path. It lets the masked-input leak check run on every
+        model, since the mask lives in the shared encoder.
         """
         delta, scale = getattr(self, "head_loo", self.head)(h)
         return anchor + delta, scale
 
     @staticmethod
     def anchor_fresh(batch):
-        """Recomputed rather than returned by encode, so encode stays a pair."""
+        """Recomputed here to keep encode returning a pair."""
         return batch["staleness"][:, -1] <= MAX_ANCHOR_STALENESS_STEPS
 
     def forecast_terms(self, batch):
@@ -643,10 +613,10 @@ class _Nested(nn.Module):
         """
         Every node's leave-one-out prediction in one pass.
 
-        Batches N copies of a single window, copy i hiding node i, so this costs
-        one forward at batch N rather than N forwards at batch 1. Ranking a
-        faulted node needs the masked prediction for every node, so the naive
-        version would dominate the whole sweep.
+        Batches N copies of one window, copy i hiding node i: one forward at
+        batch N instead of N forwards at batch 1. Ranking a faulted node needs
+        every node's masked prediction, and the naive loop would dominate the
+        sweep.
         """
         was_training = self.training
         self.eval()
@@ -668,8 +638,8 @@ class _Nested(nn.Module):
     def masked_predictor(self, batch, node_index):
         """
         A closure for common.masked_input_leak: values in, that window's masked
-        predictions out. Uses the single-node mask rather than the batched one,
-        so the assertion tests exactly the path the LOO channel uses per node.
+        predictions out. It uses the single-node mask, the same path the LOO
+        channel takes per node.
         """
 
         def predict(values):
@@ -765,24 +735,22 @@ class CobbleShoal(_ForecastLooBase):
     loss = forecast_nll + lambda_loo * loo_nll + lambda_rec * rec_nll, with the
     reconstruction NLL masked to observed steps only.
 
-    The rationale, stated so it can fail: the forecast channel is anchored on
-    the last value, the leave-one-out channel is anchored on the neighbours, and
-    reconstruction is anchored on neither, so it is the only channel that can
-    see a window whose shape is wrong when the level is right and the network
-    agrees. If it does not beat A and B on decouple and slow_all, the head is
-    parameters for nothing.
+    The idea, stated so it can fail: the forecast channel is anchored on the
+    last value and leave-one-out on the neighbours. Reconstruction is anchored
+    on neither, which makes it the one channel that can see a window whose
+    shape is wrong while its level is right and the network agrees. If it
+    doesn't beat A and B on decouple and slow_all, the head is wasted.
 
-    Reconstruction is computed from the clean pass, so C costs two forwards per
-    step and not three; the measured cost is reported rather than assumed.
+    Reconstruction comes from the clean pass, and C costs two forwards per step,
+    not three. We report the measured cost.
 
     Channels: excursion, loo, reconstruction, dispersion.
     """
 
     INPUT_CONTRACT = model_calls.NESTED_NODE_BATCH
 
-    # Nothing. Rain is handled outside this model by anomalies/rain_gate.py,
-    # which moves the threshold and never the score. Empty rather than omitted:
-    # an empty tuple says this was checked.
+    # None. anomalies/rain_gate.py handles rain outside the model by moving
+    # the threshold. The empty tuple says we checked.
     BUILTIN_SUPPORT = ()
 
     channel_names = ("excursion", "loo", "reconstruction", "dispersion")
@@ -790,9 +758,9 @@ class CobbleShoal(_ForecastLooBase):
     @classmethod
     def from_metadata(cls, metadata):
         """
-        Rebuild from a trained metadata blob. Sizes come from the creek
-        structure this model defines, not from the caller, because the node
-        count is a property of the site inventory rather than of the window.
+        Rebuild from a trained metadata blob. Sizes come from the creek structure
+        this model defines, because the node count belongs to the site inventory,
+        not the window.
         """
         return cls(
             len(SITE_ORDER),
@@ -851,17 +819,11 @@ class CobbleShoal(_ForecastLooBase):
     @torch.no_grad()
     def score(self, batch, nulls, return_channels=False):
         """
-        One number per node: the combined Fisher statistic. Larger is more
-        anomalous. This is the whole contract the alerting path needs.
-
-        The detector deliberately cannot see a channel from here. Channels are
-        an implementation detail of how the score is built, and every caller
-        that learned their names became a place the model could not change.
-        Pass return_channels=True to get the raw per-channel scores alongside,
-        for diagnostics that genuinely want them.
-
-        nulls is a ChannelNulls fitted at calibration time and loaded from the
-        saved artifacts. Nothing is fitted here: this runs on the serving path.
+        One number per node, the combined Fisher statistic. Larger is more
+        anomalous. Channels stay hidden, because every caller that learned their
+        names became one more place the model couldn't change.
+        return_channels=True adds the raw channel scores for diagnostics. nulls
+        come from calibration, and we don't fit anything here.
         """
         chans = self.channels(batch)
         combined = scoring.combine(pvalues=nulls.pvalues(chans), rule="fisher")
@@ -870,7 +832,7 @@ class CobbleShoal(_ForecastLooBase):
 
 def build_cobble_shoal(num_sites, num_vars, num_context, num_nodes, seed, window):
     """
-    Construct with the same argument order the comparison harness used, so a
-    checkpoint from that harness loads into this class without a shim.
+    Same argument order as the comparison harness, and its checkpoints load
+    without a shim.
     """
     return CobbleShoal(num_sites, num_vars, num_context, num_nodes, seed, window=window)

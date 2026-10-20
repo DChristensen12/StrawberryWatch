@@ -1,9 +1,6 @@
 """
-What each model in the serving registry can do, without loading its weights.
-
-The settings pages need a model's rules, its sites, what it can do about a site
-and how it handles rain before anything has run, so this reads them off the
-class and the calibration files that are in git.
+What each registered model can do, read off its class and calibration files
+without loading any weights. The settings pages need this before a model runs.
 """
 
 from __future__ import annotations
@@ -26,7 +23,7 @@ class ModelInfo:
     # (table, inventory variable) for every sensor it scores
     nodes: list
     rain_default: float
-    # RainGate keyword arguments besides the multiplier, matching what the model does
+    # RainGate keyword arguments other than the multiplier
     rain_params: dict = field(default_factory=dict)
     rain_mode: str = "decay"
     # Below this share of its sensors a moment isn't judged at all
@@ -34,6 +31,11 @@ class ModelInfo:
     # How many steps over the line a rule needs before it counts
     min_steps: int = 1
     note: str = ""
+    # "scale" models move each rule's line by a multiple of the tested one. A
+    # "rate" model is calibrated, and its slider moves the false alarm rate instead
+    sensitivity: str = "scale"
+    # A rate model's fitted tails, {"site.variable": {rule: tail}}, from its calibration
+    tails: dict = field(default_factory=dict)
 
     @property
     def title(self):
@@ -63,7 +65,7 @@ def _dusk_crayfish(cls, _inventory):
         rules=tuple(cls.RULES),
         site_choice=tuple(cls.SITE_CHOICE),
         sites=sites,
-        # Both rules score conductivity and nothing else
+        # Both rules score conductivity only
         nodes=[(site, "conductivity") for site in sites],
         rain_default=float(Config.RAIN_THRESHOLD_MULTIPLIER),
         min_steps=int(MIN_TIMESTEPS_OVER_THRESHOLD),
@@ -103,9 +105,59 @@ def _cobble_shoal(cls, inventory):
     )
 
 
-# Sites and sensors aren't on the serving contract, so each model's are read
-# here. One registered later still lists, with no sites, until it gets a line.
-_DETAILS = {"dusk_crayfish": _dusk_crayfish, "cobble_shoal": _cobble_shoal}
+def _water_strider(cls, inventory):
+    from strawberrywatch import paths
+    from strawberrywatch.anomalies.rain_gate import RainGate
+
+    path = paths.checkpoints_dir() / "water_strider_calibration.json"
+    calibration = json.loads(path.read_text()) if path.exists() else {"sensors": {}}
+    sensors = {
+        key: entry
+        for key, entry in calibration["sensors"].items()
+        if entry["site"] in inventory.sites
+        and entry["variable"] in inventory.site(entry["site"]).scored_variables
+    }
+    gate = RainGate(base_threshold=1.0)
+    return ModelInfo(
+        name=cls.name,
+        rules=tuple(cls.RULES),
+        site_choice=tuple(cls.SITE_CHOICE),
+        sites=sorted({entry["site"] for entry in sensors.values()}),
+        nodes=[(entry["site"], entry["variable"]) for entry in sensors.values()],
+        rain_default=gate.multiplier,
+        rain_mode=gate.mode,
+        min_steps=int(cls.min_steps),
+        sensitivity="rate",
+        tails={key: entry["tests"] for key, entry in sensors.items()},
+    )
+
+
+def _flame_skimmer(cls, inventory):
+    """Cobble Shoal's sites and sensors, minus the ones Flame Skimmer didn't see in training."""
+    from strawberrywatch import paths
+    from strawberrywatch.preprocessing import node_windows as nw
+    from strawberrywatch.serving.flame import CALIBRATION
+
+    info = _cobble_shoal(cls, inventory)
+    path = paths.checkpoints_dir() / CALIBRATION
+    corpus = json.loads(path.read_text()).get("corpus", {}) if path.exists() else {}
+    names = {canonical: name for name, canonical in nw.VARIABLE_MAP.items()}
+    offline = set()
+    for key in corpus.get("offline_nodes", ()):
+        site, var = key.split(".", 1)
+        offline.add((nw.SITE_TO_TABLE.get(site, site), names.get(var, var)))
+    info.nodes = [node for node in info.nodes if node not in offline]
+    return info
+
+
+# Sites and sensors aren't on the serving contract, and we read them here. A
+# model missing from this still lists, just with no sites.
+_DETAILS = {
+    "dusk_crayfish": _dusk_crayfish,
+    "cobble_shoal": _cobble_shoal,
+    "water_strider": _water_strider,
+    "flame_skimmer": _flame_skimmer,
+}
 
 
 def registered(inventory=None):
@@ -138,10 +190,9 @@ def registered(inventory=None):
 
 def rain_curve(model, rain_on, multiplier, storm_hours=6, after_hours=66):
     """
-    The line as a multiple of normal through a storm and the hours after it.
-
-    RainGate does the arithmetic, so the picture is what the model does. Hours
-    count from the start of the rain.
+    The alert line as a multiple of normal, through a storm and after it.
+    RainGate does the arithmetic, and it's exactly what the model does. Hours
+    count from when the rain starts.
     """
     steps = int((storm_hours + after_hours) * 3600 / STEP_SECONDS)
     hours = np.arange(steps) * STEP_SECONDS / 3600

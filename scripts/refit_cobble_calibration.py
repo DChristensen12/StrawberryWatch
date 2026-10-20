@@ -1,15 +1,14 @@
 """
 Refit Cobble Shoal's channel nulls and POT threshold against the real corpus.
 
-The shipped artifact was fitted on synthetic windows because that was the only
-corpus the model could read. The adapter changed that, and a null describing
-data the detector never sees describes nothing. The weights do not move here.
-A calibration is the fault-free distribution of the scores they produce.
+The shipped artifact was fitted on synthetic windows, and a null describing data
+the detector won't see is of no use. The weights don't move here. A
+calibration is the fault-free distribution of the scores they produce.
 
     python scripts/refit_cobble_calibration.py
 
-Writes cobble_calibration.REAL beside the synthetic one, which stays put so the
-two can be compared. The NodeScaler goes into the artifact with the nulls:
+Writes cobble_calibration.REAL beside the synthetic one, which stays put for
+comparing the two. The NodeScaler goes into the artifact with the nulls:
 they were fitted in that space and only mean anything applied in it.
 """
 
@@ -32,8 +31,6 @@ from strawberrywatch.preprocessing import node_windows as nw
 WINDOW = 24
 
 
-# fault-free means fault-free. a null fitted over a known spill has the spill
-# sitting in its own tail
 def load_model(seed):
     """Cobble Shoal sized as its checkpoint was, shipped weights loaded."""
     from strawberrywatch.models.Cobble_Shoal import CobbleShoal

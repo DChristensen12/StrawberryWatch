@@ -1,17 +1,11 @@
 """
-The window pipeline the real corpus and the synthetic generator both run through.
+The window pipeline both the real corpus and the synthetic generator run
+through. Cobble Shoal reads per-node series, a node being a (site, variable)
+pair, and build_window() turns the archive into them.
 
-Cobble Shoal reads per-node series where a node is a (site, variable) pair, and
-prepare_sequences_normalized produces site-by-feature windows, so the model was
-never reachable from the package pipeline. build_window() is the missing half.
-
-NodeScaler, regrid_to_nodes and add_context_features moved here out of
-tests/synthetic/creek_synthetic.py so the generator and the adapter share one regrid
-instead of two that agree by inspection.
-
-Sensor state goes through the mask, never through filling. A probe that was not
-installed comes out with target_mask False and staleness at its ceiling. Zero
-filling it would hand the model a reading it treats as real.
+Sensor state goes through the mask, not through filling. A probe that wasn't
+installed comes out with target_mask False and staleness at its ceiling, since a
+zero would read as a real measurement.
 """
 
 from __future__ import annotations
@@ -44,21 +38,18 @@ VARIABLE_MAP = {
     "floating_conductivity": "float_cond",
 }
 
-# scnf010 is Wickson Footbridge under its old site code. the inventory speaks
-# table names, the model speaks site names, and the inventory is not moving
+# scnf010 is Wickson Footbridge under its old site code. The inventory uses
+# table names and the model uses site names
 TABLE_TO_SITE = {"scnf010": "footbridge"}
 SITE_TO_TABLE = {v: k for k, v in TABLE_TO_SITE.items()}
 
 
 class NodeScaler:
     """
-    Per node z-score, fitted on observed values only and saved alongside the
-    weights. Carried forward values are excluded from the fit because a node
-    that reports rarely would otherwise have its own stale readings dominate
-    its own statistics.
-
-    Refitting this at inference is the failure that silently shifted the
-    conductivity mean out of training space last time. Fit once, save, load.
+    Per node z-score, fitted on observed values only and saved with the weights.
+    Carried-forward values are left out, or a rarely reporting node's stale
+    readings would dominate its own statistics. Fit once, save, load: refitting
+    at inference is what shifted the conductivity mean out of training space.
     """
 
     def __init__(self, mean=None, std=None):
@@ -100,15 +91,14 @@ class NodeScaler:
 
 def regrid_to_nodes(site_frames, grid, nodes):
     """
-    Build node level arrays. Three outputs where there used to be two, because
-    "can this step be a model input" and "can this step be a scoring target" are
-    different questions:
+    Node-level arrays. "Can this step be a model input" and "can it be a scoring
+    target" are different questions with separate arrays:
 
-      values       (T, N) last observation carried forward, backward only, so
-                          the model never sees the future
+      values       (T, N) last observation carried forward, looking backward
+                          only (the model can't see the future)
       staleness    (T, N) grid steps since that observation
       target_val   (T, N) nearest observation within half a grid step, NaN
-                          otherwise, which is what a prediction is scored against
+                          otherwise. Predictions are scored against this
       target_mask  (T, N) whether target_val exists
 
     Scoring against the carried forward value instead of the real one would let
@@ -160,12 +150,8 @@ def regrid_to_nodes(site_frames, grid, nodes):
 
 def add_context_features(grid):
     """
-    Shared exogenous channels, present at every step, so no mask.
-
-    Two features, both clock. The weather arguments this function used to take
-    are gone: rain handling moved to the web application, so rain, air
-    temperature and shortwave radiation are not available to the model at
-    inference and must not be available to it in training either.
+    The two clock features. They're the same at every node and need no mask.
+    No weather, since the model doesn't get it at inference either.
     """
     ctx = pd.DataFrame(index=grid, columns=CONTEXT_FEATURES, dtype=float)
     ha = 2 * np.pi * (grid.hour + grid.minute / 60.0) / 24.0
@@ -177,7 +163,7 @@ def roster_from_inventory(inventory=None, site_order=SITE_ORDER):
     """
     {site: [canonical vars]} for the sites this model covers.
 
-    Off the inventory, so adding a probe is one edit to inventory.yaml. A sensor
+    Read off the inventory. Adding a probe is one edit to inventory.yaml. A sensor
     the grid marks "-" is not fitted and yields no node. Whether a fitted probe
     is switched on is a per-timestep question the mask answers.
     """
@@ -208,7 +194,7 @@ def check_roster(roster, expected):
     """
     Refuse a roster the checkpoint cannot take, naming what moved.
 
-    Node count is baked into the weights, so a different roster either dies deep
+    Node count is baked into the weights. A different roster either dies deep
     in a matmul or, worse, loads and scores the wrong node.
     """
     for site in sorted(set(roster) | set(expected)):
@@ -227,9 +213,9 @@ def _install_masked(frame, table, variable, inventory, as_of):
     """
     One column with everything that is not a measurement set to NaN.
 
-    Sentinels first. raw_data_loader keeps them on purpose, since naming a
-    sentinel is a quality test's job, but this is a model input path and -9999
-    is not a conductivity. Left in, 258 of them at north_fork_0 put that node's
+    Sentinels first. raw_data_loader keeps them, since naming a sentinel is a
+    quality test's job, but this is a model input path and -9999 is not a
+    conductivity. Left in, 258 of them at north_fork_0 put that node's
     temperature sd at 306 degrees and flattened every real excursion.
 
     Then whatever resolve_series calls NOT_INSTALLED: not yet in the creek,
@@ -245,9 +231,9 @@ def site_frames_from_archive(tables, inventory=None, as_of=None, roster=None):
     {site: DataFrame} in the model's vocabulary, masked by the inventory.
 
     depth maps straight onto depth_dev with no datum removed. Subtracting the
-    site median looked tidy and was lookahead, since the median of the whole
-    series is a function of the future and a reading in April moved the scaled
-    value in March. NodeScaler centres each node on the corpus once instead.
+    site median looked tidy but was lookahead. The median of the whole series
+    depends on the future, and a reading in April moved the scaled value in
+    March. NodeScaler centres each node on the corpus once instead.
     """
     inventory = inventory or inventory_module.load()
     roster = roster or roster_from_inventory(inventory)
@@ -272,9 +258,9 @@ def build_window(tables, start, end, inventory=None, scaler=None, as_of=None):
     """
     A real corpus window in exactly the shape make_synthetic_creek returns.
 
-    Same keys, same dtypes, same regrid, so anything scoring a synthetic window
+    Same keys, same dtypes, same regrid. Code that scores a synthetic window
     scores a real one without a branch. scaler=None fits one here; pass a fitted
-    one on the serving path, where fitting at inference is the whole defect.
+    one on the serving path, where fitting at inference would be a bug.
     """
     inventory = inventory or inventory_module.load()
     roster = check_roster(roster_from_inventory(inventory), _expected_roster())
@@ -290,9 +276,9 @@ def build_window(tables, start, end, inventory=None, scaler=None, as_of=None):
     return {
         "values": scaler.transform(values),
         "staleness": staleness,
-        # transform() hands back a fresh float32 array, so the NaN fill can land in
-        # it rather than in a copy, and the astype is already satisfied. On a
-        # corpus-length grid the two copies this drops were 60 MB each.
+        # transform() hands back a fresh float32 array. The NaN fill goes straight
+        # into it and the astype is already satisfied. On a corpus-length grid
+        # this saves two 60 MB copies.
         "target_val": np.nan_to_num(scaler.transform(target_val), copy=False).astype(
             np.float32, copy=False
         ),
@@ -342,9 +328,9 @@ def fault_free_anchors(win, count, window=24, min_coverage=0.5, spans=EVENT_SPAN
     Anchor steps for fitting a null: clear of the labelled events, and reporting.
 
     Spread over the corpus, not taken from the front. The archive opens in May
-    2021 with only scnf010 in it, that being the inferred install date the
-    inventory flags as most likely wrong, so the first four years are one node
-    and sixteen holes.
+    2021 with only scnf010 in it (the inferred install date the inventory
+    flags as most likely wrong). The first four years are one node and sixteen
+    holes.
 
     min_coverage is the fraction of nodes needing a real observation at the
     anchor. Half is a judgment call that drops the single-node prologue.
@@ -352,9 +338,7 @@ def fault_free_anchors(win, count, window=24, min_coverage=0.5, spans=EVENT_SPAN
     bad = _labelled(win["grid"], spans)
     mask = win["target_mask"]
     n_nodes = mask.shape[1]
-    # Both conditions over all candidate anchors at once. Per anchor they were
-    # rescanning the same window of `bad` and re-summing the same mask row, which
-    # is O(grid * window) for something two cumulative sums answer.
+    # Both conditions over every candidate anchor at once, from two cumulative sums
     candidates = np.arange(window, max(window, len(win["grid"]) - 1))
     spans_clear = np.concatenate([[0], np.cumsum(bad, dtype=np.int64)])
     covered = mask.sum(axis=1)
@@ -382,9 +366,7 @@ def to_batch(win, anchor, window):
     node_site = win["node_site"]
     lo, hi = anchor - window, anchor
 
-    # These three describe the creek, not the anchor, so scoring a thousand
-    # anchors out of one window used to rebuild the same three tensors a thousand
-    # times. Every consumer only reads them, so one copy per roster is enough.
+    # These describe the creek, not the anchor. One read-only copy per roster
     site_inventory, a_var, site_matrix = _graph_tensors(
         tuple(node_site.tolist()),
         tuple(sites),
@@ -413,10 +395,10 @@ def _graph_tensors(node_site_key, sites_key, roster_key):
     """
     The roster-derived graph tensors for to_batch, built once per distinct creek.
 
-    Keyed on plain tuples because the cache has to be keyed on what the tensors
-    are built from, and a tensor is not hashable. Handing out one shared copy is
-    only safe while nothing writes to them, which is why this is private: the
-    encoder multiplies and indexes them and nothing mutates them in place.
+    Keyed on plain tuples, the inputs the tensors are built from, since a
+    tensor isn't hashable. One shared copy is only safe while no caller writes
+    to them, and that's why this is private. The encoder multiplies and
+    indexes them but doesn't change them in place.
     """
     import torch
 

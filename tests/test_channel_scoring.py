@@ -149,9 +149,8 @@ def test_reconstruction_mask_is_live():
     assert np.isnan(scoring.reconstruction(xh, sc, vals, off)).all(), (
         "reconstruction ignores observed_mask"
     )
-    # Partial masking must actually change the mean. The unmasked timesteps
-    # carry a different error from the masked ones, so averaging over a subset
-    # has to move the answer; if it does not, the mask is being ignored.
+    # The masked steps carry a different error. If the mean doesn't move, the
+    # mask is being ignored
     half = on.copy()
     half[:, :2, :] = False
     mixed = np.zeros((1, 4, 2))

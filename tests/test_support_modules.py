@@ -1,9 +1,7 @@
 """
-The registry, the kinds, the stack, the budget split and the audit record.
-
-All three modules answer for real now. What each one says is pinned in its
-own file: tests/test_trial_bed.py, tests/test_settling_pool.py and
-tests/test_newtwork_run.py. Anything needing a number uses a stub defined here.
+The support module framework: the registry, the kinds, stacking, the budget
+split and the audit record. What each module actually says is tested in its
+own file. Anything that needs a number uses the stubs here.
 """
 
 from __future__ import annotations
@@ -30,8 +28,8 @@ from strawberrywatch.support_modules.trial_bed import TrialBed
 
 BASE_THRESHOLD = 39.13047989749433
 
-# What each explainer says about the same two firings. Written down rather than
-# recomputed, so a module that changes its mind has to change this too.
+# What each explainer says about the same two firings. Written out by hand, and
+# a module that changes its answer has to change this too.
 _VERDICTS_BY_MODULE = {
     "newtwork_run": [
         "consistent_with_transport",
@@ -48,7 +46,7 @@ T = 12
 
 
 class ConstantNull:
-    """A null that maps a raw score to a fixed p-value, so firing is decidable."""
+    """A null that maps any raw score to one fixed p-value."""
 
     def __init__(self, p):
         self.p = p
@@ -139,9 +137,8 @@ def test_registry_holds_the_three_named_modules():
 
 def test_unknown_name_raises_and_lists_the_valid_options():
     """
-    The worst outcome is a typo that attaches nothing, scores with no support
-    and reports success. It has to raise, and the message has to say what would
-    have worked.
+    A typo that attached nothing would look like success. It has to raise and
+    say what would have worked.
     """
     with pytest.raises(registry.UnknownSupportModule) as exc:
         registry.support_class("trail_bed")
@@ -165,8 +162,8 @@ def test_the_same_module_twice_is_refused():
 
 def test_modulators_and_detectors_are_different_kinds():
     """
-    The distinction that stops the alarm rate rising silently: a detector
-    spends budget and a modulator does not.
+    A detector spends budget and a modulator doesn't. Without that split the
+    alarm rate creeps up unnoticed.
     """
     assert base.SupportModulator.kind == "modulator"
     assert base.SupportDetector.kind == "detector"
@@ -184,10 +181,8 @@ def test_every_module_exposes_name_describe_and_validate():
 
 def test_every_module_answers_rather_than_raising():
     """
-    All three are implemented. Each returns its own kind's shape for real sites.
-
-    Real site names, because every module now reads the inventory and a made up
-    node is a different test (that one lives further down).
+    Each module returns its own kind's shape for real sites. Real names, since
+    every module reads the inventory. Made-up nodes are tested further down.
     """
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     fired = np.zeros((T, len(sites)), dtype=bool)
@@ -207,11 +202,10 @@ def test_every_module_answers_rather_than_raising():
 
 def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
     """
-    An explainer runs after the decision and reads it. It adds no test, so it
-    is not a detector and takes no budget; it moves no threshold, so it is not
-    a modulator; it runs after the model rather than before, so it is not a
-    screen. Charging it budget would cost the primary sensitivity for a module
-    that can never fire.
+    An explainer runs after the decision and only reads it. It adds no test (not
+    a detector), moves no threshold (not a modulator) and runs after the model
+    (not a screen). Charging it budget would cost sensitivity for a module that
+    can't fire.
     """
     bed = TrialBed()
     assert bed.kind == "explainer"
@@ -220,8 +214,7 @@ def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
     assert not isinstance(bed, base.SupportScreen)
     assert isinstance(bed, base.SupportExplainer)
 
-    # It has none of the other kinds' required methods, so it could not have
-    # been registered as one of them without inventing an arithmetic for it.
+    # It has none of the other kinds' methods
     assert not hasattr(bed, "multipliers")
     assert not hasattr(bed, "score")
     assert not hasattr(bed, "admit")
@@ -236,10 +229,9 @@ def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
 
 def test_settling_pool_is_a_screen_because_it_fits_neither_other_kind():
     """
-    A screen runs before the model. It adds no test, so it is not a detector
-    and takes no budget; it moves no threshold, so it is not a modulator. What
-    it does change is the model's input, which moves the distribution the
-    primary's calibration was fitted against.
+    A screen runs before the model and changes its input. It adds no test (not
+    a detector) and moves no threshold (not a modulator), though cleaning the
+    input does shift what the calibration was fitted against.
     """
     pool = SettlingPool()
     assert pool.kind == "screen"
@@ -247,8 +239,7 @@ def test_settling_pool_is_a_screen_because_it_fits_neither_other_kind():
     assert not isinstance(pool, base.SupportModulator)
     assert isinstance(pool, base.SupportScreen)
 
-    # It has neither of the other kinds' required methods, so it could not have
-    # been registered as one of them without inventing an arithmetic for it.
+    # It has neither of the other kinds' methods
     assert not hasattr(pool, "multipliers")
     assert not hasattr(pool, "score")
 
@@ -283,9 +274,8 @@ def test_the_three_call_shapes_take_the_same_path():
 
 def test_an_empty_stack_leaves_the_gate_decision_untouched():
     """
-    Attaching nothing must reproduce the rain gate's own verdict exactly, or
-    "no support" is a different code path rather than the same one at length
-    zero.
+    With nothing attached we get the rain gate's own verdict exactly. "No
+    support" is the same code path with an empty list.
     """
     scores = np.linspace(0.2, 2.0, T * len(NODES)).reshape(T, len(NODES)) * BASE_THRESHOLD
     s, p, rain = a_run(scores)
@@ -306,10 +296,9 @@ def test_order_in_the_list_does_not_change_the_result(kind):
     """
     Every permutation of three same-kind modules, compared bit for bit.
 
-    The stack sorts by name and combines in that order, so the sequence of
-    floating point operations is the same whatever the operator typed. Relying
-    on multiplication commuting would not cover this: a*b == b*a holds, but
-    (a*b)*c and (a*c)*b need not.
+    The stack sorts by name and combines in that order, and the floating point
+    operations come out the same whatever order the operator typed. a*b == b*a
+    holds, but (a*b)*c and (a*c)*b don't have to.
     """
     if kind == "modulator":
         made = {n: StubModulator(n, f) for n, f in (("m_a", 1.7), ("m_b", 1.3), ("m_c", 2.9))}
@@ -374,7 +363,7 @@ def test_budget_is_divided_not_handed_out_fresh():
 
 
 def test_weights_must_sum_below_one():
-    """At a sum of 1 the primary is left nothing, which is a threshold at infinity."""
+    """At a sum of 1 the primary's threshold would be infinite."""
     detectors = [StubDetector("a"), StubDetector("b")]
     with pytest.raises(base.BudgetError, match="sum below 1"):
         allocate(1e-4, detectors, weights=[0.5, 0.5])
@@ -463,8 +452,8 @@ def test_the_record_answers_why_did_this_fire():
 
 def test_the_record_answers_what_changes_if_i_turn_that_off():
     """
-    verdict_without, per module, without re-running anything. The detector here
-    is the only reason the node fires, so switching it off must clear it.
+    verdict_without, per module, without re-running anything. The detector is
+    the only reason this node fires, and switching it off has to clear it.
     """
     s, p, rain = a_run()
     stack = SupportStack([StubDetector("d_a", p=1e-9), StubDetector("d_b", p=0.9)])
@@ -503,8 +492,8 @@ def test_an_explainer_is_in_the_record_and_changes_no_verdict():
 
 def test_an_explainer_reads_the_firings_the_rest_of_the_stack_made():
     """
-    It is handed the primary's firings at the final threshold, so the modulator
-    above it has already moved the bar by the time it looks.
+    It gets the primary's firings at the final threshold, after the modulator
+    has moved the bar.
     """
     scores = np.linspace(0.2, 2.0, T * len(NODES)).reshape(T, len(NODES)) * BASE_THRESHOLD
     s, p, rain = a_run(scores)
@@ -538,7 +527,7 @@ def test_an_explainer_returning_the_wrong_number_of_accounts_is_refused():
 
 
 def test_an_unscorable_score_is_not_reported_as_clear():
-    """NaN never fires, and it is not the same answer as "did not exceed"."""
+    """NaN doesn't fire, and it's a different answer from "did not exceed"."""
     s, p, rain = a_run()
     s = s.copy()
     s[0, 0] = np.nan
@@ -555,10 +544,9 @@ def test_an_unscorable_score_is_not_reported_as_clear():
 
 def test_the_two_firing_rules_agree():
     """
-    base._fired walks a record at a time and rain_gate.fired takes arrays, so
-    the rule is written twice. There were three rain formulas in this codebase
-    once and decisions() carried its own copy of fired(); this is the same
-    defect class, so the two are pinned against each other rather than trusted.
+    base._fired works a record at a time and rain_gate.fired takes arrays, so
+    the rule is written twice. Copies like this have drifted apart here before,
+    so the two are pinned against each other.
     """
     rng = np.random.default_rng(0)
     scores = rng.normal(BASE_THRESHOLD, 10.0, size=200)
@@ -590,11 +578,8 @@ def test_one_record_per_timestep_per_node():
 @pytest.mark.parametrize("name", ["newtwork_run", "trial_bed"])
 def test_the_same_module_reaches_both_models(model, name):
     """
-    The point of the framework: one module, two models with different input
-    contracts, one path to the module's method, and the same answer out.
-
-    Arriving is not enough now that the modules are implemented, so the answers
-    are compared across the two models rather than just checked for shape.
+    What the framework is for: one module, two models with different input
+    contracts, and the same answer from both.
     """
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     fired = np.zeros((T, len(sites)), dtype=bool)
@@ -614,9 +599,8 @@ def test_the_same_module_reaches_both_models(model, name):
 )
 def test_the_explainer_reaches_both_models_too(model):
     """
-    Trial Bed is implemented, so arriving is not enough: it has to answer, and
-    answer the same way for a sequence-contract model and a nested-node one.
-    Nothing about either model is threaded through to get there.
+    Trial Bed answers the same way for a sequence-contract model and a
+    nested-node one, without being told which it's attached to.
     """
     stack = SupportStack.load(["trial_bed"], model)
     fired = np.zeros((T, len(NODES)), dtype=bool)
@@ -634,9 +618,9 @@ def test_the_explainer_reaches_both_models_too(model):
 )
 def test_the_screen_reaches_both_models_too(model):
     """
-    The screen answers for both models, and the grid it returns is the model's
-    FLAG_POLICY applied to the same flags. Both models exclude FAIL and MISSING
-    today, so both grids match; the flags underneath are identical regardless.
+    The screen answers for both models, and its grid is each model's FLAG_POLICY
+    applied to the same flags. Both exclude FAIL and MISSING today, and the
+    grids match.
     """
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     index = pd.date_range("2026-03-01", periods=T, freq="15min", tz="UTC")
@@ -665,13 +649,10 @@ def test_the_framework_names_no_model():
 
 def test_models_do_not_know_which_modules_exist():
     """
-    A model declares what it already handles and nothing else. It must not
-    import the support package or name a module class.
-
-    Imports are read off the parsed tree rather than the text, because a
-    comment saying which package reads BUILTIN_SUPPORT is documentation and a
-    coupling is an import. The class-name check stays textual: naming a module
-    class anywhere in a model is the coupling, whether it is imported or not.
+    A model declares what it already handles and that's all. It mustn't import
+    the support package or name a module class. We read imports off the parsed
+    tree, which lets a comment mention the package. Class names are checked in
+    the raw text, since naming one anywhere couples the two.
     """
     import ast
     import inspect
@@ -705,9 +686,9 @@ def test_each_model_declares_what_it_already_handles():
 
 def test_a_module_colliding_with_a_builtin_is_refused():
     """
-    Dusk Crayfish applies a 2.0 rain multiplier inside anomaly_detector.py.
-    A rain modulator on top would raise the bar twice, and both applications
-    would be individually correct, so nothing in the arithmetic would complain.
+    Dusk Crayfish applies a 2.0 rain multiplier inside anomaly_detector.py. A
+    rain modulator on top would raise the bar twice, and since each step is
+    correct on its own, no error would show it.
     """
     rain_module = StubModulator("rain", 2.0)
     with pytest.raises(registry.SupportCollision, match="already handles"):
@@ -718,10 +699,7 @@ def test_a_module_colliding_with_a_builtin_is_refused():
 
 
 def test_the_collision_check_runs_on_every_load():
-    """
-    In the loader, not in validate(), so a module that overrides validate
-    cannot drop it.
-    """
+    """In the loader, where a module overriding validate() can't drop it."""
     import inspect
 
     src = inspect.getsource(registry.load)
@@ -748,8 +726,8 @@ def test_the_collision_check_runs_on_every_load():
 
 def test_a_module_that_needs_a_contract_is_checked_against_it():
     """
-    validate() reads what the model declares. It never asks which model it is,
-    which is what keeps the same module working on both.
+    validate() reads what the model declares without asking which model it is.
+    That's how one module works on both.
     """
 
     class NestedOnly(base.SupportDetector):
@@ -766,7 +744,7 @@ def test_a_module_that_needs_a_contract_is_checked_against_it():
 
 def test_no_module_names_a_model():
     """
-    Item 26. Every module attaches to both models, so none of them may name one,
+    Every module attaches to both models, and none of them may name one,
     import one, or branch on one.
     """
     import ast
@@ -803,8 +781,8 @@ def test_no_module_names_a_model():
                 imported.update(a.name for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module)
-        # settling_pool reaches contracts for the reshape, which is the contract
-        # layer rather than a model, and it does so inside the function
+        # settling_pool imports contracts for the reshape, inside the function.
+        # That's the contract layer, not a model.
         assert not any(m.startswith("strawberrywatch.models.") for m in imported), (
             f"{module.__name__} imports a model module: {sorted(imported)}"
         )
@@ -812,9 +790,8 @@ def test_no_module_names_a_model():
 
 def test_the_inventory_describes_more_of_the_creek_than_the_graph_builds():
     """
-    Item 3. The inventory has to carry the full topology while the deployed
-    model keeps running on its four nodes, so the gap is pinned rather than
-    left to be noticed later.
+    The inventory carries the full topology while the deployed model runs on
+    four nodes. We pin the gap here.
     """
     from strawberrywatch import inventory
     from strawberrywatch.config import Config

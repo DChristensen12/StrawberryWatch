@@ -1,16 +1,12 @@
 """
 Turning a plain readings frame into the windows the model was trained on.
 
-This mirrors preprocessing/data_processor.py's prepare_sequences_normalized,
-minus everything that only matters while training: no scaler fitting, no QC
-valid column, no train/validation split. It is a separate function rather than
-a call into that one because that module imports Config and the ingest package,
-which drags our API client and our file paths along with it. A caller feeding us
-their own data should not inherit any of that.
+It mirrors prepare_sequences_normalized without the training-only parts (no
+scaler fitting, QC column or validation split). It's separate because that
+module drags in Config, the API client and our file paths.
 
-Keeping the two in step matters. If you change how training builds a window,
-change it here too, or the model will be scored on inputs shaped differently
-from the ones it learned on and nothing will raise.
+Keep the two in step. If training builds windows differently, change it here
+too. Otherwise the model gets differently shaped inputs and no error is raised.
 """
 
 from __future__ import annotations
@@ -61,10 +57,10 @@ def add_time_features(frame):
     """
     Add the four clock features the model expects, derived from the index.
 
-    hour and day of year go in as sine and cosine pairs so 23:00 and 00:00 sit
-    next to each other instead of at opposite ends of a number line. These come
-    from timestamps, never from a sensor, so they are never missing. Safe to call
-    on a frame that already has them.
+    hour and day of year go in as sine and cosine pairs. 23:00 and 00:00 then
+    sit next to each other instead of at opposite ends of a number line. These
+    come from timestamps, not a sensor, and can't be missing. Safe to call on a
+    frame that already has them.
     """
     idx = frame.index
     hour = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
@@ -114,9 +110,9 @@ def _impute_short_gaps(frame, feature_cols, limit_hours):
     """
     Interpolate over gaps shorter than limit_hours, per site.
 
-    Longer gaps stay NaN on purpose. A four hour hole in conductivity is not
-    something we get to invent a value for, and downstream the absence is what
-    tells the mask that node was not reporting.
+    Longer gaps stay NaN. We shouldn't invent a value for a four hour hole in
+    conductivity, and downstream the absence tells the mask that node wasn't
+    reporting.
     """
     stamps = pd.DatetimeIndex(sorted(frame.index.unique()))
     if len(stamps) < 2:
@@ -161,23 +157,23 @@ def build_windows(
     Slice a long frame into (sequences, targets, timestamps, node_mask).
 
     frame is one row per (timestamp, location) with a DatetimeIndex, a 'location'
-    column, and a column per trained feature. Everything comes back normalized
-    with the training statistics, because refitting on a live window moves the
-    goalposts: our live conductivity averages about 100 uS/cm above what the
-    model trained on, so a fresh scaler would put every input somewhere the model
-    has never seen.
+    column, and a column per trained feature. It all comes back normalized with
+    the training statistics, because refitting on a live window moves the
+    goalposts. Our live conductivity averages about 100 uS/cm above what the
+    model trained on, and a fresh scaler would put each input somewhere the
+    model hasn't seen.
 
-    node_mask is True where a site actually reported conductivity at that step.
-    Missing cells go in as zero, which is the normalized mean, and the mask is
-    what stops the model treating that zero as a real reading.
+    node_mask is True where a site reported conductivity at that step. Missing
+    cells go in as zero (the normalized mean), and the mask stops the model
+    treating that zero as a real reading.
 
-    grid is the spacing every site gets snapped to before anything else. It
-    defaults to the fifteen minutes the shipped model trained on. Pass None to
-    skip it, which is only right when you already know the frame is on one grid.
+    grid is the spacing each site gets snapped to first. It defaults to the
+    fifteen minutes the shipped model trained on. Pass None to skip it, only
+    when you already know the frame is on one grid.
 
     Returns empty arrays when the frame has no run of consecutive usable steps
-    long enough to fill a window. That is a normal outcome on a sparse feed, not
-    an error, so the caller decides what to do about it.
+    long enough to fill a window. That's normal on a sparse feed, not an error,
+    and the caller decides what to do about it.
     """
     sites = [s for s, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
     _check_frame(frame, feature_cols, sites)
@@ -189,7 +185,7 @@ def build_windows(
 
     means = np.array([normalization[c][0] for c in feature_cols], dtype=float)
     scales = np.array([normalization[c][1] for c in feature_cols], dtype=float)
-    # A feature that never varied in training has scale 0 and would divide to inf
+    # A feature that didn't vary in training has scale 0 and would divide to inf
     scales = np.where(scales == 0, 1.0, scales)
 
     stamps = pd.DatetimeIndex(sorted(frame.index.unique()))
@@ -206,11 +202,10 @@ def build_windows(
     reported = ~np.isnan(grid[:, :, cond]) if cond is not None else ~np.isnan(grid).all(axis=2)
 
     filled = np.nan_to_num(grid, nan=0.0)
-    # A step nobody reported at is not worth putting in a window
+    # Skip steps nobody reported at
     usable = ~np.isnan(grid).all(axis=(1, 2))
 
-    # Which starts give a wholly usable window, from one cumulative sum instead of
-    # rescanning window+1 flags per candidate start.
+    # Which starts give a wholly usable window, from one cumulative sum
     n_starts = max(len(stamps) - window, 0)
     run = np.concatenate([[0], np.cumsum(usable, dtype=np.int64)])
     offsets = np.arange(n_starts)
@@ -224,9 +219,8 @@ def build_windows(
             np.empty((0, window, n_nodes), dtype=bool),
         )
 
-    # Narrowed once over the (T, nodes, features) grid, then gathered. Casting
-    # after the gather instead would put a float64 copy of every window in memory
-    # at once on the way to the float32 the caller gets.
+    # Narrowed to float32 before gathering, to avoid a float64 copy of all the
+    # windows
     narrow = filled.astype(np.float32)
     window_idx = starts[:, None] + np.arange(window)
     return (

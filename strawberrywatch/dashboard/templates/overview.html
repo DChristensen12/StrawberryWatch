@@ -1,30 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Overview{% endblock %}
 {% block content %}
-<h1>How is the creek?</h1>
+<h1>Overview</h1>
 
-{% if waiting %}
-  <div class="sw-headline">
-    <p class="lead">The first check hasn't finished yet.</p>
-    <p>This page fills in once it has, usually within a minute.</p>
-  </div>
-{% elif flagged %}
-  <div class="sw-headline sw-headline--flagged">
-    <p class="lead">Something looks unusual at {{ flagged | join(', ') }}.</p>
-    {% if late %}<p>{{ late | length }} other site{{ 's' if late | length != 1 }} {{ "haven't" if late | length != 1 else "hasn't" }} reported recently.</p>{% endif %}
-    <p><a href="{{ url_for('main.unusual') }}">See what looks unusual</a></p>
-  </div>
-{% elif late %}
-  <div class="sw-headline sw-headline--late">
-    <p class="lead">{{ late | length }} site{{ 's' if late | length != 1 }} {{ "haven't" if late | length != 1 else "hasn't" }} reported recently: {{ late | join(', ') }}.</p>
-    <p>Nothing looks unusual at the sites that are reporting.</p>
-  </div>
-{% else %}
-  <div class="sw-headline">
-    <p class="lead">Everything looks normal.</p>
-    <p>Every site is reporting and nothing looks unusual.</p>
-  </div>
-{% endif %}
+{{ sw.overview_box(waiting, flagged, late, stale, stale_text, url_for('main.unusual')) }}
 
 <dl class="sw-facts">
   {% for fact in facts %}
@@ -34,40 +13,36 @@
 {% for line in status.lines %}
   <p class="muted small">{{ line }}</p>
 {% endfor %}
-<p class="muted small">{{ status.models }}</p>
+<p class="muted small">{{ status.models }} <a href="{{ url_for('main.models') }}">See all models</a></p>
 
-<h2>Where is it?</h2>
-<p>Every site in the order water flows, left to right. The square at each site says how it looks.</p>
+<h2>Site map</h2>
+<p>Sites in order of flow, upstream on the left.</p>
 <div class="sw-map-scroll">{{ sw.creek_map(map, "Creek map. " ~ (map.nodes | map(attribute='text') | join('. '))) }}</div>
 <ul class="sw-legend">
-  <li>{{ sw.status('reporting', 'Reporting') }}</li>
-  <li>{{ sw.status('late', 'Late') }}</li>
-  <li>{{ sw.status('flagged', 'Flagged') }}</li>
-  <li>{{ sw.status('muted', 'Muted, never flagged') }}</li>
+  <li>{{ sw.status('reporting', 'Normal') }}</li>
+  <li>{{ sw.status('late', 'No recent data') }}</li>
+  <li>{{ sw.status('flagged', 'Alert') }}</li>
+  <li>{{ sw.status('muted', 'Alerts off') }}</li>
 </ul>
 {% if travelled %}
-  <p class="small">The red arrows follow the order the sites changed in.</p>
+  <p class="small">Red arrows show the order the change reached each site.</p>
 {% endif %}
 
-<h2>Is every site reporting?</h2>
-<p>Each site's newest reading, and a mark for each reading in the last 24 hours. A gap is a reading that never came.</p>
+<h2>Sites</h2>
+<p>One mark per hour for the last 24. Full when all four readings came, half when some were missing, empty when none came. Hover or tap a mark for the count.</p>
 <div class="sw-table-scroll">
   <table class="sw-table">
     <caption class="visually-hidden">Sites</caption>
     <thead>
-      <tr><th scope="col">Site</th><th scope="col">How it looks</th><th scope="col">Last reading</th><th scope="col">Last 24 hours</th></tr>
+      <tr><th scope="col">Site</th><th scope="col">Status</th><th scope="col">Last reading</th><th scope="col">Last 24 hours</th></tr>
     </thead>
     <tbody>
       {% for row in rows %}
         <tr>
-          <th scope="row"><a href="{{ url_for('main.site', site=row.site) }}">{{ row.site }}</a><br><span class="muted small">{{ row.name }}</span></th>
+          <th scope="row"><a href="{{ url_for('main.site', site=row.site) }}">{{ row.site | site_name }}</a>{% if row.site | site_place %}<br><span class="muted small">{{ row.site | site_place }}</span>{% endif %}</th>
           <td>{{ sw.status(row.status.key, row.status.text) }}</td>
-          <td class="num">{{ row.last or 'No readings yet' }}</td>
-          <td>
-            {{ sw.chart_data("strip-" ~ row.site, row.strip) }}
-            <div class="sw-strip" data-sw-chart="strip" data-sw-source="strip-{{ row.site }}"></div>
-            <span class="visually-hidden">{{ row.strip.count }} of 96 readings</span>
-          </td>
+          <td class="num">{{ row.last or 'None yet' }}</td>
+          <td>{{ sw.reporting_marks(row.marks, row.site | site_name) }}</td>
         </tr>
       {% endfor %}
     </tbody>

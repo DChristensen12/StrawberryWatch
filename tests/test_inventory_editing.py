@@ -42,7 +42,7 @@ def text():
 
 @pytest.fixture
 def sandbox(tmp_path):
-    """A copy of the real file, so a test that writes cannot touch the repo."""
+    """A copy of the real file. A test that writes can't touch the repo."""
     copy = tmp_path / "inventory.yaml"
     shutil.copy(YAML, copy)
     return copy
@@ -85,7 +85,7 @@ def test_every_row_carries_the_whole_column_set_for_its_kind(text):
 
 
 def test_the_columns_line_up_so_the_grid_reads_as_a_grid(text):
-    """The whole point of the layout. A ragged grid is not a grid."""
+    """What the layout is for. A ragged grid is not a grid."""
     lines = grid_block(text)
     mayfly = [ln for ln in lines if "ctd:" in ln]
     balance = [ln for ln in lines if "stage:" in ln]
@@ -113,7 +113,7 @@ def test_the_header_says_how_to_add_a_newly_installed_probe(text):
 def test_the_file_explains_the_difference_between_installed_and_in_service(text):
     prose = text.split("\nsites:\n", 1)[0].lower()
     assert "in service is not the same as installed" in prose
-    # both examples, so neither direction is left to be worked out
+    # both examples, and neither direction is left to be worked out
     assert "cleaning" in prose
     assert "never fitted" in prose
     # and what switching one off actually does
@@ -184,7 +184,7 @@ def test_load_write_load_round_trips_and_the_comments_survive(sandbox):
     original = sandbox.read_text()
     first = inv.load(path=sandbox, reload=True)
 
-    # write the value it already has, so the document must come back identical
+    # write the value it already has. The document must come back identical
     inv.set_in_service(
         "south_fork_3", "do", first.sites["south_fork_3"].sensors["do"].in_service, path=sandbox
     )
@@ -239,7 +239,7 @@ def frames_for(idx, variables=("conductivity", "dissolved_oxygen")):
 
 
 def test_switching_one_sensor_off_leaves_the_others_alone(sandbox):
-    """south_fork_3 carries four probes, so one going off must move only one."""
+    """south_fork_3 carries four probes. One going off must move only one."""
     idx = index()
     frames = frames_for(idx)
 
@@ -325,8 +325,8 @@ def test_the_screen_withholds_a_site_that_is_out_of_service(sandbox):
     idx = pd.date_range("2026-03-01", periods=24, freq="15min", tz="UTC")
     sites = ["south_fork_1", "south_fork_2", "oxford"]
 
-    # readings drawn from each site's own healthy range, so the grid starts
-    # fully admitted and the only thing that can empty a column is the switch
+    # readings drawn from each site's own healthy range. The grid starts fully
+    # admitted, and only the switch can empty a column
     rng = np.random.default_rng(3)
     inventory = inv.load(path=sandbox, reload=True)
     frames = []
@@ -529,7 +529,7 @@ def test_a_bad_edit_names_the_line_it_is_on(label, old, new, site, sensor):
 
 
 def test_a_typo_never_silently_drops_a_site():
-    """The failure this whole file exists to prevent."""
+    """The failure this file exists to prevent."""
     good = inv.from_text(_minimal())
     assert set(good.sites) == {"upstream", "oxford"}
 
@@ -609,7 +609,7 @@ def test_a_broken_file_makes_the_command_print_the_problem_rather_than_a_traceba
 
 
 def test_the_report_warns_when_the_file_and_the_data_disagree(sandbox):
-    """Named, never resolved. The file is not edited by the check."""
+    """Named, not resolved. The check doesn't edit the file."""
     before = sandbox.read_text()
     inv.set_site_in_service("south_fork_1", False, path=sandbox)
     inventory = inv.load(path=sandbox, reload=True)
@@ -641,6 +641,6 @@ def test_the_clock_reset_row_is_dropped_and_reported():
 
     assert kept["kingman_hall"].index.min() >= inventory.earliest_plausible_reading
 
-    # nothing is dropped when no floor is given, so the drop is a choice not a default
+    # no floor given, no drop. Dropping is a choice, not a default
     untouched = load_archive_by_table()
     assert untouched["kingman_hall"].index.min() < inventory.earliest_plausible_reading

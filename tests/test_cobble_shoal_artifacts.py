@@ -1,9 +1,8 @@
 """
 Cobble Shoal's shipped artifacts, loaded and scored.
 
-The rename moved four filenames at once and nothing in the package loads the
-weights, so a broken artifact name would otherwise surface late. Skips when the
-checkpoints are absent, same as conftest.
+The package doesn't load these weights itself, and a broken file name would
+otherwise turn up late. Skips without the checkpoints, like conftest.
 """
 
 from __future__ import annotations
@@ -39,15 +38,15 @@ def model(calibration):
         pytest.skip(f"no weights at {path}")
     net = nested_batch.build_model({"seed": calibration.seed, "window": nested_batch.WINDOW})
     blob = torch.load(path, map_location="cpu", weights_only=True)
-    # The training harness saved {"state_dict", "meta"} rather than a bare
-    # state dict, and nothing in the package unwraps it yet.
+    # The training harness saved {"state_dict", "meta"} instead of a bare
+    # state dict, and the package doesn't unwrap it yet.
     net.load_state_dict(blob["state_dict"] if "state_dict" in blob else blob)
     net.eval()
     return net
 
 
 def test_the_weights_file_matches_the_class(model):
-    """load_state_dict is strict, so reaching here means no key moved."""
+    """load_state_dict is strict. Reaching here means no key moved."""
     assert model.window == nested_batch.WINDOW
     assert model.channel_names == ("excursion", "loo", "reconstruction", "dispersion")
 
@@ -59,8 +58,8 @@ def test_calibration_carries_a_usable_threshold(calibration):
 
 def test_scoring_gives_one_finite_number_per_node(model, calibration):
     """
-    The whole contract the alerting path needs: a score per node, and no
-    channel visible from here.
+    What the alerting path needs: a score per node, and no channel visible
+    from here.
     """
     batch = nested_batch.build_batch()
     keys = nested_batch.node_keys()
@@ -97,9 +96,8 @@ def test_a_faulted_node_outscores_the_clean_window(model, calibration):
 
 def test_the_real_calibration_carries_the_scaler_its_nulls_were_fitted_in(real_calibration):
     """
-    The whole point of recording it. A null is fitted in a normalization space
-    and only means anything applied in that space, so the space has to travel
-    with the null rather than being refitted by whoever scores next.
+    A null only means something in the normalization space it was fitted in.
+    The scaler has to ship with it, not be refitted later.
     """
     scaler = real_calibration.window_scaler()
     assert len(scaler.mean) == len(nested_batch.node_keys())
@@ -110,9 +108,9 @@ def test_the_real_calibration_carries_the_scaler_its_nulls_were_fitted_in(real_c
 
 def test_the_synthetic_calibration_refuses_to_supply_a_scaler(calibration):
     """
-    It never recorded one, and returning None would let build_window fit a
+    It didn't record one, and returning None would let build_window fit a
     fresh scaler and score real data against nulls from another space. That
-    failure produces finite, plausible numbers, so it has to raise.
+    failure gives finite, plausible numbers. It has to raise.
     """
     assert calibration.node_scaler is None
     assert not calibration.is_real
@@ -122,9 +120,9 @@ def test_the_synthetic_calibration_refuses_to_supply_a_scaler(calibration):
 
 def test_the_two_calibrations_are_not_interchangeable(calibration, real_calibration, model):
     """
-    Close thresholds, different score scales. This is why load_calibration
-    takes the filename rather than picking one, and why nothing falls back
-    from one to the other.
+    Close thresholds, different score scales. That's why load_calibration
+    takes the filename instead of picking one, and why neither falls back to
+    the other.
     """
     batch = nested_batch.build_batch()
     synthetic = model.score(batch, calibration.nulls).ravel()

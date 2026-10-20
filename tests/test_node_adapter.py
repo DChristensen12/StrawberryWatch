@@ -1,9 +1,9 @@
 """
 The adapter that lets Cobble Shoal read the real corpus.
 
-Three properties carry the weight: no lookahead, agreement with the synthetic
-generator it mirrors, and never turning an uninstalled sensor into a zero.
-The rest is plumbing.
+Three properties matter: no lookahead, agreement with the synthetic generator
+it mirrors, and an uninstalled sensor doesn't become a zero. The rest is
+plumbing.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def cobble():
 
 @pytest.fixture(scope="module")
 def tables():
-    """A small hand-built archive, so these tests do not depend on data/raw_data."""
+    """A small hand-built archive. These tests don't depend on data/raw_data."""
     idx = pd.date_range("2026-04-01", periods=200, freq="15min", tz="UTC")
     rng = np.random.default_rng(0)
     out = {}
@@ -80,7 +80,7 @@ def test_the_roster_is_read_off_the_inventory_not_a_list_in_the_model(inventory)
 
 
 def test_a_sensor_the_grid_marks_absent_yields_no_node(inventory):
-    """north_fork_0 has no DO probe, so there is no north_fork_0.do_pct node."""
+    """north_fork_0 has no DO probe and no north_fork_0.do_pct node."""
     roster = nw.roster_from_inventory(inventory)
     assert "do_pct" not in roster["north_fork_0"]
     assert "do_pct" in roster["footbridge"]
@@ -122,7 +122,7 @@ def test_a_probe_that_was_never_installed_is_masked_not_zero_filled(tables, inve
     win = nw.build_window(tables, tables["oxford"].index[0], tables["oxford"].index[-1], inventory)
     keys = [n.key for n in win["nodes"]]
 
-    # south_fork_1's ctd went in 2025-06-04, so a window before that is absence.
+    # south_fork_1's ctd went in 2025-06-04. A window before that is absence.
     early = pd.date_range("2025-01-01", periods=len(tables["oxford"]), freq="15min", tz="UTC")
     shifted = {k: v.set_axis(early).rename_axis("datetime") for k, v in tables.items()}
     before = nw.build_window(shifted, early[0], early[-1], inventory)
@@ -157,8 +157,8 @@ def test_perturbing_the_future_does_not_move_the_present(tables, inventory):
     """
     The scored step is bit-identical when data after it changes.
 
-    Fixed scaler on purpose. Fitting one on the window is itself lookahead,
-    which is why build_window takes one, so holding it still measures the regrid.
+    Fixed scaler. Fitting one on the window is itself lookahead (that's why
+    build_window takes one). Holding it still measures the regrid alone.
     """
     span = (tables["oxford"].index[0], tables["oxford"].index[-1])
     base = nw.build_window(tables, *span, inventory)
@@ -203,9 +203,8 @@ def test_the_model_output_at_the_window_end_is_bit_identical(tables, inventory, 
 
 def test_the_two_paths_produce_the_same_node_tensors(inventory):
     """
-    Same readings through both paths. They call the same regrid now, so what
-    this really checks is that the adapter's name translation and masking are
-    transparent.
+    Same readings through both paths. They share the regrid, and this checks
+    that the adapter's renaming and masking leave the values alone.
     """
     idx = pd.date_range("2026-04-01", periods=120, freq="15min", tz="UTC")
     rng = np.random.default_rng(4)
@@ -230,8 +229,8 @@ def test_the_two_paths_produce_the_same_node_tensors(inventory):
 
     got = nw.build_window(archive, idx[0], idx[-1], inventory)
 
-    # depth_dev is the site median removed; the scaler removes it again, so
-    # compare the scaled arrays rather than the raw ones.
+    # depth_dev is the site median removed, and the scaler removes it again.
+    # We compare the scaled arrays, not the raw ones.
     scaler = nw.NodeScaler().fit(want[0], want[3])
     np.testing.assert_allclose(got["values"], scaler.transform(want[0]), rtol=1e-4, atol=1e-4)
     np.testing.assert_array_equal(got["staleness"], want[1])
@@ -239,7 +238,7 @@ def test_the_two_paths_produce_the_same_node_tensors(inventory):
 
 
 def test_a_synthetic_window_and_a_real_one_have_the_same_shape(tables, inventory):
-    """Anything that scores one has to score the other without a branch."""
+    """Code that scores one has to score the other without a branch."""
     real = nw.build_window(tables, tables["oxford"].index[0], tables["oxford"].index[-1], inventory)
     fake = cs.make_synthetic_creek(n_steps=144, seed=0)
     for key in ("values", "staleness", "target_val", "target_mask", "context"):
@@ -264,8 +263,8 @@ def test_to_batch_matches_the_synthetic_builder():
 
 def test_dusk_crayfish_weights_and_metadata_are_untouched():
     """
-    Its weights are the audit baseline. Nothing in the adapter touches its path,
-    and this asserts it instead of trusting it.
+    Its weights are the audit baseline. The adapter doesn't touch its path, and
+    we assert that here.
     """
     import pickle
 
@@ -298,7 +297,7 @@ def test_dusk_crayfish_weights_and_metadata_are_untouched():
 
 
 def test_dusk_crayfish_scores_deterministically():
-    """Two loads give the same numbers, or a comparison against it means nothing."""
+    """Two loads give the same numbers, or a comparison against it is meaningless."""
     import pickle
 
     from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish

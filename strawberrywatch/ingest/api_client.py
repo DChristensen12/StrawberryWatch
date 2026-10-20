@@ -31,11 +31,8 @@ def _fetch_single_var(
     headers: dict,
 ) -> pd.DataFrame:
     """
-    Pull one (site, sensor) pair from the API. Returns a DataFrame with
-    'timestamp' and one sensor column, or empty on any failure.
-
-    One request per sensor because the API only honors the last 'vars' param
-    when multiple are given.
+    One (site, sensor) pair from the API, as 'timestamp' plus one sensor
+    column, or empty on any failure.
     """
     params = [
         ("site", site),
@@ -61,7 +58,7 @@ def _fetch_single_var(
     data = response.json()
     if not data:
         # Site doesn't expose this column, or no observations in window.
-        # Either way: not an error, just nothing to merge.
+        # Either way: not an error, just no rows to merge.
         logger.debug(f"[{site}/{var_name}] no rows")
         return pd.DataFrame()
 
@@ -89,8 +86,7 @@ def fetch_creek_data(
     Returns a DataFrame with 'timestamp', 'station_id', and one column per
     available sensor. Sensors the site doesn't expose are just absent, no error.
 
-    token is the caller's own, for anything that keeps it somewhere better than
-    .env, like the dashboard's keychain entry. Without one it's SCMG_API_TOKEN.
+    token overrides SCMG_API_TOKEN from .env.
     """
     headers = {}
     token = token or Config.API_TOKEN

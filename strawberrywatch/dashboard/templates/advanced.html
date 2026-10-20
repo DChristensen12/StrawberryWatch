@@ -5,7 +5,7 @@
 <a class="back-link" href="{{ url_for('main.settings') }}">Settings</a>
 <h1>Advanced settings</h1>
 {{ sw.unsaved_note(unsaved, banner) }}
-<p>Each model's own values. Nothing changes until you save, and the count under each model shows what the last 7 days would have looked like.</p>
+<p>Settings for each model. Changes apply only after you save. The count under each model shows how many alerts the last 7 days would have had.</p>
 
 {{ sw.discard_form('advanced') }}
 <form method="post" novalidate data-sw-autosave="yes">
@@ -14,21 +14,59 @@
     {% set m = b.model %}
     {% set on_html %}
       {% if b.warning %}<p class="sw-warning">{{ b.warning }}</p>{% endif %}
-      {% for rule in m.rules %}
-        {{ sw.text(form['scale_' ~ m.name ~ '_' ~ rule], suffix='times the tested value', inputmode='decimal') }}
-      {% endfor %}
+      {% if m.sensitivity == 'rate' %}
+        <p>Each slider sets how often a test may give a false alarm. Each sensor's threshold is worked out from that. The middle setting is the calibrated one. <button type="submit" name="calibrated" value="{{ m.name }}" class="sw-link-button sw-link-button--plain">Reset to calibrated</button></p>
+        {% for rule in m.rules %}
+          {% set field = form['rate_' ~ m.name ~ '_' ~ rule] %}
+          <div class="sw-field sw-slider">
+            <label for="{{ field.id }}">{{ field.label.text }}</label>
+            <span class="sw-hint" id="{{ field.id }}-hint">{{ field.description }}</span>
+            <input type="range" id="{{ field.id }}" name="{{ field.name }}" min="0" max="{{ stops | length - 1 }}" step="1" value="{{ field.data }}" aria-describedby="{{ field.id }}-hint" aria-valuetext="{{ stops[field.data | int][1] }}" data-sw-stops="{{ stops | map(attribute=1) | join('|') }}">
+            <div class="sw-slider__stops" aria-hidden="true">{% for _key, label, _q in stops %}<span>{{ label }}</span>{% endfor %}</div>
+            <p class="small" id="sw-rate-preview-{{ m.name }}-{{ rule }}" aria-live="polite">{{ (rate_previews.get(m.name) or {}).get(rule, '') }}</p>
+          </div>
+        {% endfor %}
+        <details class="sw-details"{% if b.typed %} open{% endif %}>
+          <summary>Set a threshold by hand</summary>
+          {{ sw.select(form['typed_key_' ~ m.name]) }}
+          {{ sw.text(form['typed_value_' ~ m.name], inputmode='decimal') }}
+          {% if b.typed %}
+            <table class="sw-table">
+              <caption>Thresholds set by hand</caption>
+              <thead><tr><th scope="col">Sensor and test</th><th scope="col">Threshold</th><th scope="col">False alarm rate</th><th scope="col">Reset</th></tr></thead>
+              <tbody>
+                {% for t in b.typed %}
+                  <tr>
+                    <td>{{ t.words }}</td>
+                    <td class="num">{{ '%g' | format(t.value) }} <span class="muted small">(calibrated {{ '%.3g' | format(t.calibrated) }})</span></td>
+                    <td class="num">{{ '%.1e' | format(t.rate) }} per reading{% if t.outside %}<br><span class="sw-error">Outside the calibrated range</span>{% endif %}</td>
+                    <td><input type="checkbox" name="untype_{{ m.name }}" value="{{ t.key }}" aria-label="Reset {{ t.words }} to calibrated"></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
+        </details>
+        {% if calibrated_with %}
+          <p class="small">Calibrated {{ calibrated_with.made }} on {{ calibrated_with.sensors }} sensors: spike window {{ calibrated_with.window }} readings, spread floor {{ (calibrated_with.floor * 100) | round | int }}% of each sensor's usual spread, daily profile {{ calibrated_with.profile_days }} days.</p>
+        {% endif %}
+      {% else %}
+        {% for rule in m.rules %}
+          {{ sw.text(form['scale_' ~ m.name ~ '_' ~ rule], suffix='times the tested value', inputmode='decimal') }}
+        {% endfor %}
+      {% endif %}
       <p id="sw-preview-{{ m.name }}" aria-live="polite">{{ previews[m.name] }}</p>
 
       {{ sw.text(form['rain_' ~ m.name], suffix='times', inputmode='decimal') }}
-      <p>The line after 6 hours of rain, as a multiple of normal. It rises with the rain, then relaxes. The shaded part is when it's raining.</p>
+      <p>How the alert line changes during and after 6 hours of rain, as a multiple of its dry level. The shaded area is the rain.</p>
       {{ sw.chart_data("curve-" ~ m.name, b.curve) }}
-      <div class="sw-chart sw-chart--small" data-sw-chart="rain" data-sw-source="curve-{{ m.name }}" data-sw-model="{{ m.name }}" role="img" aria-label="How far the line rises during and after rain"></div>
+      <div class="sw-chart sw-chart--small" data-sw-chart="rain" data-sw-source="curve-{{ m.name }}" data-sw-model="{{ m.name }}" role="img" aria-label="How far the alert line rises during and after rain"></div>
 
       {% if 'leave_' ~ m.name in form %}
-        {{ sw.checkboxes(form['leave_' ~ m.name], legend='Leave a site out') }}
+        {{ sw.checkboxes(form['leave_' ~ m.name], legend='Sites to leave out') }}
       {% else %}
-        <h3>Leave a site out</h3>
-        <p>Not available. {{ m.title }} needs all {{ m.sites | length }} sites.</p>
+        <h3>Sites to leave out</h3>
+        <p>Not available. {{ m.title }} needs all {{ m.sites | length }} of its sites.</p>
       {% endif %}
 
       {% set items = {} %}
@@ -36,7 +74,7 @@
         {% set _ = items.update({o.name: {'hint': o.reason or o.describe, 'disabled': o.reason != ''}}) %}
       {% endfor %}
       {{ sw.checkboxes(form['support_' ~ m.name], legend='Support modules', items=items) }}
-      <p>Where each support module acts, in order:</p>
+      <p>Order of steps:</p>
       <ol class="sw-steps">
         {% for s in b.strip %}
           <li><strong>{{ s.step }}</strong> {{ s.what }}</li>
@@ -44,30 +82,32 @@
       </ol>
     {% endset %}
     {% set off_html %}
-      <p>Off. Turn it on to see its settings. Its saved values are kept.</p>
+      <p>Turn on to see settings. Saved values are kept.</p>
     {% endset %}
     {{ sw.radios(form['model_' ~ m.name], legend=m.title, items={'on': {'reveal': on_html}, 'off': {'reveal': off_html}}) }}
   {% endfor %}
 
   <h2>Timing</h2>
   {{ sw.text(form.repeat_hours, suffix='hours', inputmode='decimal') }}
-  <p>Checks run every {{ interval }} minutes on the last {{ lookback }} days of readings. That can't be changed.</p>
+  <p>Checks run every {{ interval }} minutes and read the last {{ lookback }} days of data. This can't be changed.</p>
   {% if took is not none %}
     <p>The last check took {{ took }} second{{ '' if took == 1 else 's' }}.</p>
+  {% endif %}
+  {% if limits %}
+    <h3>Server load</h3>
+    {% for line in costs %}<p>{{ line }}</p>{% else %}<p>Not measured yet. Shown after the first check.</p>{% endfor %}
+    {% if profile.checks_here %}
+      <p class="small">Limit: at most {{ limits.max_models_on }} models on. It's set in settings.yaml and can't be changed here.</p>
+    {% else %}
+      <p class="small">Limits: at most {{ limits.max_models_on }} models on, checks stopped after {{ '%g' | format(limits.check_timeout_minutes) }} minutes, and skipped when the server has less than {{ '{:,.0f}'.format(limits.min_free_memory_mb) }} MB free. These keep model checks from affecting Night Heron's own alerts. They're set in settings.yaml from scripts/load_test.py measurements and can't be changed here.</p>
+    {% endif %}
   {% endif %}
 
   <h2>Data</h2>
   <dl class="sw-summary">
     <div class="sw-summary__row">
-      <dt>Readings</dt><dd>Readings come from {{ source }}.</dd>
-      <dd><a href="{{ url_for('main.setup') }}">Change<span class="visually-hidden"> where readings come from</span></a></dd>
+      <dt>Data source</dt><dd>{{ source }}</dd>
     </div>
-    {% if uses_token %}
-      <div class="sw-summary__row">
-        <dt>Token</dt><dd>Your token is saved in this computer's keychain.</dd>
-        <dd><a href="{{ url_for('main.token') }}">Change token</a></dd>
-      </div>
-    {% endif %}
   </dl>
 
   {{ sw.save_buttons(unsaved) }}

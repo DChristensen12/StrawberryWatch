@@ -2,10 +2,10 @@
 {% block title %}History{% endblock %}
 {% block content %}
 <div class="sw-heading-row">
-  <h1>What has happened?</h1>
-  <a href="{{ url_for('main.notes') }}">Your notes ({{ note_count }})</a>
+  <h1>History</h1>
+  <a href="{{ url_for('main.notes') }}">Notes ({{ note_count }})</a>
 </div>
-<p>Unusual readings and changes to the settings, newest first. By hour shows each day's busy hours and folds the quiet ones together. Open a day to see every hour of it.</p>
+<p>Alerts and settings changes, newest first. By hour groups quiet hours together. Select a day to see all its hours.</p>
 
 <form method="get" action="{{ url_for('main.history') }}" class="sw-filters" data-sw-autosubmit="yes">
   <fieldset>
@@ -20,7 +20,7 @@
     </div>
   </fieldset>
   <fieldset>
-    <legend class="as-small">Detail</legend>
+    <legend class="as-small">View</legend>
     <div class="sw-choices sw-choices--inline">
       {% for value, label in bys.items() %}
         <div class="sw-choice">
@@ -30,11 +30,11 @@
       {% endfor %}
     </div>
   </fieldset>
-  <button type="submit" class="sw-button sw-button--secondary" data-sw-nojs="yes">Update the list</button>
+  <button type="submit" class="sw-button sw-button--secondary" data-sw-nojs="yes">Apply filters</button>
 </form>
 
 {% if not days %}
-  <p>Nothing to show yet.</p>
+  <p>Nothing here yet.</p>
 {% endif %}
 {% for d in days %}
   <section class="sw-day" aria-labelledby="day-{{ loop.index }}">
@@ -42,7 +42,7 @@
     {% if by == 'hour' %}
       {% for h in d.hours %}{{ sw.hour_row(h, show) }}{% endfor %}
     {% elif not d.entries %}
-      <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'Nothing unusual.' }}</p>
+      <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'No alerts.' }}</p>
     {% else %}
       {% for item in d.entries %}
         <p class="sw-entry">

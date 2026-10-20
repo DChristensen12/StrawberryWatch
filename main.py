@@ -28,9 +28,9 @@ _MODEL_REGISTRY = {
     "cobble_shoal": CobbleShoal,
 }
 
-# What --operating-point may override, and the type each is read as. These are
-# the keys detect_anomalies merges over its own constants, and it ignores any
-# other key, so a typo has to be caught here or it quietly does nothing.
+# What --operating-point may override, and the type each is read as.
+# detect_anomalies ignores any other key, and a typo would have no effect. We
+# catch it here.
 _OPERATING_POINT = {
     "level_shift_k": float,
     "min_timesteps_over": int,
@@ -101,9 +101,9 @@ def _align_to_trained_features(sequences, targets, current_feature_cols, trained
 
 def _support_window(sequences, targets, timestamps, node_mask, df_original, model=None):
     """
-    What a support module is handed as its window. A dict rather than a class,
-    since the kinds read different parts of it. model is the class, so a screen
-    can read its FLAG_POLICY.
+    What a support module gets as its window. A dict, since the kinds read
+    different parts of it. model is the class, and a screen reads its
+    FLAG_POLICY.
     """
     return {
         "sequences": sequences,
@@ -119,9 +119,8 @@ def _fired_grid(node_results, site_order, shape):
     """
     Which node-timesteps the primary flagged, as the grid an explainer reads.
 
-    A node that was never judged, or judged and not flagged, is all False. That
-    is the honest answer: the primary said nothing about it, so neither can an
-    explainer.
+    A node that was never judged, or judged and not flagged, is all False. The
+    primary didn't flag it, and an explainer has nothing to explain.
     """
     grid = np.zeros(shape, dtype=bool)
     for j, site in enumerate(site_order):
@@ -137,11 +136,10 @@ def _anomaly_events(
     """
     One alert event per (site, rule) that fired, shaped the way notifier wants.
 
-    Rule 1 and Rule 2 go out separately on purpose. An onset and a sustained
-    abnormal level mean different things to whoever reads the email, and
-    blending them into one number would lose that. Trial Bed's account rides
-    along when that explainer ran. level_shift_k is whatever k Rule 2 was
-    actually held to, so an --operating-point run reports its own bar.
+    Rule 1 and Rule 2 go out separately. An onset and a lasting level mean
+    different things to whoever reads the email. Trial Bed's account comes
+    along when that explainer ran. level_shift_k is the k Rule 2 was held to,
+    which lets an --operating-point run report its own bar.
     """
     node_thresholds = metadata.get("node_thresholds", {})
     trial_bed = accounts.get("trial_bed", [])
@@ -157,9 +155,8 @@ def _anomaly_events(
 
         for rule_name in result["rules_fired"]:
             rule = result["rule1"] if rule_name == "forecast_residual" else result["rule2"]
-            # Rule 1's bar is the node's calibrated threshold, Rule 2's is the flat
-            # k. Rain pushes Rule 1's up per timestep, so this reports the
-            # calibrated bar rather than whatever it was at the peak.
+            # Rule 1's bar is the node's calibrated threshold, Rule 2's the flat k.
+            # Rain moves Rule 1's per timestep, and we report the calibrated one.
             threshold = (
                 node_thresholds.get(site, float("nan"))
                 if rule_name == "forecast_residual"
@@ -189,10 +186,9 @@ def _dispatch_alerts(events, alert_sites=None, dry_run=False, send=None):
     """
     Email what fired and stamp each event with a status saying what happened.
 
-    alert_sites None means every site. A muted site was still scored, it just
-    stays quiet, so its event is kept as "muted" rather than dropped. That's
-    what lets a results file show what muting cost. send is for tests; normally
-    it's notifier.fire_anomaly_alerts.
+    alert_sites None means every site. A muted site is still scored. We keep its
+    event, marked "muted", and the results file can show what muting cost. send
+    is for tests, and is normally notifier.fire_anomaly_alerts.
     """
     outgoing = []
     for ev in events:
@@ -217,8 +213,8 @@ def _dispatch_alerts(events, alert_sites=None, dry_run=False, send=None):
     except Exception as e:
         print(f"Alerting failed: {e}")
         delivered = []
-    # notifier skips quietly when .env has no credentials, so "emailed" has to
-    # come from what it says went, not from having asked it.
+    # notifier skips without a word when .env has no credentials. "emailed"
+    # comes from what it reports as sent.
     for i, ev in enumerate(outgoing):
         ev["status"] = "emailed" if i < len(delivered) and delivered[i] else "not_emailed"
     return events
@@ -250,8 +246,7 @@ def _write_results(path, header, node_results, accounts, site_order, events):
     """
     What the run found, for anything that wants it without parsing the log.
 
-    Scalars only. The per-timestep arrays stay behind, since nothing reading
-    this needs 192 booleans a rule.
+    Scalars only. Nobody reading this needs 192 booleans a rule.
     """
     sites = {}
     for site, result in node_results.items():
@@ -365,8 +360,8 @@ def main(
         print(f"ERROR: alert sites {off_roster} are not on the roster {Config.LOCATIONS}")
         sys.exit(1)
 
-    # Resolved before anything downloads, so an unknown name, a module that can't
-    # attach, a collision or an impossible budget split all fail with nothing done
+    # Resolved before anything downloads. An unknown name, a module that can't
+    # attach, a collision or an impossible budget split fail with nothing done.
     stack = SupportStack.load(support, ModelClass, q_total=q_total)
     split = stack.budget()
 
@@ -473,17 +468,15 @@ def main(
         # Fresh train: the current data defines the feature set.
         trained_feature_cols = list(feature_cols)
 
-    # Node names in the order the score columns come out in, which is what
-    # every support module is handed alongside its window.
+    # Node names in score-column order, handed to every support module with its window
     site_order = [site for site, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
     support_window = _support_window(
         sequences, targets, timestamps, node_mask_seq, df_original, model=ModelClass
     )
 
-    # Screens run here, before the model sees anything, which is the whole
-    # reason they are a separate kind. node_mask_seq is what carries "this
-    # reading is not fit to read" through the rest of the pipeline, so a screen
-    # narrows that mask rather than editing the readings themselves.
+    # Screens run here, before the model sees anything. node_mask_seq carries
+    # "don't read this" through the rest of the pipeline, and a screen narrows
+    # that mask instead of editing readings.
     if stack.screens:
         admitted = stack.admit(support_window, site_order, (len(sequences), len(site_order)))
         withheld = int((~admitted).sum())
@@ -515,7 +508,7 @@ def main(
         train_seq, train_tgt = None, None
         test_seq, test_tgt = sequences, targets
         test_timestamps = timestamps
-        # Inference doesn't split, so the whole mask applies to the test set
+        # Inference doesn't split. All of the mask applies to the test set
         test_node_mask = node_mask_seq
     else:
         split_idx = int(len(sequences) * Config.TRAIN_SPLIT)
@@ -546,8 +539,7 @@ def main(
         torch.save(model.state_dict(), model_path)
         print(f"Optimization complete. Weights saved to {model_path}")
 
-        # trainer only knows node index, not site name, so translate here where
-        # location_to_idx is available
+        # trainer only knows node indices. We translate here, where location_to_idx is.
         idx_to_location = {idx: loc for loc, idx in location_to_idx.items()}
         if node_error_stats:
             error_median = {idx_to_location[i]: s["median"] for i, s in node_error_stats.items()}
@@ -574,8 +566,8 @@ def main(
                     # So a checkpoint says what model to rebuild, instead of the
                     # loader guessing from whatever settings.yaml says later
                     "architecture": getattr(model, "architecture", None),
-                    # old scalar threshold, kept so nothing depending on it hard
-                    # crashes, but detection should use node_thresholds now
+                    # The old scalar threshold, kept for older readers. Detection
+                    # uses node_thresholds.
                     "threshold": trained_threshold,
                     "threshold_percentile": Config.THRESHOLD_PERCENTILE,
                     "error_median": error_median,
@@ -643,8 +635,8 @@ def main(
         stack.multipliers(support_window, site_order, shape)
         stack.detector_results(support_window, site_order)
 
-    # Explainers run last, on firings the primary has already made. They add no
-    # test and take no budget, so every site above fired without them.
+    # Explainers run last, on firings the primary already made. They add no test
+    # and take no budget.
     accounts = {}
     if stack.explainers:
         fired_grid = _fired_grid(node_results, site_order, shape)

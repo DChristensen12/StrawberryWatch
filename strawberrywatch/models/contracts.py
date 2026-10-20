@@ -3,8 +3,8 @@ What a model declares about the data it will accept.
 
 INPUT_CONTRACT says what shape the model reads and lives in model_calls.py.
 FLAG_POLICY says which Settling Pool flag levels it refuses, and lives here
-beside it. Both are declarations. Neither one enforces anything: enforcement is
-the consumer's job. A test knows nothing about the stores that read it.
+beside it. Both are declarations, and neither enforces itself: enforcement is
+the consumer's job. A test doesn't know about the stores that read it.
 """
 
 from __future__ import annotations
@@ -17,13 +17,13 @@ from strawberrywatch.models.model_calls import (
 )
 from strawberrywatch.support_modules.qc_tests import FAIL, GOOD, MISSING, SUSPECT, UNKNOWN
 
-# Exclude the readings that are not measurements, keep the ones that are merely
-# doubtful. SUSPECT stays in with its flag recorded, which is the whole reason
-# the levels are not a boolean.
+# Exclude the readings that aren't measurements, keep the ones that are merely
+# doubtful. SUSPECT stays in with its flag recorded. That's why the levels
+# aren't a boolean.
 DEFAULT_FLAG_POLICY = (FAIL, MISSING)
 
-# Per contract rather than per model name, so adding a third model that speaks
-# an existing contract needs no edit here. A model wanting something else
+# Per contract, not per model name. Adding a third model that uses an existing
+# contract needs no edit here. A model wanting something else
 # declares its own FLAG_POLICY next to its INPUT_CONTRACT.
 FLAG_POLICY = {
     SEQUENCE_TENSOR: DEFAULT_FLAG_POLICY,
@@ -74,7 +74,7 @@ def admit_grid(flags, nodes, n_steps, model=None):
     """
     Collapse per (site, variable) flags into the (T, N) grid a run reads.
 
-    The reshape Settling Pool deliberately does not do. A node is out at a step
+    The reshape Settling Pool leaves to the model side. A node is out at a step
     if any of its variables carries a level the model excludes.
     """
     import numpy as np

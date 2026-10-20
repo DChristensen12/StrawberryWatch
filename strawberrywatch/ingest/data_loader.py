@@ -8,7 +8,7 @@ import pandas as pd
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.api_client import fetch_network_snapshot
 
-# Numeric columns that are not creek measurements and should never be model features.
+# Numeric columns that aren't creek measurements and shouldn't be model features.
 # EnviroDIY_Mayfly_Batt is sensor health telemetry; 'valid' is the QC mask (becomes
 # node_mask downstream, not a feature); the others are pandas/CSV artifacts.
 _NON_FEATURE_COLUMNS = {
@@ -41,9 +41,8 @@ def _load_wide_corpus(file_path):
     """
     Convert a wide training corpus into the long (datetime, location) format
     the rest of this pipeline expects, carrying each site's {site}_valid flag
-    over as a plain 'valid' column. hour_sin/cos/dayofyear_sin/cos aren't
-    carried over, they get regenerated below from the index either way, so
-    keeping the corpus's copy would just create duplicate columns.
+    over as a plain 'valid' column. The clock features are rebuilt from the
+    index below, and we drop the corpus's copies.
     """
     wide = pd.read_csv(file_path)
     wide["datetime"] = pd.to_datetime(wide["datetime"], utc=True)
@@ -96,8 +95,8 @@ def load_and_preprocess_data(
     entirely and loads it directly. It's a static, already-QC'd file, not a
     rolling cache to refresh. force_download is ignored in that case.
 
-    file_path defaults to the rolling cache, resolved here rather than in the
-    signature so importing this module never needs a project root.
+    file_path defaults to the rolling cache, resolved here and not in the
+    signature. Importing this module doesn't need a project root.
     """
     if file_path is None:
         file_path = Config.data_file()
@@ -195,8 +194,8 @@ def load_and_preprocess_data(
     df_featured = df[["location"] + feature_cols + carry_cols].copy()
 
     # Sin/cos pairs for hour and day-of-year. Raw numbers make 11pm and midnight
-    # look far apart; circular encoding keeps the wrap smooth. Never NaN since
-    # they come from the index, not sensors.
+    # look far apart; circular encoding keeps the wrap smooth. Can't be NaN,
+    # since they come from the index and not sensors.
     idx = df_featured.index
     hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
     doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0
@@ -231,8 +230,7 @@ def _merge_with_cache(df_new, file_path):
         print(f"couldn't read cache ({e}), starting fresh.")
         return df_new
 
-    # Union of columns handles schema drift (e.g. a new weather feature).
-    # Missing values become NaN, pandas handles it.
+    # Union of columns. A new column shows up as NaN in older rows
     combined = pd.concat([existing, df_new], ignore_index=True)
     combined["datetime"] = pd.to_datetime(combined["datetime"], utc=True)
 
@@ -246,7 +244,7 @@ def _merge_with_cache(df_new, file_path):
 def _trim_to_rolling_window(df, window_days):
     """
     Keep the last `window_days` of data. Anchored on the dataset's latest
-    timestamp (not 'now'), so the cache stays useful even when fetches happen
+    timestamp (not 'now'). The cache stays useful even when fetches happen
     well after the last real observation.
     """
     if df.empty or window_days is None or window_days <= 0:
@@ -264,18 +262,11 @@ def _trim_to_rolling_window(df, window_days):
 
 def _merge_weather(df_raw, start_date, end_date, days):
     """
-    Merge Open-Meteo weather onto df_raw.
-
-    Both training and live inference go through this one source now (used to
-    route recent windows to NWS LBNL1 instead) so the model isn't trained on
-    one weather distribution and scored against another. Open-Meteo's
-    Historical Forecast API blends forecast-model data for the last day or two
-    with historical data further back, so it covers both windows fine.
-
-    Native 15-min data, same cadence as the creek grid, so there's no more
-    hourly accumulation to split across sub-hourly rows, resampling to 15min
-    here is only to collapse duplicate timestamps if a source ever reports
-    more than once per window, not to disaggregate anything.
+    Merges Open-Meteo weather onto df_raw. Training and live inference both use
+    this source, and the model isn't trained on one weather distribution and
+    scored on another. The Historical Forecast API covers recent and older
+    windows alike. It's native 15-minute data, and resampling here only
+    collapses duplicate timestamps.
     """
     from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 

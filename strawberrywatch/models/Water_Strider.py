@@ -1,21 +1,3 @@
-"""
-Water Strider: a calibrated statistical detector. Each sensor is judged on its
-own readings with three tests that each catch what the other two miss: a
-rolling Hampel test for spikes, a two-sided CUSUM for shifts that hold, and an
-EWMA for slow drift. Nothing is trained by gradient descent. Every number is a
-median, a deviation or a fitted tail, so each alert can be said in one sentence.
-
-All three run on residuals: the reading minus the sensor's normal day, divided
-by a robust spread. Every threshold is fitted on clean data with peaks over
-threshold (Siffer et al., KDD 2017) to the test's share of one false alarm
-budget, so the rate somebody chose is the rate they get, rather than whatever a
-fixed multiplier happens to give.
-
-The calibration lives in water_strider_calibration.json beside the other
-checkpoints. It keeps each fitted tail, not just its threshold, which is what
-lets the sensitivity slider move without recalibrating anything.
-"""
-
 from __future__ import annotations
 
 import math
@@ -30,43 +12,39 @@ RULE_WORDS = {
     "ewma_drift": "a slow drift",
 }
 
-# A raw MAD times this is about one standard deviation for normal data. Every
-# spread below is a scaled MAD, and the names say so, because 5.2 raw MADs and
-# 5.2 scaled ones are 3.5 and 5.2 standard deviations.
+# Raw MAD times this is about one standard deviation for normal data. Every
+# spread here is a scaled MAD and the names say so, since 5.2 raw MADs is only
+# 3.5 standard deviations.
 MAD_SCALE = 1.4826
 
 STEP = pd.Timedelta(minutes=15)
 STEPS_PER_DAY = 96
 
 # The settings the tests run with. A calibration records the ones it was fitted
-# at, since a threshold means nothing at another window length.
+# at, since a threshold means little at another window length.
 PARAMS = {
-    # Three hours either side of a spike is long enough that one bad reading
-    # can't drag the median, short enough that a shift ends up in it within
-    # hours, which is when CUSUM has taken over
+    # About three hours. Long enough that one bad reading can't drag the median,
+    # short enough that a shift gets absorbed by the time CUSUM has it
     "hampel_window": 13,
-    # Half a spread of drift allowed per step before the sums start to grow,
-    # the usual choice for catching a shift of about one spread
+    # The usual choice for catching a shift of about one spread
     "cusum_allowance": 0.5,
     # NIST's handbook suggests 0.2 to 0.3
     "ewma_lambda": 0.2,
-    # The level the day's rhythm sits on: the median of the last 12 hours.
-    # Measured against 6 and 24: at 24 the shift test ran over its budget on
-    # held-out months, at 6 a drift is soaked into the level too quickly
+    # Tried 6 and 24 too. At 24 the shift test went over budget on held-out
+    # months, and at 6 a drift gets soaked into the level too fast
     "level_hours": 12,
-    # How many days of clean data the daily profile is the median of
+    # Days of clean data the daily profile takes the median of
     "profile_days": 14,
-    # A flat sensor's spread never goes below this share of its long-run spread
+    # A flat sensor's spread is floored at this share of its long-run spread
     "mad_floor_share": 0.10,
     # A window is judged only when this share of its readings are real ones
     "min_real": 0.75,
-    # A gap longer than this restarts CUSUM and EWMA rather than carrying sums over it
+    # A gap longer than this restarts CUSUM and EWMA instead of carrying sums over it
     "gap_reset_steps": 8,
-    # Exceedances closer together than this are one cluster, so one alarm
+    # Exceedances closer together than this are one cluster and one alarm
     "decluster_steps": 8,
-    # Whether CUSUM's input is scaled for the readings' slow wander (see
-    # long_run_factor). Off: it held the false alarms down but shrank a real
-    # shift below the allowance, so the shift test hardly fired at all
+    # Scale CUSUM's input for slow wander (see long_run_factor). Off, because it
+    # shrank real shifts below the allowance and the shift test barely fired
     "cusum_long_run": False,
 }
 
@@ -79,16 +57,16 @@ RESOLUTION = {
     "floating_conductivity": 0.1,
 }
 
-# One false alarm budget for the whole model, split evenly across the three tests.
-# The same default the support modules share.
+# False alarm budget for the model, split evenly across the three tests.
+# Same default as the support modules.
 Q_TOTAL = 1e-4
 START_PERCENTILES = (98.0, 95.0, 90.0, 85.0, 80.0)
 # Below this many exceedances a tail fit is noise
 MIN_EXCEEDANCES = 20
-# |gamma| under this uses the exponential limit, never a division by nearly zero
+# Below this |gamma|, use the exponential limit instead of dividing by almost zero
 GAMMA_TOLERANCE = 1e-6
 
-# The slider's stops, as the whole model's rate. Each test gets a third.
+# The slider's stops, as the model's overall rate. Each test gets a third.
 STOPS = (
     ("far_fewer", "Far fewer", 1e-5),
     ("fewer", "Fewer", 3e-5),
@@ -135,7 +113,7 @@ def _trailing(values, width, min_real, reduce):
 
 
 def level(values, params=PARAMS):
-    """The median of each step's previous day, which the daily rhythm sits on. Not the step itself."""
+    """The median of the hours before each step, which the daily rhythm sits on."""
     width = int(params["level_hours"] * 4)
     return _trailing(values, width, params["min_real"], lambda w: np.nanmedian(w, axis=1))
 
@@ -152,7 +130,7 @@ def rolling_profiles(index, above_level, params=PARAMS):
     at each quarter hour over the previous profile_days days. Medians keep a
     past event from bending it. Returns (profile per step, the latest profile).
     """
-    # Calendar dates at the creek, so a day stays a day across a clock change
+    # Calendar dates at the creek. A day stays a day across a clock change
     days = np.array(index.tz_convert("America/Los_Angeles").date)
     slots = slot_of(index)
     frame = pd.DataFrame({"day": days, "slot": slots, "y": above_level})
@@ -198,7 +176,7 @@ def residuals(values, profile, params=PARAMS):
 def hampel(resid, floor, params=PARAMS):
     """
     Distance from the trailing window's median, in scaled MADs. The window
-    holds the step itself, so a spike is judged against the readings around it
+    holds the step itself. A spike is judged against the readings around it
     and can't hide in its own median.
     """
     width = int(params["hampel_window"])
@@ -221,9 +199,8 @@ def hampel(resid, floor, params=PARAMS):
 
 def cusum(z, params=PARAMS):
     """
-    Two-sided CUSUM on standardised residuals: running sums of what lies beyond
-    a small allowance, each held at zero from below, as in detecta's
-    detect_cusum. Reports the larger sum. A shift that holds keeps adding.
+    Two-sided CUSUM on standardised residuals, like detecta's detect_cusum.
+    Returns the larger of the two sums. A shift that holds keeps adding up.
     """
     k, reset = float(params["cusum_allowance"]), int(params["gap_reset_steps"])
     out = np.full(z.size, np.nan)
@@ -244,9 +221,9 @@ def cusum(z, params=PARAMS):
 
 def ewma(z, params=PARAMS):
     """
-    An exponentially weighted average of standardised residuals, divided by its
-    own spread, sqrt(lambda / (2 - lambda)), so it reads in standard deviations
-    of the average rather than of a single reading. A slow drift moves it.
+    EWMA of standardised residuals, divided by its own spread
+    sqrt(lambda / (2 - lambda)) so it reads in standard deviations of the
+    average. A slow drift moves it.
     """
     lam, reset = float(params["ewma_lambda"]), int(params["gap_reset_steps"])
     spread = math.sqrt(lam / (2.0 - lam))
@@ -266,10 +243,9 @@ def ewma(z, params=PARAMS):
 
 def long_run_factor(rho):
     """
-    How much wider a running sum spreads than independent readings would let
-    it, sqrt((1 + rho) / (1 - rho)) for lag-one autocorrelation rho. Readings
-    here wander slowly, rho near 0.96, so without this CUSUM's allowance of half
-    a spread is far smaller than the wander it adds up, and it never stops firing.
+    sqrt((1 + rho) / (1 - rho)), how much wider a running sum spreads when
+    readings are autocorrelated. Ours wander slowly (rho near 0.96). Without it
+    CUSUM's allowance is tiny next to the wander and it keeps firing.
     """
     rho = min(max(float(rho), 0.0), 0.995)
     return math.sqrt((1.0 + rho) / (1.0 - rho))
@@ -287,7 +263,7 @@ def statistics(values, profile, spread, floor, params=PARAMS, rho=0.0):
 
 
 def statistics_of(resid, spread, floor, params=PARAMS, rho=0.0):
-    """The same, from residuals already worked out, for calibration's sake."""
+    """Same as statistics(), from residuals already worked out. Calibration uses this."""
     z = resid / max(spread, floor)
     return {
         "hampel_spike": hampel(resid, floor, params),
@@ -308,10 +284,9 @@ def floor_for(variable, spread, params=PARAMS):
 
 def clusters(statistic, mask, level, gap=8):
     """
-    The peak of each run of steps over level among the masked ones, with runs
-    closer than gap steps counted as one. CUSUM and EWMA stay over a line for
-    many steps once they cross it, and every one of those steps is the same
-    alarm, so this is what gets counted, both for the fit and for a false flag.
+    The peak of each run over level, with runs closer than gap steps merged.
+    CUSUM and EWMA stay over a line for many steps once they cross it. That's
+    one alarm, and we count these peaks.
     """
     hits = np.flatnonzero(mask & np.isfinite(statistic) & (statistic > level))
     if hits.size == 0:
@@ -333,12 +308,11 @@ def pooled(arrays, masks, gap=8):
 
 def fit_tail(statistic, mask, gap=8):
     """
-    The generalised Pareto tail of a statistic over its clean steps, fitted
-    with SciPy's genpareto to the peak of each cluster above the 98th
-    percentile. Declustering is the usual remedy for a series whose steps
-    aren't independent (Coles, An Introduction to Statistical Modeling of
-    Extreme Values, chapter 5), so n_t counts clusters and q is alarms per step.
-    Returns {t, sigma, gamma, n, n_t}.
+    Fits a generalised Pareto tail (SciPy's genpareto) to the cluster peaks
+    above the 98th percentile of the clean steps. Declustering is the usual fix
+    when steps aren't independent (Coles, An Introduction to Statistical
+    Modeling of Extreme Values, chapter 5). n_t counts clusters and q is
+    alarms per step. Returns {t, sigma, gamma, n, n_t, start_percentile}.
     """
     from scipy.stats import genpareto
 
@@ -347,9 +321,8 @@ def fit_tail(statistic, mask, gap=8):
     n = int(judged.sum())
     if n == 0:
         raise ValueError("no clean values to fit")
-    # The 98th percentile as the paper has it, unless CUSUM or EWMA spend that
-    # top 2% in so few long runs that there aren't enough clusters to fit, in
-    # which case the start comes down until there are
+    # Start at the 98th percentile like the paper. CUSUM and EWMA can spend that
+    # top 2% in a few long runs, though. Step down until there are enough clusters
     for percentile in START_PERCENTILES:
         t = float(np.percentile(statistic[judged], percentile))
         peaks = clusters(statistic, judged, t, gap)
@@ -384,7 +357,7 @@ def rate_for(tail, z):
     if abs(gamma) < GAMMA_TOLERANCE:
         return share * math.exp(-(z - t) / sigma)
     base = 1.0 + gamma * (z - t) / sigma
-    # Past a negative shape's finite end the tail says it never happens
+    # Past a negative shape's finite end the tail gives zero probability
     if base <= 0.0:
         return 0.0
     return share * base ** (-1.0 / gamma)
@@ -395,9 +368,8 @@ def rate_for(tail, z):
 
 def corroborated_spikes(ratios, siblings=None):
     """
-    The Hampel statistic as a share of its threshold, kept only where a second
-    reading agrees: the one before it, or another sensor at the same site at
-    the same step. A single bad reading is Settling Pool's job, not this one's.
+    Hampel ratios, kept only where a second reading agrees (the step before, or
+    another sensor at the same site). A single bad reading is Settling Pool's job.
     """
     before = np.concatenate([[np.nan], ratios[:-1]])
     agree = np.fmax(before, siblings) if siblings is not None else before
@@ -406,8 +378,8 @@ def corroborated_spikes(ratios, siblings=None):
 
 def x84(values, k=5.2, params=PARAMS):
     """
-    Naive X84, for the comparison only: distance from a trailing window's
-    median in raw MADs, with no daily profile, no rain and a fixed k.
+    Naive X84, only for the comparison. Raw MADs from a trailing median, with
+    no daily profile, no rain and a fixed k.
     """
     raw = values.to_numpy(dtype=float)
     width = int(params["hampel_window"])

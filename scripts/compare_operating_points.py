@@ -2,19 +2,19 @@
 Every Cobble Shoal artifact at a matched false-alarm rate.
 
 run_audit_comparison scores each model at its own calibrated z_q, which is right
-when you trust the calibration. The retrained weather variant does not survive
-its own held-out check (2.24e-2 measured against a nominal 1e-3), so its extra
-detections might be discrimination or might just be a lower bar. Comparing at a
-nominal q cannot tell those apart.
+when you trust the calibration. The retrained weather variant fails its own
+held-out check (2.24e-2 measured against a nominal 1e-3). Its extra detections
+might be discrimination or might just be a lower bar, and comparing at a
+nominal q can't tell those apart.
 
-So set every model's threshold from the same measured exceedance rate on one
-common fault-free span, then see what each one catches at the same cost.
+Here we set each model's threshold from the same measured exceedance rate on
+one common fault-free span, then see what each one catches at the same cost.
 
     python scripts/compare_operating_points.py
 
 The span is March 2026. It sits in validation for the chronological split and in
-validation for the blocked one, and the shipped weights never saw real data at
-all, so nothing here is scored on its own training data.
+validation for the blocked one, and the shipped weights didn't see real data
+at all. No model here is scored on its own training data.
 """
 
 from __future__ import annotations
@@ -39,12 +39,12 @@ from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 from tests import event_catalog  # noqa: E402
 
 # Held out by both splits. March is validation under chronological (cut
-# 2026-02-01) and validation under blocked (odd months), which is what makes one
+# 2026-02-01) and validation under blocked (odd months). That makes one
 # threshold comparable across all five artifacts.
 COMMON_START = "2026-03-01"
 COMMON_END = "2026-04-01"
 
-# Two operating points rather than one. 1e-2 has enough exceedances in a month
+# Two operating points. 1e-2 has enough exceedances in a month
 # of windows to be a measurement; 1e-3 is nearer the alerting budget and is
 # reported knowing it rests on a couple of dozen points.
 RATES = (1e-2, 1e-3)

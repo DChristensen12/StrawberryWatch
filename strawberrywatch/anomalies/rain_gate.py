@@ -5,28 +5,25 @@ The model has no weather input and gains none here. This raises the alerting
 bar during and after rain, because runoff genuinely moves conductivity and an
 operator does not want that arriving as an alert.
 
-The threshold moves, the score never does. POT fitted z_q against the
-fault-free distribution of the combined score, so a score scaled by a rain
-factor is no longer a draw from the distribution that fit was made on and every
-p-value under it quietly stops meaning what it says. tests/test_rain_gate.py
-asserts the scores are bit-identical across modes.
+The threshold moves and the score stays put. z_q was fitted on fault-free
+scores, and scaling a score for rain would break every p-value under it.
+tests/test_rain_gate.py checks the scores stay bit-identical across modes.
 
 Rain comes from the caller as a plain array of per-timestep amounts. This
-module never fetches weather.
+module doesn't fetch weather.
 
-The measured cost, and why it is written down here
+The measured cost
 
-These tables were measured in August 2026 against the comparison harness
-corpus, which has since been deleted. THEY CANNOT BE RECOMPUTED FROM THIS
-REPOSITORY. They are the evidence behind the multiplier and decay_hours
-defaults, and anyone moving those parameters needs to know what the last
-measurement said. Cobble Shoal, seed 20260806, combined Fisher at q=1e-4,
-z_q = 39.130, multiplier 2.0, decay_hours 36, lookback_hours 12, wet_mm 0.1.
+Measured in August 2026 on the comparison harness corpus. That corpus has
+since been deleted and these can't be recomputed from this repository. They're
+the evidence behind the multiplier and decay_hours defaults. Cobble Shoal, seed
+20260806, combined Fisher at q=1e-4, z_q = 39.130, multiplier 2.0,
+decay_hours 36, lookback_hours 12, wet_mm 0.1.
 
 A synthetic hourly rain series was laid over the 275 stored fault-sweep cases
-so 30% fell in a raised-threshold window. The sweep cases have no real time
-axis, so that assignment is arbitrary by construction. These show the shape of
-the trade, not a measurement of this creek.
+with 30% falling in a raised-threshold window. The sweep cases have no real
+time axis and that assignment is arbitrary. These show the shape of the trade,
+not a measurement of this creek.
 
   shape       n     % wet   off      step     decay    decay - off
   decouple    17    0%      100.0%   100.0%   100.0%   +0.0%
@@ -38,10 +35,9 @@ the trade, not a measurement of this creek.
   stuck       17    0%      100.0%   100.0%   100.0%   +0.0%
   all         275   30%     99.3%    94.9%    94.9%    -4.4%
 
-The whole cost lands on partial, and it is 10 points of detection on the one
-fault shape whose signal is weakest. Every other shape clears 2*z_q as easily
-as it cleared z_q. A gate tuned for rain is in practice a gate that trades away
-partial faults specifically.
+All of the cost lands on partial: 10 points of detection on the fault shape
+with the weakest signal. Every other shape clears 2*z_q as easily as it cleared
+z_q. In practice a gate tuned for rain trades away partial faults.
 
 False alarms on 3536 fault-free windows by 17 nodes:
 
@@ -54,12 +50,12 @@ Restricted to wet windows, where the gate does anything, the alarm rate falls
 from 4.86% (off) to 2.46% (step) to 0.44% (decay).
 
 Two caveats. Those fault-free windows are the regime-swept ones, spanning noise
-and diurnal regimes the nulls were not fitted on, which is why the ungated rate
-is 2.4% and not the nominal 1e-4. Only the comparison between rows is
-meaningful. And step and decay tie on detection because of how the arbitrary
-case-to-time mapping fell, not because the rules are equivalent.
+and diurnal regimes the nulls were not fitted on. That's why the ungated rate
+is 2.4% and not the nominal 1e-4, and only the comparison between rows means
+anything. Also, step and decay tie on detection because of how the arbitrary
+case-to-time mapping fell. The rules aren't equivalent.
 
-The delayed first flush, which is the failure the old step design documents.
+The delayed first flush, the failure the old step design documents.
 Rain falls for six hours and a conductivity pulse arrives 21 hours after it
 stops, outside the 12 hour lookback and inside the 36 hour decay:
 
@@ -70,7 +66,7 @@ stops, outside the 12 hour lookback and inside the 36 hour decay:
   1.75 * z_q    fires   fires   fires        suppressed
   1.90 * z_q    fires   fires   fires        fires
 
-At the pulse step is back at 1.00*z_q, so it flags a delayed first flush at any
+At the pulse, step is back at 1.00*z_q and flags a delayed first flush at any
 magnitude. decay holds 1.42*z_q and deployed holds 1.75*z_q. Neither is
 asserted correct and the tests do not assert one. decay_hours is the dial and
 this table is what moving it trades.
@@ -116,10 +112,10 @@ class RainGate:
     """
     Per-timestep alerting threshold as a function of a rain series.
 
-    Parameters, all operator-settable and all documented here:
+    Parameters, all operator-settable:
 
       base_threshold  the POT threshold z_q for the combined score. The gate
-                      never computes this; it is whatever calibration produced.
+                      doesn't compute this; it's whatever calibration produced.
       multiplier      how far the bar is raised when it is as wet as it gets.
                       1.0 disables the raise without disabling the gate.
       decay_hours     how long after the last wet reading the threshold takes
@@ -132,13 +128,13 @@ class RainGate:
       mode            "off", "step", "decay" or "deployed"; see below.
       sample_hours    spacing of the rain array when no timestamps are given.
       per_node        optional {node: multiplier} overriding `multiplier` at
-                      named nodes. None means one catchment-wide threshold,
-                      which is the default because rain is catchment-wide.
+                      named nodes. None (the default) means one
+                      catchment-wide threshold, since rain is catchment-wide.
 
     Modes:
 
-      "off"       tau = base everywhere. The identity case, so the gate can be
-                  left in the pipeline and turned off.
+      "off"       tau = base everywhere. The identity case, for leaving the
+                  gate in the pipeline but turned off.
 
       "step"      tau = multiplier*base while the lookback-window rain total
                   exceeds wet_mm, base otherwise. A hard edge in both
@@ -146,22 +142,20 @@ class RainGate:
 
       "decay"     tau = base * (1 + (m-1) * clip(1 - h/decay_hours, 0, 1)),
                   h = hours since the last wet reading. Full raise while it is
-                  raining, then a linear return to base over decay_hours. This
-                  is the mode that covers a first-flush pulse arriving after
-                  the lookback window has already closed.
+                  raining, then a linear return to base over decay_hours.
+                  This mode covers a first-flush pulse arriving after the
+                  lookback window has closed.
 
       "deployed"  what strawberrywatch/anomalies/anomaly_detector.py
-                  `_rain_multipliers` actually does today: hold the full
-                  multiplier while the lookback total is wet, then taper over
-                  decay_hours measured from the moment the lookback window
-                  closes. Carried so the two new modes can be read against
-                  production rather than against a description of it.
+                  `_rain_multipliers` does today: hold the full multiplier
+                  while the lookback total is wet, then taper over
+                  decay_hours from the moment the lookback window closes.
+                  Kept here to compare the two new modes against production.
 
     "step" and "deployed" ask whether the lookback TOTAL clears wet_mm.
-    "decay" measures from the last single reading above wet_mm. The two
-    readings of wet_mm are deliberate and are what each rule's own definition
-    calls for, but it means wet_mm is a per-window total in one mode and a
-    per-reading floor in the other.
+    "decay" measures from the last single reading above wet_mm. Each rule's
+    definition calls for its own reading of wet_mm, which makes it a per-window
+    total in one mode and a per-reading floor in the other.
     """
 
     base_threshold: float
@@ -202,8 +196,8 @@ class RainGate:
     def from_dict(cls, cfg):
         """
         Build from a plain dict, which is also what a YAML or JSON block parses
-        to. Unknown keys are refused rather than ignored, because a silently
-        dropped `mutliplier` is a gate that quietly does nothing.
+        to. Unknown keys raise. If we dropped a misspelled `mutliplier`, the gate
+        would do nothing and nobody would know.
         """
         if not isinstance(cfg, dict):
             raise RainGateConfigError(f"config must be a mapping, got {type(cfg).__name__}")
@@ -245,7 +239,7 @@ class RainGate:
 
     @classmethod
     def from_yaml(cls, text):
-        """Parse a YAML block. JSON is valid YAML, so this takes both."""
+        """Parse a YAML block. JSON is valid YAML, and this takes both."""
         try:
             import yaml
         except ImportError:
@@ -290,9 +284,8 @@ class RainGate:
         Hours since the last reading above wet_mm, per timestep. Zero while it
         is raining, +inf before any rain has been seen.
 
-        Exposed on its own because it is the answer to "why was the bar up at
-        13:45", so an operator can read it straight off without re-deriving the
-        rule from the threshold.
+        Exposed so an operator can answer "why was the bar up at 13:45" without
+        working back from the threshold.
         """
         rain, hours = self._hours(rain_mm, timestamps)
         wet = rain > self.wet_mm
@@ -308,8 +301,8 @@ class RainGate:
         test against wet_mm.
         """
         rain, hours = self._hours(rain_mm, timestamps)
-        # searchsorted rather than a fixed sample count, so an irregular series
-        # gets a real time window instead of a count of rows.
+        # searchsorted gives an irregular series a real time window, not a count
+        # of rows.
         start = np.searchsorted(hours, hours - self.lookback_hours, side="left")
         cum = np.concatenate([[0.0], np.cumsum(rain)])
         return cum[np.arange(rain.size) + 1] - cum[start]
@@ -356,11 +349,9 @@ class RainGate:
         mult = self.multipliers(rain_mm, timestamps)
         if nodes is None:
             return self.base_threshold * mult
-        # A per-node multiplier rescales only the raised part: at zero rain
-        # every node sits on the same base threshold, which is the calibrated
-        # one, and only the size of the rain-time raise differs. That raised
-        # fraction is a property of the rain rather than of the node, so it is
-        # built here and not once per node inside the loop.
+        # A per-node multiplier only rescales the raised part. With no rain every
+        # node sits on the same calibrated base. The raised fraction depends on
+        # the rain and not the node, and we build it once out here.
         if self.multiplier > 1.0:
             scale = (mult - 1.0) / (self.multiplier - 1.0)
         else:
@@ -375,15 +366,12 @@ class RainGate:
 
     def decisions(self, scores, pvalues, rain_mm, timestamps=None, nodes=None):
         """
-        One record per timestep per node, carrying everything needed to answer
-        "why did this alert fire" or "why did it not" without re-running
-        anything: the raw score and its p-value exactly as the detector
-        produced them, the calibrated base threshold, the multiplier this gate
-        applied, the threshold that came out, the hours since wet that drove
-        it, and whether it fired.
+        One record per timestep per node, with everything needed to answer "why
+        did this fire" (or not) without re-running anything: the score and
+        p-value as the detector gave them, the base threshold, the multiplier,
+        the threshold that came out, hours since wet, and whether it fired.
 
-        scores and pvalues are (T,) or (T, N) and are copied through
-        untouched. Nothing here may modify them; that is the whole point.
+        scores and pvalues, (T,) or (T, N), are copied through untouched.
         """
         s = np.asarray(scores, dtype=float)
         p = np.asarray(pvalues, dtype=float)
@@ -406,8 +394,8 @@ class RainGate:
 
         ts = None if timestamps is None else np.asarray(timestamps)
         base = self.base_threshold
-        # One definition of the firing rule, shared with the array path. Writing
-        # the comparison out again here is how the two quietly disagree later.
+        # The same firing rule as the array path. A second copy of the
+        # comparison here could drift from it.
         fired_grid = fired(s, tau)
         records = []
         for i in range(n_t):
@@ -437,9 +425,9 @@ def fired(scores, thresholds):
     """
     The alerting decision, and the only place it is written down.
 
-    NaN never fires. A score that could not honestly be computed is "not
-    scorable", which is not the same as "did not exceed", and must not reach an
-    operator as a quiet all-clear.
+    NaN doesn't fire. A score that couldn't be computed is "not scorable". That
+    differs from "did not exceed" and shouldn't reach an operator as an
+    all-clear.
     """
     s = np.asarray(scores, dtype=float)
     return np.isfinite(s) & (s > np.asarray(thresholds, dtype=float))

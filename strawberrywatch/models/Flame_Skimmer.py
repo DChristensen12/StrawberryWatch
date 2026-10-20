@@ -25,26 +25,21 @@ from strawberrywatch.models.Cobble_Shoal import (
     gaussian_nll,
 )
 
-# Head weight samples used when scoring. The serving noise is drawn once with
-# this many samples, so it is also the most predictive() can take without an
-# explicit generator.
+# Head weight samples when scoring. The serving noise is drawn once at this
+# size, which is also the most predictive() can take without a generator.
 SERVING_SAMPLES = 64
 
-# Seed for the serving noise. Fixed, so the same window always gets the same
-# score and an alert cannot flap between two runs over the same data.
+# Fixed. The same window always gets the same score, and an alert can't flap
+# between two runs over the same data
 SERVING_NOISE_SEED = 20261013
 
 
 class BayesLinear(nn.Module):
     def __init__(self, in_features, out_features, prior_sigma=1.0, rho_init=-5.0):
         """
-        Linear layer with a mean-field Gaussian posterior over its weight and bias.
-
-        Parameters:
-            in_features: int -> size of each input sample,
-            out_features: int -> size of each output sample,
-            prior_sigma: float -> standard deviation of the N(0, prior_sigma^2) prior on every weight and bias,
-            rho_init: float -> initial rho for every weight, sigma = softplus(rho). -5 starts sigma near 0.0067,
+        Linear layer with a mean-field Gaussian posterior over its weight and
+        bias. Each weight gets an N(0, prior_sigma^2) prior, and sigma is
+        softplus(rho). The default rho_init of -5 starts sigma near 0.0067.
         """
         super().__init__()
 
@@ -58,7 +53,7 @@ class BayesLinear(nn.Module):
         self.mu_bias = Parameter(torch.empty(out_features))
         self.rho_bias = Parameter(torch.empty(out_features))
 
-        # filled by fix_noise, left out of the state_dict on purpose
+        # filled by fix_noise, and kept out of the state_dict
         self.register_buffer("fixed_eps_weight", None, persistent=False)
         self.register_buffer("fixed_eps_bias", None, persistent=False)
 
@@ -82,11 +77,7 @@ class BayesLinear(nn.Module):
         return F.softplus(self.rho_bias)
 
     def kl(self):
-        """
-        Closed form KL(q || N(0, prior_sigma^2)), summed over every weight and bias, not averaged.
-
-        returns torch.Tensor of shape ()
-        """
+        """Closed form KL(q || N(0, prior_sigma^2)), summed (not averaged) over every weight and bias."""
         total = 0.0
         for mu, sigma in ((self.mu_weight, self.sigma_weight), (self.mu_bias, self.sigma_bias)):
             total = (
@@ -102,13 +93,8 @@ class BayesLinear(nn.Module):
 
     def forward(self, input, generator=None):
         """
-        Training forward with the local reparameterization trick, one epsilon per output element.
-
-        Parameters:
-            input: torch.Tensor -> (..., in_features),
-            generator: torch.Generator -> optional, for reproducible noise,
-
-        returns torch.Tensor of shape (..., out_features)
+        Training forward with the local reparameterization trick, one epsilon
+        per output element. (..., in_features) in, (..., out_features) out.
         """
         mean = F.linear(input, self.mu_weight, self.mu_bias)
         var = F.linear(input**2, self.sigma_weight**2, self.sigma_bias**2)
@@ -117,9 +103,9 @@ class BayesLinear(nn.Module):
 
     def draw_noise(self, samples, generator=None):
         """
-        Standard normal noise for `samples` whole weight matrices. Noise rather than weights, so it outlives training.
-
-        returns (eps_weight (samples, out, in), eps_bias (samples, out))
+        Standard normal noise for `samples` full weight matrices, as
+        (eps_weight, eps_bias). We keep noise instead of weights, and it
+        outlives training.
         """
         dev, dt = self.mu_weight.device, self.mu_weight.dtype
         eps_weight = torch.randn(
@@ -131,7 +117,7 @@ class BayesLinear(nn.Module):
         return eps_weight, eps_bias
 
     def fix_noise(self, samples, generator):
-        """Draw the serving noise once and keep it, so scoring is deterministic."""
+        """Draw the serving noise once and keep it. Scoring is then deterministic."""
         # drawn on cpu so the values do not depend on which device the model sits on
         eps_weight = torch.randn(samples, self.out_features, self.in_features, generator=generator)
         eps_bias = torch.randn(samples, self.out_features, generator=generator)
@@ -141,15 +127,9 @@ class BayesLinear(nn.Module):
 
     def forward_sampled(self, input, eps_weight, eps_bias, shared_input=False):
         """
-        Prediction forward with one whole weight matrix per sample, so a window ignores its batch neighbours.
-
-        Parameters:
-            input: torch.Tensor -> (S, ..., in_features), or (..., in_features) when shared_input,
-            eps_weight: torch.Tensor -> (S, out_features, in_features) standard normal noise,
-            eps_bias: torch.Tensor -> (S, out_features) standard normal noise,
-            shared_input: bool -> input has no sample axis and every sample reads it,
-
-        returns torch.Tensor of shape (S, ..., out_features)
+        Prediction forward with one full weight matrix per sample. A window
+        doesn't depend on its batch neighbours. input is (S, ..., in_features),
+        or (..., in_features) with shared_input. Returns (S, ..., out_features).
         """
         samples = eps_weight.shape[0]
         weight = self.mu_weight + self.sigma_weight * eps_weight
@@ -166,13 +146,8 @@ class BayesLinear(nn.Module):
 class BayesianHead(nn.Module):
     def __init__(self, in_dim, width=32, prior_sigma=1.0, rho_init=-5.0):
         """
-        Two Bayesian hidden layers and a Bayesian output layer giving delta and raw scale.
-
-        Parameters:
-            in_dim: int -> width of the encoder output the head reads,
-            width: int -> units in each hidden layer,
-            prior_sigma: float -> prior standard deviation, passed to every BayesLinear,
-            rho_init: float -> initial rho, passed to every BayesLinear,
+        Two Bayesian hidden layers and a Bayesian output layer for delta and raw
+        scale. prior_sigma and rho_init go to every BayesLinear.
         """
         super().__init__()
         self.layers = nn.ModuleList(
@@ -187,11 +162,7 @@ class BayesianHead(nn.Module):
         return sum(layer.kl() for layer in self.layers)
 
     def forward(self, h, generator=None):
-        """
-        One local reparameterization draw per datapoint, for the training loss.
-
-        returns (delta (...), raw_scale (...))
-        """
+        """One local reparameterization draw per datapoint, for the training loss. Returns (delta, raw_scale)."""
         x = h
         for i, layer in enumerate(self.layers):
             x = layer(x, generator=generator)
@@ -217,9 +188,8 @@ class BayesianHead(nn.Module):
 
     def forward_sampled(self, h, noise):
         """
-        The head under each sampled set of weights. h goes in once, unsampled.
-
-        returns (delta (S, ...), raw_scale (S, ...))
+        The head under each sampled set of weights. h goes in once, unsampled,
+        and delta and raw_scale come back as (S, ...).
         """
         x = h
         for i, (layer, (eps_weight, eps_bias)) in enumerate(zip(self.layers, noise, strict=True)):
@@ -260,10 +230,9 @@ class FlameSkimmer(nn.Module):
     @classmethod
     def from_metadata(cls, metadata):
         """
-        Rebuild from a trained metadata blob, sized from the creek structure like CobbleShoal.
-
-        Parameters:
-            metadata: dict -> seed and window as for CobbleShoal, plus prior_sigma, head_width and n_train,
+        Rebuild from a trained metadata blob, sized from the creek like
+        CobbleShoal. Reads prior_sigma, head_width and n_train on top of
+        CobbleShoal's seed and window.
         """
         return cls(
             len(SITE_ORDER),
@@ -294,12 +263,8 @@ class FlameSkimmer(nn.Module):
         n_train=1,
     ):
         """
-        Parameters:
-            num_sites, num_vars, num_context, num_nodes, seed, hidden, var_emb, site_emb, window -> as for CobbleShoal,
-            head_width: int -> units in each Bayesian hidden layer,
-            prior_sigma: float -> prior standard deviation on every head weight,
-            rho_init: float -> initial rho on every head weight,
-            n_train: int -> supervised (anchor, node) targets in the training set, divides the KL,
+        Same arguments as CobbleShoal, plus the head's. n_train is how many
+        supervised (anchor, node) targets were in training, and divides the KL.
         """
         super().__init__()
         if n_train < 1:
@@ -324,7 +289,7 @@ class FlameSkimmer(nn.Module):
         torch.manual_seed(seed + HEAD_SEED_OFFSET)
         self.head = BayesianHead(hidden * 2, head_width, prior_sigma, rho_init)
 
-        # own generator, so drawing the serving noise leaves the global RNG alone
+        # own generator. Drawing the serving noise leaves the global RNG alone
         noise_gen = torch.Generator().manual_seed(SERVING_NOISE_SEED)
         for layer in self.head.layers:
             layer.fix_noise(SERVING_SAMPLES, noise_gen)
@@ -342,14 +307,9 @@ class FlameSkimmer(nn.Module):
 
     def loss(self, batch, beta=1.0, generator=None):
         """
-        Negative ELBO per supervised target: masked Gaussian NLL plus beta * KL / n_train.
-
-        Parameters:
-            batch: dict -> a nested node batch, see model_calls.NESTED_NODE_BATCH,
-            beta: float -> KL weight, warmed from 0 to 1 by the training script,
-            generator: torch.Generator -> optional, for reproducible head noise,
-
-        returns (total loss tensor, {"nll", "kl", "beta"})
+        Negative ELBO per supervised target, masked Gaussian NLL plus
+        beta * KL / n_train. The training script warms beta from 0 to 1.
+        Returns (loss, {"nll", "kl", "beta"}).
         """
         h, anchor = self.encode(batch)
         delta, raw_scale = self.head(h, generator=generator)
@@ -363,14 +323,9 @@ class FlameSkimmer(nn.Module):
 
     def predictive(self, batch, samples=SERVING_SAMPLES, generator=None):
         """
-        Moment matched predictive distribution. Encoder once, head `samples` times.
-
-        Parameters:
-            batch: dict -> a nested node batch,
-            samples: int -> head weight samples,
-            generator: torch.Generator -> optional, draws fresh noise instead of the serving noise,
-
-        returns Predictive
+        Moment matched predictive distribution. Runs the encoder once and the
+        head `samples` times. Pass a generator to draw fresh noise instead of
+        using the serving noise.
         """
         h, anchor = self.encode(batch)
         if generator is None:
@@ -382,7 +337,7 @@ class FlameSkimmer(nn.Module):
         sigma = F.softplus(raw_scale) + MIN_SCALE
         mean = mu.mean(dim=0)
         aleatoric = (sigma**2).mean(dim=0)
-        # population variance, which is what the moment matched mixture uses
+        # population variance, as the moment matched mixture uses
         epistemic = mu.var(dim=0, unbiased=False)
         return Predictive(mean, aleatoric, epistemic, aleatoric + epistemic)
 
@@ -415,12 +370,9 @@ class FlameSkimmer(nn.Module):
     @torch.no_grad()
     def score(self, batch, nulls, return_channels=False):
         """
-        One number per node, the combined Fisher statistic. Larger is more anomalous.
-
-        Parameters:
-            batch: dict -> a nested node batch,
-            nulls: ChannelNulls -> fitted at calibration time, nothing is fitted here,
-            return_channels: bool -> also return the raw channel scores, for diagnostics,
+        One number per node, the combined Fisher statistic. Larger is more
+        anomalous. nulls come from calibration, and we fit nothing here.
+        return_channels also hands back the raw channel scores, for diagnostics.
         """
         chans = self.channels(batch)
         combined = scoring.combine(pvalues=nulls.pvalues(chans), rule="fisher")
@@ -428,7 +380,7 @@ class FlameSkimmer(nn.Module):
 
 
 def build_flame_skimmer(num_sites, num_vars, num_context, num_nodes, seed, window, **head_args):
-    """Same argument order as build_cobble_shoal, so the training scripts read alike."""
+    """Same argument order as build_cobble_shoal. The training scripts read alike."""
     return FlameSkimmer(
         num_sites, num_vars, num_context, num_nodes, seed, window=window, **head_args
     )

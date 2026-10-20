@@ -1,6 +1,6 @@
 // The website's early theme check, from its base.html: turn dark mode on before
-// the page paints, so a dark page never flashes light. Runs from <body>'s first
-// line, so document.body exists.
+// the page paints, and a dark page doesn't flash light. Runs from <body>'s first
+// line, where document.body exists.
 (function () {
   try {
     if (localStorage.getItem('darkMode') === 'true') {

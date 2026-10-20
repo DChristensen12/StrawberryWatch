@@ -1,25 +1,22 @@
 """
 Calibrated artifacts for the Cobble Shoal detector, loaded at inference.
 
-Nothing here fits anything. A detector that refits its own null on the window
-it is judging has no null, it has a description of the data it just saw.
+This module fits nothing. A detector that refits its own null on the window
+it's judging has no null, just a description of the data it saw.
 
     cal = load_calibration(REAL)
     win = node_windows.build_window(tables, start, end, scaler=cal.node_scaler)
     fired = model.score(batch, cal.nulls) > cal.z_q
 
-Two calibrations ship, and they are not interchangeable. SYNTHETIC was fitted
-on generated windows because that was the only corpus the model could read
-before the node_windows adapter landed. REAL was fitted on data/raw_data
-through that adapter. Their thresholds are close (39.13 against 39.69) and
-their score scales are not: on one identical window the same weights score
-7.3 to 28.4 under the synthetic nulls and 0.25 to 2.0 under the real ones.
-Pick deliberately. There is no default that is right for both.
+Two calibrations ship and they aren't interchangeable. SYNTHETIC was fitted on
+generated windows, REAL on data/raw_data through node_windows. Their thresholds
+are close (39.13 against 39.69) but their score scales aren't: on one window the
+same weights score 7.3 to 28.4 under the synthetic nulls and 0.25 to 2.0 under
+the real ones. Pick with care.
 
-A null is fitted in a normalization space, so it only means anything applied to
-data in that same space. REAL records the NodeScaler it was fitted with and
-node_scaler hands it back, which is what the serving path must pass to
-build_window rather than letting it fit a fresh one.
+A null only means something in the normalization space it was fitted in. REAL
+records its NodeScaler, and the serving path must pass that to build_window
+instead of letting it fit a fresh one.
 """
 
 from __future__ import annotations
@@ -56,8 +53,8 @@ class CobbleCalibration:
     seed: int
     source_checkpoint: str
     pot: dict
-    # Which file this came from, so a report can say which calibration it used
-    # rather than leaving the reader to guess from the number.
+    # Which file this came from. A report can say which calibration it used,
+    # and the reader doesn't have to guess from the number.
     filename: str = SYNTHETIC
     # The normalization the nulls were fitted in. None for SYNTHETIC, which
     # predates the adapter and recorded no scaler.
@@ -87,12 +84,9 @@ class CobbleCalibration:
 
     def window_scaler(self):
         """
-        The NodeScaler to hand build_window, or raise saying why there is none.
-
-        Raising is the point. build_window(scaler=None) fits a fresh scaler off
-        whatever window it was given, and scores computed in that space against
-        nulls fitted in another are finite, plausible, and meaningless. That
-        failure has no symptom, so it has to be refused rather than reported.
+        The NodeScaler to hand build_window, or an error saying why there isn't
+        one. Without it build_window fits a fresh scaler, and the scores come out
+        plausible and meaningless, with no symptom to catch.
         """
         if self.node_scaler is None:
             raise CalibrationError(
@@ -114,11 +108,8 @@ def weights_path(checkpoint_dir=None):
 
 def load_calibration(filename=SYNTHETIC, checkpoint_dir=None):
     """
-    Read one calibration artifact. Raises rather than guessing a default.
-
-    filename is SYNTHETIC or REAL. It stays an argument with no clever
-    fallback: silently substituting one for the other is exactly the swap the
-    module docstring says must never happen quietly.
+    Reads one calibration file, SYNTHETIC or REAL. No default and no fallback,
+    since swapping one for the other unnoticed is what we have to prevent.
     """
     path = calibration_path(checkpoint_dir, filename)
     if not path.exists():
@@ -138,8 +129,8 @@ def load_calibration(filename=SYNTHETIC, checkpoint_dir=None):
 
     scaler = None
     if blob.get("node_scaler") is not None:
-        # Imported here rather than at module scope: this module is on the
-        # alerting path and node_windows pulls in pandas and the inventory.
+        # Imported here, not at module scope: this module is on the alerting
+        # path and node_windows pulls in pandas and the inventory.
         from strawberrywatch.preprocessing.node_windows import NodeScaler
 
         try:

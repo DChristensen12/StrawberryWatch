@@ -1,12 +1,8 @@
 """
-The labelled event catalog as a thing somebody edits without writing Python.
-
-Adding an event is meant to be one entry in tests/events.yaml. That only holds
-if a bad entry says what is wrong instead of turning into a skipped test, so
-every validation rule gets its bad value written and its message checked.
-
-The fixtures themselves are not committed (see the folder check at the bottom),
-so anything that needs the CSVs on disk skips rather than fails.
+The labelled event catalog, which people edit without writing Python. Adding an
+event should be one entry in tests/events.yaml. A bad entry has to say what's
+wrong instead of turning into a skipped test. The fixtures aren't in git, and
+tests that need the CSVs skip without them.
 """
 
 from __future__ import annotations
@@ -48,9 +44,8 @@ def test_every_label_is_one_the_tests_know(events):
 
 def test_the_graded_events_are_still_graded(events):
     """
-    The graded rows are the evidence base. A refactor that quietly dropped one
-    would leave a green suite that tests less than it did, which is the failure
-    this file exists to make loud.
+    The graded rows are the evidence base. Dropping one would leave a green
+    suite that tests less than it did.
     """
     graded = {(e.folder, e.site, e.label) for e in events if e.label != "relative_only"}
     assert graded == {
@@ -63,14 +58,10 @@ def test_the_graded_events_are_still_graded(events):
 
 def test_no_true_negative_coverage_yet(events):
     """
-    Nothing currently tests that the detector stays quiet.
-
-    The two April rainfall rows were the only true negatives, and they came out
-    on 2026-09-06 in favour of the 2026-09-03 storm, which has not been cut into
-    a fixture yet. Until it is, test_true_negative_not_flagged parametrizes over
-    an empty list and silently tests nothing, which is exactly the kind of hole
-    the graded set above exists to prevent. This holds it open where someone
-    will see it. See future_work.md. Delete this test when the storm lands.
+    No test checks yet that the detector stays quiet. The April rain rows came
+    out on 2026-09-06 for the 2026-09-03 storm, which isn't a fixture yet.
+    test_true_negative_not_flagged runs over an empty list, and this keeps that
+    visible. Delete it once the storm is in (see future_work.md).
     """
     assert not [e for e in events if e.label == "true_negative"], (
         "true negatives are back. Add them to the graded set in "
@@ -80,9 +71,8 @@ def test_no_true_negative_coverage_yet(events):
 
 def test_the_catalog_has_exactly_one_definition():
     """
-    It used to live in two places: a list in tests/test_anomaly_detection.py and
-    a second copy in scripts/run_audit_comparison.py. Both now read this module,
-    and neither may grow its own copy back.
+    The anomaly tests and run_audit_comparison.py both read this module, and
+    neither may grow its own copy back.
     """
     import inspect
 
@@ -132,7 +122,7 @@ def test_a_site_name_in_either_vocabulary_is_accepted():
 
 
 def test_a_typo_in_a_key_is_refused_rather_than_ignored():
-    """A silently dropped key is a label nobody notices is not being applied."""
+    """A dropped key is a label nobody notices isn't being applied."""
     with pytest.raises(ec.CatalogError, match="unknown key"):
         ec.parse(_blob(lable="anomaly"))
 
@@ -179,9 +169,9 @@ def test_every_entry_points_at_a_folder_that_exists(events):
 
 def test_every_entry_has_a_csv_for_the_site_it_scores(events):
     """
-    A folder present but missing the target site's CSV skips at score time, so
-    check it here where it fails instead. footbridge is stored under its table
-    name, so both spellings count.
+    A folder present but missing the target site's CSV skips at score time. We
+    check it here, where it fails instead. footbridge is stored under its table
+    name, and both spellings count.
     """
     if not paths.anomalies_dir().exists():
         pytest.skip("no data/anomalies on this machine")
@@ -199,9 +189,9 @@ def test_every_entry_has_a_csv_for_the_site_it_scores(events):
 
 def test_folders_on_disk_that_the_catalog_ignores_are_named_in_the_file():
     """
-    An event fixture nobody listed is evidence sitting unused, which is how
-    anomaly_2025_08_sprinklers_nf0 went ungraded for months. Anything left out
-    has to be left out on purpose, in writing, in the file itself.
+    An event fixture nobody listed is evidence sitting unused. That's how
+    anomaly_2025_08_sprinklers_nf0 went ungraded for months. A fixture left out
+    has to be listed as left out, in the file itself.
     """
     if not paths.anomalies_dir().exists():
         pytest.skip("no data/anomalies on this machine")

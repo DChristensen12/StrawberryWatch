@@ -2,13 +2,14 @@
 Which probe sits where, since when, and whether it is in use.
 
 Reads inventory.yaml and resolves any (site, variable, timestamp) to one of four
-states. Non-coders edit that file, so a bad edit has to stop the run with a
-message naming the line and what to write instead. Never guess at intent.
+states. People who don't write code edit that file. A bad edit stops the run
+with a message naming the line and what to write instead. We don't guess at
+intent.
 
 Switches live in one grid at the top of the yaml, a row per site and a column
 per sensor. A probe set to no drops out of live scoring and the state table and
-reads as NOT_INSTALLED downstream, but its old readings still train, which is
-what in_service_only=False is for.
+reads as NOT_INSTALLED downstream. Its old readings still train
+(in_service_only=False).
 
 python -m strawberrywatch.inventory prints the lot.
 """
@@ -31,10 +32,8 @@ STALE = "STALE"
 MISSING = "MISSING"
 STATES = (NOT_INSTALLED, PRESENT, STALE, MISSING)
 
-# resolve_series works in these codes and indexes the names back on at the end,
-# so a whole archive's worth of states costs one pass over int8 rather than four
-# masked writes into an object array. The codes index _STATE_BY_CODE, so their
-# order has to stay in step with STATES.
+# resolve_series works in small integer codes and maps the names back at the
+# end. The codes index _STATE_BY_CODE, and their order must match STATES.
 _STATE_BY_CODE = np.array(STATES, dtype=object)
 _NOT_INSTALLED_CODE, _PRESENT_CODE, _STALE_CODE, _MISSING_CODE = range(len(STATES))
 
@@ -42,8 +41,8 @@ MAYFLY = "mayfly"
 BALANCE = "balance_hydrologics"
 SOURCES = (MAYFLY, BALANCE)
 
-# Oxford is the confluence outlet, Codornices a separate watershed. Nothing else
-# is allowed to drain nowhere.
+# Oxford is the confluence outlet, Codornices a separate watershed. Every other
+# site has to drain somewhere.
 TERMINAL_SITES = ("oxford", "codornices")
 
 # All a grid cell may say. PyYAML would also swallow True, On and 1 as booleans,
@@ -65,7 +64,7 @@ def _problem(path, line, what, fix):
 
 
 def _walk(node, path=()):
-    """Every node keyed by its path. Mappings too, so a bad row gets a line."""
+    """Every node keyed by its path. Mappings too, which gives a bad row its line number."""
     if isinstance(node, yaml.MappingNode):
         if path:
             yield path, node
@@ -76,7 +75,7 @@ def _walk(node, path=()):
 
 
 def _marks(text):
-    """Path to node, so a bad value can be reported with its line."""
+    """Path to node, for reporting a bad value with its line."""
     root = yaml.compose(text)
     if root is None:
         return {}
@@ -84,7 +83,7 @@ def _marks(text):
 
 
 def _switch_help(table, sensor):
-    """Same three lines for every bad cell, so there is one thing to learn."""
+    """The same three lines for every bad cell. One thing to learn."""
     return (
         f"Write one of these three, in lower case, with no quotes:\n"
         f"    {sensor}: yes   installed and in service\n"
@@ -104,10 +103,10 @@ def _switch_from_value(value):
 
 def _read_switch(marks, path, keypath, table, sensor, parsed=None):
     """
-    One grid cell, refusing everything PyYAML would quietly accept.
+    One grid cell, refusing everything PyYAML would accept without complaint.
 
-    Read off the raw text, not the parsed value: by the time PyYAML is done,
-    yes and true are both True and the mistake is invisible.
+    We read the raw text, not the parsed value. Once PyYAML is done, yes and
+    true are both True and the mistake can't be seen.
     """
     node = marks.get(keypath)
     if node is None:
@@ -246,7 +245,7 @@ class Site:
 
     @property
     def scored_variables(self):
-        """What live scoring covers, so a probe set to no leaves the state table."""
+        """What live scoring covers. A probe set to no leaves the state table."""
         return self._variables(s for s in self.sensors.values() if s.in_service)
 
     @staticmethod
@@ -277,10 +276,10 @@ class Inventory:
     """
     Every site in the network, validated on load.
 
-    Validation is the point of loading through a class. A site with no sensors,
-    an unknown probe, a switch written as true, a row missing a column, a probe
+    Loading through a class is how we validate. A site with no sensors, an
+    unknown probe, a switch written as true, a row missing a column, a probe
     switched on with no install date, a dangling downstream and a cycle in the
-    flow graph all raise here, before anything reads a reading.
+    flow graph all raise here, before any reading is read.
     """
 
     def __init__(self, raw, text="", path=_YAML_NAME):
@@ -494,7 +493,7 @@ class Inventory:
         )
 
     def _check_row_columns(self, table, source, row, path):
-        """Every row carries its whole column set, so nothing hides."""
+        """Every row carries its full column set."""
         columns = self.sensor_columns.get(source)
         if not columns:
             return ()
@@ -641,7 +640,7 @@ class Inventory:
         )
 
     def isolated(self):
-        """Sites with no edge either way, which is what makes a control."""
+        """Sites with no edge either way. That's what makes a control."""
         connected = set()
         for up, down in self.edges():
             connected.add(up)
@@ -689,7 +688,7 @@ class Inventory:
         """
         Real dates that still carry the guessed marker.
 
-        The evidence names the reading the guess came from, so a date that no
+        The evidence names the reading the guess came from. A date that no
         longer matches it is a human correction with the label left on.
         """
         out = []
@@ -707,8 +706,8 @@ class Inventory:
         """
         Whether an absent reading at a balance site is the 7 day window.
 
-        Those sites are scraped and serve a rolling week, so an older hole was
-        never retrievable and nobody can call it broken.
+        Those sites are scraped and only serve a rolling week. An older hole was
+        never retrievable, and we don't call it broken.
         """
         if site.source != BALANCE or as_of is None:
             return False
@@ -720,10 +719,10 @@ class Inventory:
         """
         One (site, variable, timestamp) to exactly one state.
 
-        last_reading is the newest value at or before this step, passed in
-        rather than looked up so this stays callable from a loop. A probe set
-        to no comes back NOT_INSTALLED; in_service_only=False is the training
-        path, which cares when the probe was really there.
+        last_reading is the newest value at or before this step, passed in to
+        keep this cheap in a loop. A probe set to no comes back NOT_INSTALLED.
+        in_service_only=False is the training path, which cares when the probe
+        was really there.
         """
         site = self.site(table)
         sensor = site.sensor_for(variable)
@@ -748,20 +747,18 @@ class Inventory:
 
     def resolve_series(self, table, variable, values, as_of=None, in_service_only=True):
         """
-        A whole time indexed series to one state per timestep.
+        A full time indexed series to one state per timestep.
 
-        values is indexed by UTC timestamp and holds NaN where nothing arrived.
-        in_service_only=False ignores the grid, because history does not change
-        when a probe is switched off.
+        values is indexed by UTC timestamp and holds NaN where no reading
+        arrived. in_service_only=False ignores the grid, because history doesn't
+        change when a probe is switched off.
         """
         values = pd.Series(values).sort_index()
         index = pd.DatetimeIndex(values.index)
         site = self.site(table)
         sensor = site.sensor_for(variable)
 
-        # Built inside the branches that return it. Hoisted out, every call
-        # allocated a pointer per timestep for an array the common path then
-        # overwrote wholesale.
+        # Only built in the branches that return it
         if (
             sensor is None
             or not sensor.ever_installed
@@ -775,14 +772,14 @@ class Inventory:
         if sensor.removed is not None:
             installed &= index < sensor.removed
 
-        # Nanoseconds, not timestamps, so a channel that never reported still
-        # subtracts cleanly instead of landing in object dtype. as_unit first:
+        # Nanoseconds, not timestamps. A channel that never reported still
+        # subtracts cleanly instead of ending up in object dtype. as_unit first:
         # pandas takes the resolution off the input, and a microsecond index
         # read every gap as inside the allowed two hours.
         stamps = (index if index.unit == "ns" else index.as_unit("ns")).asi8.astype("float64")
         # Carry the last reporting stamp forward as a running max of its position,
-        # which is the same fill a Series.ffill() does without building the Series
-        # or a second float array beside it. Nothing seen yet stays NaN, as before.
+        # the same fill as Series.ffill() without building a Series. Steps before
+        # the first report stay NaN.
         where = np.where(present, np.arange(len(index)), -1)
         np.maximum.accumulate(where, out=where)
         age = np.where(where >= 0, stamps - stamps[where], np.nan)
@@ -797,9 +794,7 @@ class Inventory:
 
         stale = np.isfinite(age) & (age <= self.staleness_hours * 3600 * 1e9)
 
-        # One pass of small integer codes indexed into the state table, rather
-        # than four boolean-masked writes into an object array. The masks that
-        # were spelled out three times over are built once.
+        # One pass of integer codes into the state table, each mask built once
         silent = installed & ~present & ~expected_gap
         codes = np.full(len(index), _NOT_INSTALLED_CODE, dtype=np.int8)
         codes[installed & present] = _PRESENT_CODE
@@ -877,7 +872,7 @@ def from_dict(raw, text="", path=_YAML_NAME):
 
 
 def from_text(text, path=_YAML_NAME):
-    """From YAML text, so line numbers are real."""
+    """From YAML text, which keeps the line numbers real."""
     return Inventory(yaml.safe_load(text), text=text, path=path)
 
 
@@ -917,8 +912,8 @@ def _rewrite_row(path, table, changes):
     """
     Rewrite one row in place, leaving every other line alone.
 
-    Rebuilds the row rather than dumping the document back out. A dump loses the
-    comments, and the comments are why anyone can edit this file at all.
+    We rebuild the row instead of dumping the whole document, which would lose
+    the comments, and people rely on those to edit the file.
     """
     with open(path) as handle:
         lines = handle.readlines()
@@ -960,7 +955,7 @@ def _rewrite_row(path, table, changes):
 
 
 def _all_grid_rows(marks):
-    """Row names in file order, so widths match what is already written."""
+    """Row names in file order. Widths match what's already written."""
     seen = []
     for keypath in marks:
         if len(keypath) == 2 and keypath[0] == "in_service" and keypath[1] not in seen:
@@ -982,8 +977,8 @@ def set_site_in_service(table, value, path=None):
     """
     A whole site in or out of service, meaning every fitted probe on it.
 
-    No site level switch exists in the file on purpose, so this sets each column
-    with a probe behind it and leaves the - alone.
+    The file has no site-level switch. This sets each column that has a probe
+    and leaves the - alone.
     """
     resolved = _yaml_path(path)
     switches = _row_switches(_marks(open(resolved).read()), table)
@@ -1014,10 +1009,10 @@ def _table(rows, headers):
 
 def _archive_disagreements(inventory):
     """
-    Where the file and the data disagree. Reported, never resolved.
+    Where the file and the data disagree. Reported, not resolved.
 
     Silence is measured against the newest reading in the archive, not the
-    clock, so a stale local copy does not report every site as down.
+    clock. A stale local copy won't report every site as down.
     """
     try:
         from strawberrywatch.ingest.raw_data_loader import load_archive_by_table
@@ -1057,7 +1052,7 @@ def _archive_disagreements(inventory):
 
 
 def report(inventory=None, check_data=True):
-    """The whole file as plain text, for checking an edit worked."""
+    """The file as plain text, for checking an edit worked."""
     inventory = inventory or load(reload=True)
     out = [
         "Strawberry Creek sensor inventory",

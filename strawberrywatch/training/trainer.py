@@ -8,17 +8,10 @@ from strawberrywatch.models import model_calls
 
 def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):
     """
-    MSE, but cells where target_mask is False don't count, and only the
-    channels in scored_feature_idx (if given) count at all. target_mask is
-    None or (batch, num_nodes) bool; broadcasts across the feature dim.
-    scored_feature_idx is None (score every channel) or a list of indices
-    into the feature dim, narrows which channels are compared BEFORE the
-    mask is applied, so QC masking still zeroes out a bad node the same way
-    regardless of how many channels are being scored.
-
-    With both args None this reduces to exactly nn.MSELoss()(predictions,
-    target) (mean over every element). Same numbers, so passing neither
-    doesn't change training at all.
+    MSE that skips cells where target_mask (batch, num_nodes) is False, and
+    only compares the channels in scored_feature_idx when given. Channels are
+    narrowed before the mask. A bad node is zeroed the same way however many
+    are scored. With both None it's exactly nn.MSELoss()(predictions, target).
     """
     if scored_feature_idx is not None:
         predictions = predictions[..., scored_feature_idx]
@@ -51,48 +44,31 @@ def train_temporal_gnn(
     device=Config.DEVICE,
 ):
     """
-    Train a temporal GNN via MSE reconstruction. Returns losses plus a threshold.
+    Trains a temporal GNN on MSE reconstruction. Returns (train_losses,
+    val_losses, threshold, node_error_stats), with the last three empty or None
+    without validation data.
 
-    Mixed-precision on CUDA, plain fp32 on CPU (autocast on CPU breaks oneDNN's
-    LSTM kernel and gives no speedup since CPUs lack tensor cores).
+    Mixed precision on CUDA, plain fp32 on CPU, since autocast breaks oneDNN's
+    LSTM kernel there and doesn't make it faster.
 
-    train_node_mask/val_node_mask: optional (N, seq_len, num_nodes) bool, QC
-    validity per node per input timestep (see prepare_sequences_normalized's
-    return_node_mask). Passed straight through to the model so feature
-    propagation fills in masked nodes and pooling ignores them.
+    The node masks, (N, seq_len, num_nodes), go straight to the model, which
+    fills in and ignores bad nodes. The target masks, (N, num_nodes), keep bad
+    targets (like oxford mirroring university_house) out of the loss and the
+    threshold. The model isn't taught to reproduce bad data. All four None
+    is the old unmasked behavior.
 
-    train_target_mask/val_target_mask: optional (N, num_nodes) bool, QC
-    validity at the prediction target. A masked node's target is a real-looking
-    but untrustworthy value (e.g. oxford mirroring university_house), scoring
-    the model on reconstructing it would just teach it to reproduce bad data,
-    so it's excluded from the loss and from threshold calibration below.
-
-    All four default to None, which reduces to exactly the old unmasked
-    behavior (node_mask=None into the model, plain mean-over-everything loss).
-
-    After training, computes a spill-detection threshold from validation errors
-    on conductivity only ("Model All, Alert One"). Threshold gets computed at
-    train time so inference isn't sensitive to what it happens to see live.
-    If feature_cols isn't provided or doesn't include conductivity, falls back
-    to mean error across all features.
-
-    Returns (train_losses, val_losses, threshold, node_error_stats). val_losses,
-    threshold, and node_error_stats are empty/None if no validation data was
-    given. node_error_stats is a dict keyed by node index (0..num_nodes-1),
-    each value {"median", "iqr", "threshold", "cond_median", "cond_iqr"}.
-    median/iqr/threshold characterize that node's error spread, for per-node
-    thresholding instead of one global cutoff. cond_median/cond_iqr are a
-    separate thing: the robust center and spread of the node's actual
-    normalized conductivity LEVEL (not its error), for detecting a level shift
-    that the error-based stats can't see, a sustained step gets predicted
-    correctly again after one timestep, so its error goes quiet, but the level
-    itself stays away from normal the whole time.
+    The threshold comes from validation errors on conductivity only ("Model
+    All, Alert One"), or the mean over all features if feature_cols has no
+    conductivity. node_error_stats is {node: {"median", "iqr", "threshold",
+    "cond_median", "cond_iqr"}}: each node's error spread for per-node
+    thresholds, plus the spread of its conductivity level, since a sustained
+    step gets predicted well again after one step and only shows in the level.
     """
     model = model.to(device)
     edge_index = edge_index.to(device)
 
-    # Not every model takes node_mask, and a model that does not is a
-    # TypeError rather than a no-op if you pass it anyway. Ask once.
+    # Not every model takes node_mask, and passing it to one that doesn't is a
+    # TypeError, not a no-op. Ask once.
     supports_node_mask = model_calls.accepts_node_mask(model)
     if (train_node_mask is not None or val_node_mask is not None) and not supports_node_mask:
         print(
@@ -106,10 +82,8 @@ def train_temporal_gnn(
             model, seq_tensor, edge_index, mask_tensor if supports_node_mask else None
         )
 
-    # Loss only scores Config.SCORED_TARGET_FEATURES, everything else (weather,
-    # time encodings) stays a model input but stops being something we penalize
-    # the model for mispredicting. Output layer is untouched (still predicts all
-    # of feature_cols); this only narrows what the loss looks at.
+    # The loss only scores Config.SCORED_TARGET_FEATURES. Weather and time
+    # encodings stay inputs, and the output layer still predicts all of them.
     scored_feature_idx = None
     if feature_cols:
         scored_feature_idx = [
@@ -219,18 +193,18 @@ def train_temporal_gnn(
                     print(f"early stopping at epoch {epoch + 1}")
                     break
 
-        if (epoch + 1) % 5 == 0 or epoch == 0:
-            status = f"Epoch {epoch + 1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
-            if val_sequences is not None:
-                status += f" | Val Loss: {val_loss:.6f}"
-            print(status)
+        # Every epoch, flushed, to show progress while it trains
+        status = f"Epoch {epoch + 1:3d}/{epochs} | Train Loss: {avg_train_loss:.6f}"
+        if val_sequences is not None:
+            status += f" | Val Loss: {val_loss:.6f}"
+        print(status, flush=True)
 
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
         print(f"restored best weights (val loss {best_val_loss:.6f})")
 
     # Conductivity-only threshold. Other channels add noise; spills show as
-    # conductivity deviations, so the model scores three and alerts on one.
+    # conductivity deviations. The model scores three and alerts on one.
     threshold = None
     node_error_stats = None
     if val_sequences is not None:
@@ -245,9 +219,8 @@ def train_temporal_gnn(
             val_errors = (val_pred - val_tgt).abs().cpu().numpy()
             val_tgt_np = val_tgt.cpu().numpy()
 
-            # Nodes whose target was masked contribute a fabricated error, so
-            # the mean below has to skip them rather than average them in. Same
-            # exclusion the per-node loop makes further down.
+            # Masked targets give made-up errors. Skip them here like the
+            # per-node loop does further down
             node_keep = (
                 np.asarray(val_target_mask).astype(bool)
                 if val_target_mask is not None
@@ -276,8 +249,8 @@ def train_temporal_gnn(
                 per_node_cond_level = None
                 scoring_note = "mean across all features (fallback)"
 
-            # A timestep with no valid node anywhere has no score at all, so it
-            # cannot vote on the threshold either.
+            # A timestep with no valid node anywhere has no score, and can't
+            # vote on the threshold either.
             usable_scores = system_scores[np.isfinite(system_scores)]
             n_dropped = len(system_scores) - len(usable_scores)
             if n_dropped:
@@ -289,13 +262,9 @@ def train_temporal_gnn(
                 usable_scores = system_scores
             threshold = float(np.percentile(usable_scores, Config.THRESHOLD_PERCENTILE))
 
-            # median/IQR per node, so a site that just runs hotter
-            # (south_fork_2) is judged against its own spread.
-            #
-            # QC-invalid targets are excluded too, the rule HadISD uses. A node
-            # scored against known-bad targets (oxford during the
-            # university_house duplication) gets its "normal" spread pulled
-            # toward however wrong those targets are.
+            # Median/IQR per node. A site that runs hotter (south_fork_2) is
+            # judged against its own spread. QC-invalid targets are left out, as
+            # HadISD does, or bad data would widen a node's "normal".
             num_nodes = per_node_scores.shape[1]
             node_error_stats = {}
             for node_idx in range(num_nodes):

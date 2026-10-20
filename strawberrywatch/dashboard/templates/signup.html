@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Get alerts{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<h1>Get StrawberryWatch alerts</h1>
+{% if sent %}
+  <div class="sw-headline">
+    <p class="lead">Check your email</p>
+    <p>If {{ sent }} isn't on the list yet, we've sent it a link. Open it to confirm. Nothing is sent until you do.</p>
+  </div>
+{% else %}
+  <p>StrawberryWatch watches the sensors in Strawberry Creek and emails an alert when a reading looks unusual. Every email has a link to unsubscribe.</p>
+  <form method="post" novalidate>
+    {{ form.csrf_token }}
+    {{ sw.text(form.email, kind='email', autocomplete='email', hint="We'll send a link to confirm it's yours.") }}
+    <div class="sw-buttons"><button type="submit" class="sw-button">Sign up</button></div>
+  </form>
+{% endif %}
+{% endblock %}

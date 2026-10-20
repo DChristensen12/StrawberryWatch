@@ -1,0 +1,51 @@
+{#- StrawberryWatch's HTML email. Mail apps ignore stylesheets, and every style is
+    inline. The layout is tables because Outlook still needs them. -#}
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ subject }}</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f4f4f4;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #e0e0e0;">
+            <tr>
+              <td style="padding:18px 24px;border-bottom:4px solid #000000;">
+                <img src="{{ images.emblem }}" width="54" height="60" alt="Strawberry Creek Monitoring Group" style="vertical-align:middle;border:0;">
+                <span style="margin-left:12px;vertical-align:middle;font:700 22px Arial,Helvetica,sans-serif;color:#000000;">StrawberryWatch</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;font:16px/1.5 Arial,Helvetica,sans-serif;color:#1f1f1f;">
+                <p style="margin:0 0 16px;font-weight:700;">{{ opener }}</p>
+                {% for block in blocks %}
+                  <h2 style="margin:24px 0 8px;font:700 18px/1.3 Arial,Helvetica,sans-serif;color:#000000;">{{ block.heading }}</h2>
+                  <p style="margin:0 0 8px;">{{ block.sentence }}</p>
+                  {% for line in block.extras %}
+                    <p style="margin:0 0 8px;color:#444444;">{{ line }}</p>
+                  {% endfor %}
+                {% endfor %}
+                {% for line in after or [] %}
+                  <p style="margin:0 0 16px;">{{ line }}</p>
+                {% endfor %}
+                {% if action %}
+                  <p style="margin:24px 0 8px;"><a href="{{ action.href }}" style="display:inline-block;padding:10px 20px;background:#2c3e50;color:#ffffff;text-decoration:none;font-weight:700;">{{ action.text }}</a></p>
+                  <p style="margin:0;font-size:13px;color:#555555;">Or copy this link: {{ action.href }}</p>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 24px;border-top:1px solid #e0e0e0;font:13px/1.5 Arial,Helvetica,sans-serif;color:#555555;">
+                <p style="margin:0 0 16px;">{{ footer }}{% if unsubscribe %} <a href="{{ unsubscribe }}" style="color:#2c3e50;">Unsubscribe</a>{% endif %}</p>
+                <img src="{{ images.sponsors }}" width="300" height="39" alt="UC Berkeley Environment, Health and Safety, and The Green Initiative Fund" style="display:block;border:0;">
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

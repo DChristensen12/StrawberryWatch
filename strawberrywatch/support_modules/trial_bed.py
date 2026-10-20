@@ -1,9 +1,9 @@
 """
 Trial Bed: names the pollutant a firing looks like, from the way each channel moved.
 
-Reads sensor state from the inventory, so a site that never had a pH probe and a
-site whose pH probe died give different answers rather than the same silence.
-An explainer, so it spends no false alarm budget and cannot change what fired.
+Reads sensor state from the inventory. A site that never had a pH probe and a
+site whose pH probe died give different answers, not the same silence. It's an
+explainer: it spends no false alarm budget and can't change what fired.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ _LABELS = {
     "depth": "depth",
 }
 
-# FLAT means measured and did not move, which is evidence. Saying "flat" in the
-# sentence reads as missing data, so it is spelled out.
+# FLAT means measured and didn't move, which is evidence. "flat" in the sentence
+# reads as missing data, and we spell it out.
 _MOVE_WORDS = {sig.UP: "up", sig.DOWN: "down", sig.FLAT: "normal"}
 
 DIAGNOSED = "diagnosed"
@@ -42,8 +42,8 @@ def observed_direction(baseline_vals, event_vals):
     """
     Report whether a parameter went UP, DOWN or FLAT from baseline to event.
 
-    The baseline's own spread is the yardstick, so temperature and conductivity
-    are judged on their own noise. None where there is not enough data.
+    The baseline's own spread is the yardstick. Temperature and conductivity
+    are judged on their own noise. None where there isn't enough data.
     """
     b = pd.to_numeric(pd.Series(baseline_vals), errors="coerce").dropna()
     e = pd.to_numeric(pd.Series(event_vals), errors="coerce").dropna()
@@ -185,7 +185,7 @@ def _score_row(pollutant, observed, table, means=None):
 
 
 def _tapwater_numbers(means):
-    """Check the event means against Berkeley tap water rather than a direction."""
+    """Check the event means against Berkeley tap water, not a direction."""
     out = {}
     temp = means.get("temperature")
     if temp is not None:
@@ -220,8 +220,8 @@ def classify(observed, table=None, reasons=None, means=None):
     """
     Match observed directions against every signature row that can be judged.
 
-    A row needing pH is reported unevaluable rather than scored on the rest and
-    called a partial match.
+    A row needing pH is reported unevaluable. Scoring it on the rest would make
+    a partial match.
     """
     table = sig.SIGNATURES if table is None else table
     reasons = reasons or {}
@@ -368,7 +368,7 @@ class TrialBed(SupportExplainer):
             return result
 
         # The reading times, not the window indices. The record is per sequence
-        # and the raw frame is per sample, so timestamps are what join them.
+        # and the raw frame is per sample. Timestamps join them.
         event_times = times[fired_column]
         index = pd.DatetimeIndex(pd.to_datetime(rows.index, utc=True, errors="coerce"))
         is_event = index.isin(event_times)

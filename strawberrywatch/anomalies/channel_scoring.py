@@ -2,15 +2,15 @@
 Detection channels, per-channel nulls, p-value combination and the POT
 threshold, for the Cobble Shoal detector.
 
-The arithmetic here is deliberately frozen: the calibrated artifacts shipped beside
-the weights (channel nulls, POT threshold z_q) were fitted against exactly
-these functions, so an edit here silently invalidates them.
+The arithmetic here is frozen. The calibrated artifacts shipped beside the
+weights (channel nulls, POT threshold z_q) were fitted against exactly these
+functions, and an edit here invalidates them without any error.
 
-The organising constraint is that no labelled anomalies exist and none will, so
-nothing here may be tuned against a fault. Every number a channel produces is
-turned into a right-tail probability against that channel's own fault-free
-distribution, and the alerting threshold comes from Extreme Value Theory at a
-false alarm rate chosen a priori.
+We have no labelled anomalies and won't get any, which means nothing here may
+be tuned against a fault. Every number a channel produces is turned into a
+right-tail probability against that channel's own fault-free distribution, and
+the alerting threshold comes from Extreme Value Theory at a false alarm rate
+chosen a priori.
 """
 
 from __future__ import annotations
@@ -20,10 +20,8 @@ import math
 import numpy as np
 import torch
 
-# Window used for the observed dispersion statistic. Long enough that ordinary
-# noise averages out, short enough that a sensor stuck for an hour shows up.
-# This is the only definition; common.py used to carry an identical unread copy,
-# which is the kind of duplicate that silently diverges.
+# Long enough that ordinary noise averages out, short enough that a sensor
+# stuck for an hour shows up
 DISPERSION_WINDOW = 8
 
 # Below this many exceedances a two-parameter GPD fit is noise. The empirical
@@ -40,8 +38,8 @@ def _np(x):
     return x.detach().cpu().numpy() if torch.is_tensor(x) else np.asarray(x)
 
 
-# Raw channels. Each returns (B, N) with NaN where the score cannot honestly be
-# computed, never a zero standing in for "unknown".
+# Raw channels. Each returns (B, N), with NaN where the score can't be computed
+# (not a zero standing in for "unknown").
 
 
 def excursion(pred, scale, target, target_mask, anchor_valid):
@@ -49,9 +47,9 @@ def excursion(pred, scale, target, target_mask, anchor_valid):
     Standardised one-step forecast residual. Catches a reading that moved when
     it should not have.
 
-    Structurally blind to a frozen sensor: the prediction is anchored on the
-    frozen reading itself, so predicting and observing the same frozen number
-    gives zero residual. That blindness is the reason the other channels exist.
+    Blind to a frozen sensor: the prediction is anchored on the frozen reading
+    itself, and predicting and observing the same frozen number gives zero
+    residual. The other channels exist to cover that.
     """
     usable = _np(target_mask).astype(bool) & _np(anchor_valid).astype(bool)
     z = np.abs(_np(target) - _np(pred)) / _np(scale)
@@ -64,10 +62,10 @@ def loo(loo_pred, loo_scale, target, target_mask):
     actually reported.
 
     With the node's own input removed the prediction comes from its siblings,
-    its flow neighbours and the clock, all of which are still moving, so a
-    frozen reading stands out by exactly as much as the creek has moved since it
-    froze. Anchor freshness is not a condition here: the leave-one-out
-    prediction does not use the node's anchor at all.
+    its flow neighbours and the clock, which are all still moving. A frozen
+    reading stands out by as much as the creek has moved since it froze. Anchor
+    freshness doesn't matter here, since the leave-one-out prediction doesn't
+    use the node's anchor.
     """
     usable = _np(target_mask).astype(bool)
     z = np.abs(_np(target) - _np(loo_pred)) / _np(loo_scale)
@@ -80,9 +78,9 @@ def reconstruction(x_hat, rec_scale, values, observed_mask):
 
     x_hat and rec_scale are (B, N, T); values and observed_mask are (B, T, N).
 
-    Anchored on neither the last value nor the neighbours, which is what makes
-    it the only channel that can see a window whose shape is wrong while its
-    level is right and the network agrees.
+    Anchored on neither the last value nor the neighbours. It's the only
+    channel that can see a window whose shape is wrong while its level is right
+    and the network agrees.
     """
     xh, sc = _np(x_hat), _np(rec_scale)
     v = np.transpose(_np(values), (0, 2, 1))
@@ -97,22 +95,14 @@ def reconstruction(x_hat, rec_scale, values, observed_mask):
 def dispersion(scale, values, obs_mask=None, window=DISPERSION_WINDOW, floor=1e-3, min_obs=None):
     """
     How much flatter the sensor is than the model expected, in log units, zero
-    when it is at least as variable as predicted.
+    when it's at least as variable as predicted. It's what a bit-exact freeze
+    trips: the residual goes to zero, but so does the observed spread, while the
+    predicted scale doesn't.
 
-    Nearly free, no head of its own, and it is what a bit-exact freeze trips:
-    the residual goes to zero, which is what blinds the excursion channel, but
-    the observed dispersion goes to zero too while the predicted scale does not.
-
-    obs_mask is not optional in practice, and leaving it out is a measured
-    mistake rather than a hypothetical one. Values are last-observation-carried-
-    forward, so a node that is simply offline has a flat series for exactly the
-    same arithmetic reason a frozen sensor does. Without the mask, ordinary
-    outages sit in the fault-free null of this channel at the same magnitude as
-    the faults, the null's tail swallows them, and detection at the POT
-    threshold on stuck faults measured 0.0% while the same channel was still
-    ranking the frozen node first. Requiring real observations in the window is
-    also the same refusal the decay cell makes: a flat battery must not read as
-    an anomaly.
+    Pass obs_mask. Values are carried forward, and an offline node looks just as
+    flat as a frozen one. Without the mask, ordinary outages filled this
+    channel's null and detection on stuck faults at the POT threshold measured
+    0.0%.
     """
     obs = _np(values)[:, -window:, :].std(axis=1)
     sc = _np(scale)
@@ -140,10 +130,10 @@ def fit_gpd(excess):
         sigma(t) = gamma(t)/t
         l(t)     = n*log(t/gamma(t)) - n*(gamma(t) + 1)
 
-    maximised over t > -1/max(y), t != 0. Grid then golden section, rather than
-    an optimiser dependency; the exponential limit t -> 0 is evaluated
-    separately and wins if it is genuinely better, which is what makes the
-    gamma-near-zero case a fitted answer rather than a special case.
+    maximised over t > -1/max(y), t != 0. Grid then golden section, to avoid
+    an optimiser dependency. The exponential limit t -> 0 is evaluated
+    separately and wins if it's better. That way gamma near zero is a fitted
+    answer and not a special case.
     """
     y = np.asarray(excess, dtype=float)
     y = y[np.isfinite(y) & (y > 0)]
@@ -181,8 +171,8 @@ def fit_gpd(excess):
         g_all[i : i + t_blk.size] = buf.mean(axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
         ll = n * np.log(grid / g_all) - n * (g_all + 1.0)
-    # The two guards loglik() applies pointwise, kept so a grid point it would
-    # have rejected still scores -inf here rather than a nan out of the log.
+    # The two guards loglik() applies pointwise. A grid point it would have
+    # rejected scores -inf here, not a nan out of the log.
     ll = np.where((g_all > 1e-12) & (g_all / grid > 0), ll, -np.inf)
 
     best = int(np.argmax(ll))
@@ -190,9 +180,9 @@ def fit_gpd(excess):
     b = grid[min(best + 1, grid.size - 1)]
 
     # Golden section on the bracketing interval. The profile is unimodal there
-    # for every sample we have looked at; if it is not, the grid answer stands.
-    # The point that survives a step keeps its likelihood instead of being
-    # evaluated again, which is half the evaluations for the same bracket.
+    # for every sample we've looked at; if it isn't, the grid answer stands.
+    # The point that survives a step keeps its likelihood, which halves the
+    # evaluations for the same bracket.
     phi = (math.sqrt(5.0) - 1.0) / 2.0
     c, d = b - phi * (b - a), a + phi * (b - a)
     fc, fd = loglik(c), loglik(d)
@@ -220,36 +210,26 @@ def gpd_sf(x, u, sigma, gamma):
     if abs(gamma) < 1e-8:
         return np.exp(-z / sigma)
     arg = 1.0 + gamma * z / sigma
-    # gamma < 0 gives a finite upper endpoint; beyond it the tail probability is
-    # zero, which is reported as zero rather than as a complex number.
+    # gamma < 0 gives a finite upper endpoint. Beyond it the tail probability is
+    # zero, and we report zero (not a complex number).
     return np.where(arg > 0, np.power(np.maximum(arg, 1e-300), -1.0 / gamma), 0.0)
 
 
 class ChannelNull:
     """
-    The fault-free distribution of one channel's score.
+    The fault-free distribution of one channel's score. Raw scores aren't
+    comparable across channels, but a tail probability against each channel's
+    own null is.
 
-    Raw channel scores are not comparable across channels: an excursion of 3 and
-    a dispersion of 3 mean different things, which is why a max over raw
-    magnitudes lets an uninformative channel outrank an informative one. A tail
-    probability against the channel's own null is comparable by construction.
+    Below the 95th percentile it's the empirical CDF. Above, a fitted GPD. Two
+    scores past every null sample still order against each other, instead of
+    both sitting at the 1/(n+1) floor.
 
-    Below the 95th percentile the empirical CDF is used directly. Above it the
-    tail is a fitted GPD, so two scores that both sit past every observed null
-    sample still order against each other instead of both saturating at the
-    1/(n+1) floor the empirical estimate can never go below.
-
-    The tail used for p-values clamps gamma at zero, and that is deliberate. A
-    negative gamma is a finite upper endpoint, the MLE puts that endpoint at the
-    largest observed excess, and every score past it collapses to p = 0. That is
-    not a small p-value, it is a tie: the largest fault-free sample and a sensor
-    frozen for six hours both come out at the floor, the combined score
-    saturates for both, and no threshold can separate them. Measured, it drove
-    detection at the POT threshold to 0.0% on stuck faults the dispersion
-    channel was ranking first. Clamping to the exponential limit keeps the tail
-    unbounded, keeps the ordering the combination rule needs, and is
-    conservative: it assigns a larger p than the unconstrained fit. The
-    unconstrained gamma is still stored and reported.
+    The tail clamps gamma at zero. A negative gamma puts a finite endpoint at
+    the largest observed excess, everything past it ties at p = 0, and that tie
+    drove detection on stuck faults to 0.0%. The exponential
+    limit keeps the ordering and gives a larger, more conservative p. The
+    unclamped gamma is still stored.
     """
 
     def __init__(self, samples=None, u=None, sigma=None, gamma=None, tail_p=None):
@@ -332,8 +312,8 @@ def chi2_sf_even(stat, dof):
     Survival function of chi-squared with even degrees of freedom, in closed
     form: exp(-x/2) * sum_{i<k} (x/2)^i / i! for dof = 2k.
 
-    Fisher's statistic always has even dof, so this covers every case here and
-    keeps the folder free of a scipy dependency.
+    Fisher's statistic always has even dof. This covers every case here and
+    keeps scipy out of the folder.
     """
     k = dof // 2
     x = np.asarray(stat, dtype=float) / 2.0
@@ -349,37 +329,22 @@ def combine(pvalues=None, raw=None, rule="fisher"):
     """
     One score per node from several channels. Larger is more anomalous.
 
-    "fisher" is -2 * sum(log p) over the channels' tail probabilities. It is
-    reported as the rule in use everywhere below.
+    "fisher" is -2 * sum(log p) over the channels' tail probabilities, and it's
+    the rule in use. "max" is the naive max over raw magnitudes, kept to show
+    its failure: 68.6% combined against 92.2% for one channel alone.
 
-    "max" is the naive path, the maximum over raw channel magnitudes with no
-    null and no calibration. It is kept because a previous run measured it at
-    68.6% combined where a single channel alone scored 92.2%: raw magnitudes are
-    not comparable, so the loudest channel wins whether or not it carries any
-    information. That regression has to stay visible in the results table rather
-    than be assumed away.
+    Fisher assumes independent channels and these aren't (dispersion and
+    leave-one-out both fire on a frozen sensor). The absolute p-value is
+    optimistic, and that's why the threshold comes from POT on the statistic's
+    own null.
 
-    Fisher assumes independent channels, which these are not: dispersion and
-    leave-one-out both fire on a frozen sensor, so an agreeing pair overstates
-    its significance. The statistic is still monotone in the evidence, and the
-    absolute p-value is optimistic, which is why the alerting threshold comes
-    from POT on the statistic's own null rather than from the chi-squared tail.
-
-    What is not true, and used to be claimed here, is that the degrees of
-    freedom are constant across nodes. nansum drops the channels that are NaN,
-    so a node's dof is however many of its channels are live, and measured over
-    400 fault-free windows that runs 0 to 4: a mean of 3.92 at north_fork_0
-    against 0.58 at footbridge, whose do_pct and float_cond sit at 0.12. The
-    statistic scales with dof, so footbridge's own 99.9th percentile is about 8
-    where the global threshold is about 33, and a sparsely observed node cannot
-    reach a threshold the well observed ones set. Ranking across nodes is
-    therefore not safe, and comparing a node against itself over time is.
-
-    Fixing it is not as easy as it looks. Standardising by dof, per-node nulls,
-    per-node thresholds and the Cauchy combination were all measured against
-    this rule at a matched fault-free rate, and every one of them traded
-    footbridge's reachability for substantially more firing during rain without
-    detecting anything new. See future_work.md.
+    The degrees of freedom also vary by node, since NaN channels drop out. Over
+    400 fault-free windows that's a mean of 3.92 at north_fork_0 against 0.58 at
+    footbridge, whose 99.9th percentile is about 8 where the global threshold is
+    about 33. Comparing a node with itself over time is safe, ranking nodes
+    against each other isn't. Every fix tried (standardising by dof, per-node
+    nulls or thresholds, Cauchy) traded that for more firing in rain. See
+    future_work.md.
     """
     if rule == "max":
         stack = np.stack([np.asarray(v, float) for v in raw.values()])
@@ -396,18 +361,10 @@ def combine(pvalues=None, raw=None, rule="fisher"):
 
 def fisher_pvalue(stat, k):
     """
-    The chi-squared tail for a Fisher statistic over k channels.
-
-    ILLUSTRATIVE ONLY. Nothing in the alerting path may use this. Fisher's
-    chi2(2k) reference distribution assumes the combined p-values are
-    independent, and these channels share an encoder, so an agreeing pair
-    overstates its significance and this number is optimistic. See combine()
-    above for the same warning from the other side.
-
-    The calibrated quantity is the right-tail probability of the combined score
-    against its OWN fault-free distribution, which is what ChannelNull.fit /
-    to_pvalue gives and what the POT threshold is built from. Use that wherever
-    a p-value is shown next to a threshold decision.
+    The chi-squared tail for a Fisher statistic over k channels. Illustrative
+    only, and kept out of the alerting path: the channels share an encoder and
+    this is optimistic. Next to a threshold decision, show
+    ChannelNull's p-value against the statistic's own null instead.
     """
     return chi2_sf_even(stat, 2 * k)
 
@@ -463,8 +420,8 @@ def pot_diagnostics(scores, q=1e-4, u_pct=98.0, held_out=None):
     excess = s[s > u] - u
     out["u"], out["n_u"] = u, int(excess.size)
     if excess.size < MIN_EXCEEDANCES:
-        # Fall back to the empirical quantile and say so, rather than reporting
-        # a GPD fit that was never made.
+        # Fall back to the empirical quantile and say so. We didn't fit a GPD
+        # here and shouldn't report one.
         out["threshold"] = float(np.quantile(s, 1.0 - q)) if q < 1 else u
         out["note"] = f"only {excess.size} exceedances, empirical quantile used"
     else:

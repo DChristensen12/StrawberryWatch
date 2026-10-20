@@ -4,7 +4,7 @@
 <a class="back-link" href="{{ url_for('main.history') }}">History</a>
 <p class="caption">Hour by hour</p>
 <h1>{{ title }}</h1>
-<p>{{ ran }} check{{ 's' if ran != 1 }} ran and {{ found }} unusual reading{{ 's were' if found != 1 else ' was' }} noticed.</p>
+<p>{{ ran }} check{{ 's' if ran != 1 }}, {{ found }} alert{{ 's' if found != 1 }}.</p>
 <p class="small">
   <a href="{{ previous }}">Previous day</a>
   {% if following %} · <a href="{{ following }}">Next day</a>{% endif %}

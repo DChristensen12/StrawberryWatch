@@ -1,8 +1,7 @@
 """
-The local watcher: settings and the checks they go through, the three sources,
-deciding from scores, the 7 day preview, the store, and the thread that checks
-every 15 minutes. The build spec's checks for steps 1, 2 and 5 that live here
-are named after them.
+The local watcher: settings, sources, decisions, the 7 day preview, the store
+and the 15 minute thread. Tests from the build spec's steps 1, 2 and 5 name
+their step in the docstring.
 """
 
 import os
@@ -40,9 +39,9 @@ def sites():
     return list(inv.load().sites)
 
 
-def _store(folder, models, sites, kind=sources.REPLAY, event=SPILL, csv=None, edit=None):
+def _store(folder, models, sites, kind=sources.REPLAY, event=SPILL, edit=None):
     store = st.Store(folder)
-    store.set_source(kind, folder=csv, event=event if kind == sources.REPLAY else None)
+    store.set_source(kind, event=event if kind == sources.REPLAY else None)
     settings = ws.defaults(models)
     if edit:
         edit(settings)
@@ -117,7 +116,7 @@ def test_cobble_shoal_refuses_going_under_half_its_sensors_and_warns_near_it(mod
     assert any("under half its sensors" in p for p in problems)
     cobble["leave_out"] = ["scnf010", "oxford"]
     _, problems, warnings = ws.check(settings, models, sites)
-    assert not problems and any("one more quiet site would stop it" in w for w in warnings)
+    assert not problems and any("one more offline site would stop it" in w for w in warnings)
 
 
 def test_a_rain_modulator_on_dusk_crayfish_is_refused(models, sites, monkeypatch):
@@ -142,7 +141,7 @@ def test_another_model_cant_be_turned_on_once_checks_take_half_the_interval(mode
     settings = ws.defaults(models)
     settings["models"]["cobble_shoal"]["on"] = True
     _, problems, warnings = ws.check(settings, models, sites, applied, last_check_seconds=500)
-    assert any("another model can't be turned on" in p for p in problems)
+    assert any("no more models can be turned on" in p for p in problems)
     _, problems, warnings = ws.check(settings, models, sites, applied, last_check_seconds=20)
     assert not problems and any("Cobble Shoal hasn't been retrained" in w for w in warnings)
 
@@ -163,10 +162,10 @@ def test_describe_words_every_change(models):
     after["rain"] = False
     after["dont_flag"] = ["oxford"]
     sentences = [row["sentence"] for row in ws.describe(before, after, models)]
-    assert "You changed sensitivity to Fewer alerts." in sentences
-    assert "You turned Cobble Shoal on." in sentences
-    assert "You turned off allowing for rain." in sentences
-    assert "You stopped flagging oxford." in sentences
+    assert "Alert sensitivity set to Fewer." in sentences
+    assert "Cobble Shoal turned on." in sentences
+    assert "Rain allowance turned off." in sentences
+    assert "Alerts turned off for Oxford Street." in sentences
     assert ws.describe(before, before, models) == []
 
 
@@ -233,27 +232,11 @@ def test_a_replay_notices_what_the_events_own_tests_expect(replayed, tmp_path, m
 
 
 def test_replays_and_csv_snap_readings_onto_the_quarter_hour():
-    """A Mayfly stamped 07:00:31 otherwise never counts as reporting in detect_anomalies."""
+    """Otherwise a Mayfly stamped 07:00:31 doesn't count as reporting in detect_anomalies."""
     src = sources.ReplaySource(SPILL)
     start, end = src.window(None)
     table = src.tables(["south_fork_1"], start, end)["south_fork_1"]
     assert (table.index == table.index.floor("15min")).all()
-
-
-def test_a_csv_folder_works_with_no_token(tmp_path, models, sites, monkeypatch):
-    """Build order step 2."""
-    folder = tmp_path / "csv"
-    shutil.copytree(sources.EVENTS_DIR / SPILL, folder)
-    monkeypatch.setattr(
-        sources, "get_token", lambda: pytest.fail("a CSV check asked for the token")
-    )
-    monkeypatch.setattr(
-        sources.Source, "weather", lambda *_: pytest.fail("the CSVs carry their own weather")
-    )
-    store = _store(tmp_path / "data", models, sites, kind=sources.CSV, csv=str(folder))
-    runner.run_check(store, models)
-    assert store.last_check()["ok"]
-    assert store.scores(model="dusk_crayfish")
 
 
 def test_csv_files_outside_the_folder_or_too_big_are_not_read(tmp_path, monkeypatch):
@@ -279,33 +262,8 @@ def test_csv_files_outside_the_folder_or_too_big_are_not_read(tmp_path, monkeypa
         )
 
 
-class MemoryKeyring:
-    """A keychain that lives in a dict, so tests never touch the real one."""
-
-    priority = 1
-
-    def __init__(self):
-        self.items = {}
-
-    def set_password(self, service, user, password):
-        self.items[(service, user)] = password
-
-    def get_password(self, service, user):
-        return self.items.get((service, user))
-
-    def delete_password(self, service, user):
-        self.items.pop((service, user), None)
-
-
-@pytest.fixture
-def keychain(monkeypatch):
-    memory = MemoryKeyring()
-    monkeypatch.setattr(sources, "_keyring", lambda: memory)
-    return memory
-
-
-def test_the_api_source_reads_the_token_from_the_keychain(keychain, monkeypatch, sites):
-    """Build order step 2, with the API faked: one table back for every site asked for."""
+def test_the_api_source_uses_the_token_its_given(monkeypatch, sites):
+    """With the API faked: one table back for every site asked for."""
     from strawberrywatch.ingest import api_client
 
     seen = []
@@ -321,8 +279,7 @@ def test_the_api_source_reads_the_token_from_the_keychain(keychain, monkeypatch,
         )
 
     monkeypatch.setattr(api_client, "fetch_creek_data", fake)
-    sources.save_token("secret-token-123")
-    source = sources.from_config({"kind": sources.API})
+    source = sources.from_config({"kind": sources.API}, token="secret-token-123")
     assert "secret" not in repr(source)
     start, end = source.window(timedelta(days=2))
     tables = source.tables(sites, start, end)
@@ -330,20 +287,19 @@ def test_the_api_source_reads_the_token_from_the_keychain(keychain, monkeypatch,
     assert {token for _, token in seen} == {"secret-token-123"}
 
 
-def test_the_token_never_reaches_the_store(keychain, monkeypatch, tmp_path, models, sites):
+def test_the_token_never_reaches_the_store(monkeypatch, tmp_path, models, sites):
     from strawberrywatch.ingest import api_client
 
     monkeypatch.setattr(api_client, "fetch_creek_data", lambda *a, **k: pd.DataFrame())
     monkeypatch.setattr(sources.Source, "weather", lambda *_: None)
-    sources.save_token("secret-token-456")
     store = _store(tmp_path / "data", models, sites, kind=sources.API)
-    runner.run_check(store, models, token=sources.get_token())
+    runner.run_check(store, models, token="secret-token-456")
     for path in (tmp_path / "data").iterdir():
         assert b"secret-token-456" not in path.read_bytes()
 
 
 def test_the_seven_day_preview_matches_what_checks_decided(replayed, tmp_path, models):
-    """Build order step 5: at the applied values the preview replays to what checks recorded."""
+    """At the applied values the preview replays to what checks recorded."""
     from strawberrywatch.dashboard import view
 
     store = _copy(replayed, tmp_path)
@@ -390,14 +346,17 @@ def test_the_data_folder_is_private(tmp_path):
 
 def test_checks_never_overlap_and_stop_with_the_app(tmp_path, models, sites, monkeypatch):
     """Build order step 2, with the check itself stood in for."""
-    store = _store(tmp_path / "data", models, sites, kind=sources.CSV, csv=str(tmp_path))
+    store = _store(tmp_path / "data", models, sites, kind=sources.SITE)
     running, ran = threading.Event(), []
 
     def slow(*_args, **_kw):
         running.set()
         time.sleep(0.6)
         ran.append(time.time())
-        return len(ran)
+        # A good check. Three in a row don't pause the watcher
+        check = store.start_check(sources.SITE, 1, None, None)
+        store.finish_check(check, True, "", {})
+        return check
 
     monkeypatch.setattr(runner, "run_check", slow)
     watcher = runner.Watcher(store, models, interval=timedelta(seconds=1))
@@ -417,11 +376,44 @@ def test_checks_never_overlap_and_stop_with_the_app(tmp_path, models, sites, mon
 
 def test_the_watcher_hands_each_check_on_once_it_is_recorded(tmp_path, models, sites, monkeypatch):
     """How the dashboard's emails hear about a check."""
-    store = _store(tmp_path / "data", models, sites, kind=sources.CSV, csv=str(tmp_path))
+    store = _store(tmp_path / "data", models, sites, kind=sources.SITE)
     monkeypatch.setattr(runner, "run_check", lambda *_a, **_k: 7)
     heard = []
     watcher = runner.Watcher(store, models, after_check=heard.append)
     assert watcher.check() == 7 and heard == [7]
+
+
+def test_the_watcher_hands_each_check_the_api_token_and_the_model_cap(
+    tmp_path, models, sites, monkeypatch
+):
+    store = _store(tmp_path / "data", models, sites, kind=sources.SITE)
+    seen = {}
+    monkeypatch.setattr(runner, "run_check", lambda *_a, **k: seen.update(k))
+    runner.Watcher(store, models, api_token=lambda: "api-token-789").check()
+    assert seen["token"] == "api-token-789"
+    assert seen["max_models"] == int(ws.website_limits()["max_models_on"])
+
+
+def test_three_failed_checks_pause_the_watcher_until_restarted(
+    tmp_path, models, sites, monkeypatch
+):
+    """As gnn_alerts pauses the website's checks."""
+    store = _store(tmp_path / "data", models, sites, kind=sources.SITE)
+
+    def failing(store, *_a, **_k):
+        check = store.start_check(sources.SITE, 1, None, None)
+        store.finish_check(check, False, sources.UNREACHABLE, {})
+        return check
+
+    monkeypatch.setattr(runner, "run_check", failing)
+    watcher = runner.Watcher(store, models)
+    for _ in range(runner.PAUSE_AFTER):
+        assert watcher.check() is not None
+    assert store.pref("checks_paused") == "yes" and watcher.check() is None
+    # What Restart checks does
+    store.set_pref("check_failures", "0")
+    store.set_pref("checks_paused", "no")
+    assert watcher.check() is not None
 
 
 def test_nothing_imports_django_or_the_night_heron_hook():

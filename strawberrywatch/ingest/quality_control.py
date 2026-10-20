@@ -1,7 +1,7 @@
 """
 Reusable data QC, modeled on the HadISD test suite: flag first, decide later.
 Every check here returns flags (a mask, or a list of flagged pairs/ranges) and
-never mutates or drops rows. Both the corpus build and live ingest call these
+leaves the rows alone. Both the corpus build and live ingest call these
 and decide what to do with the flags themselves.
 
 Expects a long-format frame: a 'location' column plus sensor columns
@@ -55,21 +55,16 @@ def inter_site_duplicate_check(
     df, sensor_col="conductivity", min_points=1000, match_frac=0.25, return_all=False
 ):
     """
-    For every pair of sites, over timestamps where both report a value for
-    sensor_col, counts exact matches. Flags pairs with more than min_points
-    coincident observations where more than match_frac of those are exact
-    matches (one feed duplicating another).
+    For every pair of sites, counts exact matches in sensor_col over the
+    timestamps both report. Flags pairs with more than min_points coincident
+    readings where over match_frac match exactly (one feed duplicating another).
 
-    A pair whose duplication is confined to one contiguous stretch can still
-    fall under match_frac once diluted against a much longer non-duplicated
-    history, so pass return_all=True to get every pair with more than
-    min_points coincident readings regardless of match_frac, each tagged with
-    a "flagged" bool. Useful for a QC report that shows near-misses,
-    not just the ones that cleared the bar.
+    A duplicated stretch can fall under match_frac once diluted by a long clean
+    history. return_all=True returns every pair over min_points with a
+    "flagged" bool, for reports that show near-misses.
 
-    Returns a list of dicts: site_a, site_b, n_coincident, n_matched,
-    match_frac, flagged, ranges (list of (start, end) tuples covering the
-    matched stretches, contiguous with small-gap tolerance).
+    Returns dicts with site_a, site_b, n_coincident, n_matched, match_frac,
+    flagged and ranges (the matched stretches as (start, end)).
     """
     if "location" not in df.columns or sensor_col not in df.columns:
         return []
@@ -134,8 +129,8 @@ def repeated_streak_check(df, sensor_cols=None, max_streak=96):
     """
     Flag runs where a sensor holds an identical value for more than
     max_streak consecutive timesteps, per (location, sensor). Stuck sensors
-    read as perfectly valid data to a reconstruction model, so this needs to
-    be caught explicitly. Returns a boolean Series aligned to df.index.
+    read as perfectly valid data to a reconstruction model, and we have to
+    catch them here. Returns a boolean Series aligned to df.index.
     """
     cols = _sensor_cols_present(df, sensor_cols)
     mask = pd.Series(False, index=df.index)

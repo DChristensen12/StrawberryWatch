@@ -2,22 +2,20 @@
 Cobble Shoal and the two control charts on the labelled audit events.
 
 All three reach this corpus through preprocessing/node_windows and read the
-same batches in the same normalization, which is the only way the three
-thresholds mean the same thing. Dusk Crayfish is not here: it takes a different
-contract and different features, so it is graded by tests/test_anomaly_detection.py
-instead.
+same batches in the same normalization. Otherwise the three thresholds wouldn't
+mean the same thing. Dusk Crayfish isn't here: it takes a different contract
+and different features, and tests/test_anomaly_detection.py grades it instead.
 
     python scripts/run_audit_comparison.py                  # shipped weights
     python scripts/run_audit_comparison.py --model weather  # retrained, Open-Meteo context
     python scripts/run_audit_comparison.py --model clock    # retrained, clock only
 
---model picks which Cobble Shoal artifact to grade. Anything but "shipped" is a
-tag written by scripts/train_cobble_shoal_real.py, and that script's loader
+--model picks which Cobble Shoal artifact to grade. Any value but "shipped" is
+a tag written by scripts/train_cobble_shoal_real.py, and that script's loader
 supplies the context and the offline nodes those weights were trained with.
 
-The event list is tests/events.yaml, read through tests/event_catalog.py. It
-used to be a second copy of the catalog kept here, which could and did drift
-from the one the tests grade against.
+The event list is tests/events.yaml, read through tests/event_catalog.py, the
+same one the tests grade against.
 
 No training, no checkpoint written.
 """
@@ -46,7 +44,7 @@ from tests import event_catalog  # noqa: E402  (the catalog, not the tests that 
 
 WINDOW = 24
 
-# The event CSVs carry raw logger column names; the adapter speaks the inventory's.
+# The event CSVs carry raw logger column names; the adapter uses the inventory's.
 EVENT_COLUMNS = {
     "Meter_Hydros21_Cond": "conductivity",
     "Meter_Hydros21_Depth": "depth",
@@ -95,9 +93,9 @@ def real_calibration():
     The real-corpus calibration, or stop.
 
     No fallback to the synthetic artifact. The two are not interchangeable
-    (see cobble_calibration's docstring for the measured score scales), and a
-    report that quietly swapped one for the other would still print a number
-    for every event.
+    (see cobble_calibration's docstring for the measured score scales). A
+    report that swapped one for the other would still print a number for
+    every event.
     """
     return cobble_calibration.load_calibration(cobble_calibration.REAL)
 
@@ -146,10 +144,10 @@ def resolve_model(name):
     Which Cobble Shoal to grade, and how to put a window into its space.
 
     "shipped" is the checked-in weights against the real-corpus calibration.
-    Anything else is a tag from scripts/train_cobble_shoal_real.py, which knows
-    its own context features and which nodes it held offline. Those travel with
-    the weights because a window missing either is scored by a model that was
-    never shown one like it.
+    Any other value is a tag from scripts/train_cobble_shoal_real.py, which
+    knows its own context features and which nodes it held offline. Those ship
+    with the weights. A window missing either would be scored by a model that
+    hasn't seen one like it.
     """
     if name == "shipped":
         cal = real_calibration()
@@ -192,8 +190,8 @@ def main(argv=None):
     )
 
     # charts get the same fault-free real windows the model's refitted null came
-    # from, or the three thresholds do not mean the same thing. The scaler is
-    # the calibration's own, never one fitted here: nulls only mean something
+    # from, or the three thresholds don't mean the same thing. The scaler is
+    # the calibration's own, not one fitted here: nulls only mean something
     # applied to data in the space they were fitted in.
     from strawberrywatch.ingest.raw_data_loader import load_archive_by_table
 

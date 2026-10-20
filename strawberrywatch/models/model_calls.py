@@ -3,16 +3,16 @@ The call shape each model takes.
 
 Dusk Crayfish takes a (batch, seq_len, sites, features) tensor and an
 edge_index. Cobble Shoal takes per-node series where a node is a
-(site, variable) pair, so it sees 17 nodes on the same creek Dusk Crayfish sees
-5 sites on. Different data model, not a different keyword argument, so
-signature inspection cannot bridge it and call sites ask the model instead.
+(site, variable) pair. It sees 17 nodes on the same creek Dusk Crayfish sees
+5 sites on. That's a different data model, not a different keyword argument.
+Signature inspection can't bridge it, and call sites ask the model instead.
 """
 
 from __future__ import annotations
 
 import inspect
 
-# A (batch, seq_len, sites, features) tensor plus edge_index, which is what
+# A (batch, seq_len, sites, features) tensor plus edge_index, as
 # preprocessing.data_processor.prepare_sequences_normalized produces.
 SEQUENCE_TENSOR = "sequence_tensor"
 
@@ -29,8 +29,8 @@ class ContractMismatch(TypeError):
 
 def input_contract(model):
     """
-    Which contract a model speaks. Models that predate the declaration are
-    treated as sequence models, which is what they were.
+    Which contract a model uses. Models that predate the declaration are
+    treated as sequence models, since that's what they were.
     """
     contract = getattr(model, "INPUT_CONTRACT", SEQUENCE_TENSOR)
     if contract not in CONTRACTS:
@@ -44,8 +44,8 @@ def input_contract(model):
 def accepts_node_mask(model):
     """
     Whether forward() takes node_mask. Dusk Crayfish does; older checkpoints of
-    it did not, and passing the argument anyway is a TypeError rather than a
-    no-op, so this stays a real check and not an assumption.
+    it didn't, and passing the argument anyway is a TypeError, not a no-op.
+    We check instead of assuming.
     """
     try:
         return "node_mask" in inspect.signature(model.forward).parameters
@@ -57,9 +57,9 @@ def sequence_forward_kwargs(model, seq_tensor, node_mask=None):
     """
     The keyword arguments for one forward pass of a sequence-contract model.
 
-    Raises for a nested-batch model rather than quietly dropping it, because a
-    model that cannot see this input would otherwise score whatever it was
-    handed and the number would look plausible.
+    Raises for a nested-batch model. A model that can't see this input would
+    otherwise score whatever it was handed, and the number would look
+    plausible.
     """
     contract = input_contract(model)
     if contract != SEQUENCE_TENSOR:
@@ -85,10 +85,9 @@ def build_from_metadata(model_cls, metadata, device=None):
     """
     Construct a model from a trained metadata blob.
 
-    Each class defines its own constructor arguments, so it provides
-    from_metadata and this just calls it. The alternative, a table of
-    per-name construction rules living away from the models, is the thing that
-    kept going stale.
+    Each class defines its own constructor arguments and provides
+    from_metadata, and we call it. We used to keep a table of per-name
+    construction rules away from the models, and it kept going stale.
     """
     builder = getattr(model_cls, "from_metadata", None)
     if builder is None:

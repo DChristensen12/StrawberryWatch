@@ -1,15 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Models{% endblock %}
 {% block content %}
-<h1>Which models can watch the creek?</h1>
-<p class="narrow">Each model that's on can raise its own false alarms, so turning more on means more to look at. You turn them on and off in <a href="{{ url_for('main.settings') }}">Settings</a>.</p>
+<h1>Models</h1>
+<p class="narrow">Each model raises its own alerts, false alarms included. Turn models on or off in <a href="{{ url_for('main.settings') }}">Settings</a>.</p>
 <ul class="sw-models">
   {% for card in cards %}
     <li class="sw-model">
       <img class="sw-model__picture" src="{{ url_for('static', filename='models/' ~ card.picture) }}" alt="{{ card.alt }}" width="120" height="160">
       <div>
         <h2>{{ card.title }} <span class="sw-model__state">{{ sw.status('reporting' if card.state == 'On' else 'muted', card.state) }}</span></h2>
-        <p>{{ card.about }}{% if card.sites %} Watches {{ card.sites }} sites.{% endif %}</p>
+        <p>{{ card.about }}{% if card.sites %} Checks {{ card.sites }} sites.{% endif %}</p>
         {% if card.note and card.state == 'On' %}<p class="small muted">{{ card.note }}</p>{% endif %}
         <p><a href="{{ card.read_more }}" rel="noreferrer noopener">Read more on GitHub</a></p>
       </div>

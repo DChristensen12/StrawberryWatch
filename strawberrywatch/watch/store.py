@@ -1,15 +1,17 @@
 """
-The one SQLite file: settings versions and the draft, where readings come from,
-every check, the scores and readings it saw, and what it noticed.
+The SQLite file: settings versions and drafts, checks, the scores and readings
+they saw, and the alerts.
 
-Every query is parameterized. The API token is never in here; it lives in the
-system keychain (see sources.py).
+Every query is parameterized, and tokens and passwords stay out of here. The
+SQL sticks to what SQLite and MySQL both understand (REPLACE INTO, backticks
+around `key`, no two-argument MAX), and store_mysql.py reuses it.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import sys
 import threading
@@ -19,19 +21,22 @@ from pathlib import Path
 DB_NAME = "strawberrywatch.db"
 SCORE_DAYS = 30
 READING_DAYS = 8
+PRUNE_EVERY = 86400
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings_version (
-    id INTEGER PRIMARY KEY, applied_at REAL NOT NULL, settings TEXT NOT NULL);
+    id INTEGER PRIMARY KEY, applied_at REAL NOT NULL, settings TEXT NOT NULL, applied_by TEXT);
 CREATE TABLE IF NOT EXISTS draft (
     id INTEGER PRIMARY KEY CHECK (id = 1), settings TEXT NOT NULL, updated_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS drafts (
+    owner TEXT PRIMARY KEY, settings TEXT NOT NULL, updated_at REAL NOT NULL, base_id INTEGER);
 CREATE TABLE IF NOT EXISTS source (
     id INTEGER PRIMARY KEY, changed_at REAL NOT NULL, kind TEXT NOT NULL,
-    folder TEXT, event TEXT);
+    folder TEXT, event TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS checks (
     id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL,
     window_start REAL, window_end REAL, source TEXT, settings_id INTEGER,
-    ok INTEGER, message TEXT, durations TEXT);
+    ok INTEGER, message TEXT, durations TEXT, source_detail TEXT, weather_ok INTEGER);
 CREATE TABLE IF NOT EXISTS scores (
     model TEXT NOT NULL, site TEXT NOT NULL, variable TEXT NOT NULL, rule TEXT NOT NULL,
     time REAL NOT NULL, score REAL, threshold REAL, base REAL, check_id INTEGER,
@@ -45,7 +50,7 @@ CREATE TABLE IF NOT EXISTS noticed (
 CREATE TABLE IF NOT EXISTS readings (
     site TEXT NOT NULL, time REAL NOT NULL, conductivity REAL, depth REAL,
     temperature REAL, dissolved_oxygen REAL, floating_conductivity REAL, battery REAL,
-    PRIMARY KEY (site, time));
+    live INTEGER, PRIMARY KEY (site, time));
 CREATE TABLE IF NOT EXISTS weather (time REAL PRIMARY KEY, rain_mm REAL);
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY, noticed_id INTEGER NOT NULL, written_at REAL NOT NULL,
@@ -53,14 +58,43 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS notes_noticed ON notes (noticed_id);
 CREATE TABLE IF NOT EXISTS recipients (
     id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT,
-    added_at REAL NOT NULL);
+    added_at REAL NOT NULL, label_id INTEGER, unsubscribe_token TEXT, added_by TEXT);
+CREATE TABLE IF NOT EXISTS labels (
+    id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, added_at REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS signups (
+    id INTEGER PRIMARY KEY, email TEXT NOT NULL COLLATE NOCASE, token TEXT NOT NULL UNIQUE,
+    asked_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS emails (
     id INTEGER PRIMARY KEY, sent_at REAL NOT NULL, kind TEXT NOT NULL, check_id INTEGER,
     people INTEGER NOT NULL, ok INTEGER NOT NULL, message TEXT);
-CREATE TABLE IF NOT EXISTS prefs (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS email_results (
+    email TEXT PRIMARY KEY, sent_at REAL NOT NULL, kind TEXT NOT NULL, ok INTEGER NOT NULL,
+    message TEXT);
+CREATE TABLE IF NOT EXISTS prefs (`key` TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS noticed_key ON noticed (model, site, variable, rule, first_over);
 CREATE INDEX IF NOT EXISTS checks_time ON checks (started_at);
 """
+
+# Added since the first release. Older files get them on open, empty, which
+# every query reads as "not known".
+ADDED_COLUMNS = (
+    ("settings_version", "applied_by", "TEXT"),
+    ("source", "detail", "TEXT"),
+    ("checks", "source_detail", "TEXT"),
+    ("checks", "weather_ok", "INTEGER"),
+    ("readings", "live", "INTEGER"),
+    ("recipients", "label_id", "INTEGER"),
+    ("recipients", "unsubscribe_token", "TEXT"),
+    ("recipients", "added_by", "TEXT"),
+)
+
+# Recipient labels, website only. They're for telling people apart and don't grant access.
+PUBLIC = "Public"
+STARTING_LABELS = ("SCMG", "EH&S", "Admin", PUBLIC)
+# How long a sign-up's confirmation link works
+SIGNUP_DAYS = 7
+# One confirmation email per address in this long. The form can't flood anyone
+SIGNUP_RESEND_SECONDS = 600
 
 READING_COLUMNS = (
     "conductivity",
@@ -70,6 +104,18 @@ READING_COLUMNS = (
     "floating_conductivity",
     "battery",
 )
+
+# The draft's owner locally, where nobody signs in by name
+LOCAL = "local"
+
+
+class Conflict(RuntimeError):
+    """Someone applied a newer version after this draft started from an older one."""
+
+    def __init__(self, applied_at, applied_by=None):
+        super().__init__("someone else applied changes first")
+        self.applied_at = applied_at
+        self.applied_by = applied_by
 
 
 def data_dir():
@@ -87,11 +133,17 @@ def private(path):
         os.chmod(path, 0o700 if Path(path).is_dir() else 0o600)
 
 
+def _in(values):
+    return ", ".join("?" for _ in values) or "NULL"
+
+
 class Store:
     """
     One connection per call, under one lock. Flask serves requests on threads
     and the watcher has its own, and sqlite is happier not sharing a connection.
     """
+
+    IntegrityError = sqlite3.IntegrityError
 
     def __init__(self, folder=None):
         self.folder = Path(folder) if folder else data_dir()
@@ -101,14 +153,26 @@ class Store:
         self._lock = threading.RLock()
         with self.db() as db:
             db.executescript(SCHEMA)
-            # Notes used to be one per item, kept on the item itself. Each
-            # becomes the first note in the notes table.
+            for table, column, kind in ADDED_COLUMNS:
+                have = {r["name"] for r in db.execute(f"PRAGMA table_info({table})").fetchall()}
+                if column not in have:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            # Old files kept one note on the item itself. Move it to the notes table.
             db.execute(
                 "INSERT INTO notes (noticed_id, written_at, text) "
                 "SELECT id, COALESCE(noted_at, created_at), note FROM noticed "
                 "WHERE note IS NOT NULL AND note != ''"
             )
             db.execute("UPDATE noticed SET note = NULL, noted_at = NULL WHERE note IS NOT NULL")
+            # Old files had one shared draft. It becomes the local one, based on
+            # what's applied now.
+            db.execute(
+                "INSERT OR IGNORE INTO drafts (owner, settings, updated_at, base_id) "
+                "SELECT ?, settings, updated_at, (SELECT MAX(id) FROM settings_version) "
+                "FROM draft WHERE id = 1",
+                (LOCAL,),
+            )
+            db.execute("DELETE FROM draft")
         private(self.path)
 
     def db(self):
@@ -124,20 +188,49 @@ class Store:
             row = db.execute("SELECT * FROM settings_version ORDER BY id DESC LIMIT 1").fetchone()
         return (row["id"], json.loads(row["settings"])) if row else (None, None)
 
-    def apply(self, settings, when=None):
-        """Save a new version and clear the draft."""
+    def applied_row(self):
+        """The newest version with when and by whom, or None."""
         with self.db() as db:
+            row = db.execute("SELECT * FROM settings_version ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    def apply(self, settings, when=None, by=None, base_id=None, owner=LOCAL):
+        """
+        Save a new version and clear this owner's draft. With base_id, refuse
+        with Conflict when a newer version went in after the draft started.
+        """
+        with self.db() as db:
+            if base_id is not None:
+                newest = db.execute(
+                    "SELECT * FROM settings_version ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if newest is not None and newest["id"] != base_id:
+                    raise Conflict(newest["applied_at"], newest["applied_by"])
             cur = db.execute(
-                "INSERT INTO settings_version (applied_at, settings) VALUES (?, ?)",
-                (when or time.time(), json.dumps(settings, sort_keys=True)),
+                "INSERT INTO settings_version (applied_at, settings, applied_by) VALUES (?, ?, ?)",
+                (when or time.time(), json.dumps(settings, sort_keys=True), by),
             )
-            db.execute("DELETE FROM draft")
+            db.execute("DELETE FROM drafts WHERE owner = ?", (owner,))
             return cur.lastrowid
+
+    def version(self, version_id):
+        """One version's settings, or None."""
+        with self.db() as db:
+            row = db.execute(
+                "SELECT settings FROM settings_version WHERE id = ?", (version_id,)
+            ).fetchone()
+        return json.loads(row["settings"]) if row else None
 
     def versions(self):
         with self.db() as db:
             rows = db.execute("SELECT * FROM settings_version ORDER BY id").fetchall()
         return [(r["id"], r["applied_at"], json.loads(r["settings"])) for r in rows]
+
+    def version_authors(self):
+        """{version id: who applied it}, for History on the website."""
+        with self.db() as db:
+            rows = db.execute("SELECT id, applied_by FROM settings_version").fetchall()
+        return {r["id"]: r["applied_by"] for r in rows}
 
     def settings_at(self, when):
         """The settings in force at a moment, or the first ones if it's before them."""
@@ -154,65 +247,94 @@ class Store:
             )
         return json.loads(row["settings"]) if row else None
 
-    def draft(self):
-        """The saved draft, or None when there's nothing unapplied."""
+    def draft(self, owner=LOCAL):
+        """The owner's saved draft, or None when they have no unapplied changes."""
         with self.db() as db:
-            row = db.execute("SELECT settings FROM draft WHERE id = 1").fetchone()
+            row = db.execute("SELECT settings FROM drafts WHERE owner = ?", (owner,)).fetchone()
         return json.loads(row["settings"]) if row else None
 
-    def save_draft(self, settings):
+    def draft_base(self, owner=LOCAL):
+        """The version the owner's draft started from, or None."""
         with self.db() as db:
+            row = db.execute("SELECT base_id FROM drafts WHERE owner = ?", (owner,)).fetchone()
+        return row["base_id"] if row else None
+
+    def save_draft(self, settings, owner=LOCAL):
+        """Saves the draft. A new draft remembers which version it started from."""
+        with self.db() as db:
+            row = db.execute("SELECT base_id FROM drafts WHERE owner = ?", (owner,)).fetchone()
+            if row is None:
+                newest = db.execute("SELECT MAX(id) AS id FROM settings_version").fetchone()
+                base = newest["id"] if newest else None
+            else:
+                base = row["base_id"]
             db.execute(
-                "INSERT OR REPLACE INTO draft (id, settings, updated_at) VALUES (1, ?, ?)",
-                (json.dumps(settings, sort_keys=True), time.time()),
+                "REPLACE INTO drafts (owner, settings, updated_at, base_id) VALUES (?, ?, ?, ?)",
+                (owner, json.dumps(settings, sort_keys=True), time.time(), base),
             )
 
-    def discard_draft(self):
+    def discard_draft(self, owner=LOCAL):
         with self.db() as db:
-            db.execute("DELETE FROM draft")
+            db.execute("DELETE FROM drafts WHERE owner = ?", (owner,))
 
-    # Where readings come from. The token is never here.
+    # Where readings come from. The token and passwords aren't kept here.
 
     def source(self):
         with self.db() as db:
             row = db.execute("SELECT * FROM source ORDER BY id DESC LIMIT 1").fetchone()
-        return dict(row) if row else None
+        return _source_row(row) if row else None
 
-    def set_source(self, kind, folder=None, event=None):
+    def set_source(self, kind, folder=None, event=None, detail=None):
         with self.db() as db:
             db.execute(
-                "INSERT INTO source (changed_at, kind, folder, event) VALUES (?, ?, ?, ?)",
-                (time.time(), kind, folder, event),
+                "INSERT INTO source (changed_at, kind, folder, event, detail) VALUES (?, ?, ?, ?, ?)",
+                (time.time(), kind, folder, event, json.dumps(detail) if detail else None),
             )
 
     def source_changes(self):
         with self.db() as db:
-            return [dict(r) for r in db.execute("SELECT * FROM source ORDER BY id").fetchall()]
+            rows = db.execute("SELECT * FROM source ORDER BY id").fetchall()
+        return [_source_row(r) for r in rows]
 
     # Checks
 
-    def start_check(self, source, settings_id, window_start, window_end, started_at=None):
+    def start_check(
+        self, source, settings_id, window_start, window_end, started_at=None, detail=None
+    ):
         with self.db() as db:
             cur = db.execute(
-                "INSERT INTO checks (started_at, source, settings_id, window_start, window_end) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (started_at or time.time(), source, settings_id, window_start, window_end),
+                "INSERT INTO checks (started_at, source, settings_id, window_start, window_end, "
+                "source_detail) VALUES (?, ?, ?, ?, ?, ?)",
+                (started_at or time.time(), source, settings_id, window_start, window_end, detail),
             )
             return cur.lastrowid
 
-    def finish_check(self, check_id, ok, message, durations):
+    def finish_check(self, check_id, ok, message, durations, weather_ok=None):
         with self.db() as db:
             db.execute(
-                "UPDATE checks SET finished_at = ?, ok = ?, message = ?, durations = ? WHERE id = ?",
-                (time.time(), int(ok), message, json.dumps(durations), check_id),
+                "UPDATE checks SET finished_at = ?, ok = ?, message = ?, durations = ?, "
+                "weather_ok = ? WHERE id = ?",
+                (
+                    time.time(),
+                    int(ok),
+                    message,
+                    json.dumps(durations),
+                    None if weather_ok is None else int(weather_ok),
+                    check_id,
+                ),
             )
 
-    def checks(self, since=None, limit=None):
-        sql = "SELECT * FROM checks"
-        args = []
+    def checks(self, since=None, limit=None, kinds=None):
+        where, args = [], []
         if since is not None:
-            sql += " WHERE window_end >= ?"
+            where.append("window_end >= ?")
             args.append(since)
+        if kinds is not None:
+            where.append(f"source IN ({_in(kinds)})")
+            args.extend(kinds)
+        sql = "SELECT * FROM checks"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id"
         if limit:
             sql += " DESC LIMIT ?"
@@ -223,16 +345,31 @@ class Store:
             row["durations"] = json.loads(row["durations"] or "{}")
         return rows
 
-    def last_check(self):
-        rows = self.checks(limit=1)
+    def last_check(self, kinds=None):
+        rows = self.checks(limit=1, kinds=kinds)
         return rows[0] if rows else None
+
+    def last_finished_check(self, kinds=None):
+        """The newest check that got as far as finishing, well or not."""
+        sql, args = "SELECT * FROM checks WHERE finished_at IS NOT NULL", []
+        if kinds is not None:
+            sql += f" AND source IN ({_in(kinds)})"
+            args.extend(kinds)
+        with self.db() as db:
+            row = db.execute(sql + " ORDER BY finished_at DESC LIMIT 1", args).fetchone()
+        if row is None:
+            return None
+        out = dict(row)
+        out["durations"] = json.loads(out["durations"] or "{}")
+        return out
 
     # Scores, readings and weather the checks saw
 
     def save_scores(self, check_id, model, rows):
         with self.db() as db:
             db.executemany(
-                "INSERT OR REPLACE INTO scores VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "REPLACE INTO scores (model, site, variable, rule, time, score, threshold, base, "
+                "check_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         model,
@@ -273,12 +410,21 @@ class Store:
         with self.db() as db:
             return [dict(r) for r in db.execute(sql, args).fetchall()]
 
-    def save_readings(self, rows):
-        """rows: (site, time, conductivity, depth, temperature, dissolved_oxygen, floating_conductivity, battery)."""
+    def save_readings(self, rows, live=True):
+        """
+        rows: (site, time, conductivity, depth, temperature, dissolved_oxygen,
+        floating_conductivity, battery). live says whether a live source read
+        them. A replay's readings don't show as the creek today.
+        """
         with self.db() as db:
-            db.executemany("INSERT OR REPLACE INTO readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            db.executemany(
+                "REPLACE INTO readings (site, time, conductivity, depth, temperature, "
+                "dissolved_oxygen, floating_conductivity, battery, live) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(*row, int(live)) for row in rows],
+            )
 
-    def readings(self, site, since=None, until=None):
+    def readings(self, site, since=None, until=None, live=None):
         sql, args = "SELECT * FROM readings WHERE site = ?", [site]
         if since is not None:
             sql += " AND time >= ?"
@@ -286,20 +432,27 @@ class Store:
         if until is not None:
             sql += " AND time <= ?"
             args.append(until)
+        if live is not None:
+            sql += " AND live = ?"
+            args.append(int(live))
         with self.db() as db:
             return [dict(r) for r in db.execute(sql + " ORDER BY time", args).fetchall()]
 
-    def last_readings(self):
+    def last_readings(self, live=None):
+        flag, args = "", []
+        if live is not None:
+            flag, args = " WHERE live = ?", [int(live)]
         with self.db() as db:
             rows = db.execute(
-                "SELECT r.* FROM readings r JOIN (SELECT site, MAX(time) AS t FROM readings GROUP BY site) m "
-                "ON r.site = m.site AND r.time = m.t"
+                "SELECT r.* FROM readings r JOIN (SELECT site, MAX(time) AS t FROM readings"
+                f"{flag} GROUP BY site) m ON r.site = m.site AND r.time = m.t",
+                args,
             ).fetchall()
         return {r["site"]: dict(r) for r in rows}
 
     def save_weather(self, rows):
         with self.db() as db:
-            db.executemany("INSERT OR REPLACE INTO weather VALUES (?, ?)", rows)
+            db.executemany("REPLACE INTO weather (time, rain_mm) VALUES (?, ?)", rows)
 
     def weather(self, since, until):
         with self.db() as db:
@@ -308,7 +461,13 @@ class Store:
             ).fetchall()
         return [(r["time"], r["rain_mm"]) for r in rows]
 
-    # What was noticed
+    # Alerts
+
+    NOTICED_SELECT = (
+        "SELECT n.*, c.started_at AS checked_at, c.source AS check_source, "
+        "c.source_detail AS check_detail, c.weather_ok AS check_weather_ok "
+        "FROM noticed n JOIN checks c ON c.id = n.check_id"
+    )
 
     def add_noticed(self, check_id, item, flagged, explanations, scale):
         with self.db() as db:
@@ -337,24 +496,36 @@ class Store:
     def extend_noticed(self, noticed_id, last_over, peak):
         with self.db() as db:
             db.execute(
-                "UPDATE noticed SET last_over = MAX(last_over, ?), peak = MAX(peak, ?) WHERE id = ?",
-                (last_over, peak, noticed_id),
+                "UPDATE noticed SET "
+                "last_over = CASE WHEN last_over > ? THEN last_over ELSE ? END, "
+                "peak = CASE WHEN peak > ? THEN peak ELSE ? END WHERE id = ?",
+                (last_over, last_over, peak, peak, noticed_id),
             )
 
-    def noticed(self, since=None, flagged=None, model=None):
+    def noticed(self, since=None, flagged=None, model=None, kinds=None, detail=None):
+        """
+        Alerts, newest first. kinds and detail filter by the check's source.
+        That keeps live and replay apart.
+        """
         where, args = [], []
         if since is not None:
-            where.append("first_over >= ?")
+            where.append("n.first_over >= ?")
             args.append(since)
         if flagged is not None:
-            where.append("flagged = ?")
+            where.append("n.flagged = ?")
             args.append(int(flagged))
         if model is not None:
-            where.append("model = ?")
+            where.append("n.model = ?")
             args.append(model)
-        sql = "SELECT n.*, c.started_at AS checked_at FROM noticed n JOIN checks c ON c.id = n.check_id"
+        if kinds is not None:
+            where.append(f"c.source IN ({_in(kinds)})")
+            args.extend(kinds)
+        if detail is not None:
+            where.append("c.source_detail = ?")
+            args.append(detail)
+        sql = self.NOTICED_SELECT
         if where:
-            sql += " WHERE " + " AND ".join(f"n.{w}" for w in where)
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY n.first_over DESC, n.id DESC"
         with self.db() as db:
             rows = [dict(r) for r in db.execute(sql, args).fetchall()]
@@ -364,11 +535,7 @@ class Store:
 
     def noticed_item(self, noticed_id):
         with self.db() as db:
-            row = db.execute(
-                "SELECT n.*, c.started_at AS checked_at FROM noticed n JOIN checks c ON c.id = n.check_id "
-                "WHERE n.id = ?",
-                (noticed_id,),
-            ).fetchone()
+            row = db.execute(self.NOTICED_SELECT + " WHERE n.id = ?", (noticed_id,)).fetchone()
         if row is None:
             return None
         out = dict(row)
@@ -379,14 +546,13 @@ class Store:
         """The newest item for one (model, site, variable, rule), with when its check ran."""
         with self.db() as db:
             row = db.execute(
-                "SELECT n.*, c.started_at AS checked_at FROM noticed n JOIN checks c ON c.id = n.check_id "
-                "WHERE n.model = ? AND n.site = ? AND n.variable = ? AND n.rule = ? "
-                "ORDER BY n.id DESC LIMIT 1",
+                self.NOTICED_SELECT + " WHERE n.model = ? AND n.site = ? AND n.variable = ? "
+                "AND n.rule = ? ORDER BY n.id DESC LIMIT 1",
                 (model, site, variable, rule),
             ).fetchone()
         return dict(row) if row else None
 
-    # Notes: each one is kept with when it was written, and on the website by whom
+    # Notes
 
     def add_note(self, noticed_id, text, author=None, when=None):
         with self.db() as db:
@@ -412,7 +578,7 @@ class Store:
             where.append("t.noticed_id = ?")
             args.append(noticed_id)
         if ids is not None:
-            where.append(f"t.id IN ({', '.join('?' for _ in ids) or 'NULL'})")
+            where.append(f"t.id IN ({_in(ids)})")
             args.extend(ids)
         if since is not None:
             where.append("t.written_at >= ?")
@@ -430,24 +596,139 @@ class Store:
         with self.db() as db:
             return [dict(r) for r in db.execute(sql, args).fetchall()]
 
-    # Who gets emailed, whether sending is on, and what was sent
+    # Email: the website's list (the local one is in .env), the on/off switch,
+    # and what was sent
 
     def recipients(self):
         with self.db() as db:
-            rows = db.execute("SELECT * FROM recipients ORDER BY added_at, id").fetchall()
-        return [dict(r) for r in rows]
+            rows = [dict(r) for r in db.execute("SELECT * FROM recipients ORDER BY added_at, id")]
+            # Rows from before unsubscribe links get their token the first time they're read
+            for row in rows:
+                if not row.get("unsubscribe_token"):
+                    row["unsubscribe_token"] = secrets.token_urlsafe(24)
+                    db.execute(
+                        "UPDATE recipients SET unsubscribe_token = ? WHERE id = ?",
+                        (row["unsubscribe_token"], row["id"]),
+                    )
+        return rows
 
-    def add_recipient(self, email, name=None):
-        """False if the address is already on the list, in any capitalization."""
+    def add_recipient(self, email, name=None, label_id=None, added_by=None):
+        """Returns False if the address is already on the list, ignoring case."""
         try:
             with self.db() as db:
                 db.execute(
-                    "INSERT INTO recipients (email, name, added_at) VALUES (?, ?, ?)",
-                    (email, name or None, time.time()),
+                    "INSERT INTO recipients "
+                    "(email, name, added_at, label_id, unsubscribe_token, added_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        email,
+                        name or None,
+                        time.time(),
+                        label_id,
+                        secrets.token_urlsafe(24),
+                        added_by,
+                    ),
                 )
-        except sqlite3.IntegrityError:
+        except self.IntegrityError:
             return False
         return True
+
+    def recipient_by_token(self, token):
+        if not token:
+            return None
+        with self.db() as db:
+            row = db.execute(
+                "SELECT * FROM recipients WHERE unsubscribe_token = ?", (token,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_label(self, recipient_id, label_id):
+        with self.db() as db:
+            db.execute("UPDATE recipients SET label_id = ? WHERE id = ?", (label_id, recipient_id))
+
+    def labels(self):
+        """Every label, oldest first. The starting four are made the first time anyone asks."""
+        with self.db() as db:
+            rows = db.execute("SELECT id, name FROM labels ORDER BY id").fetchall()
+        if rows:
+            return [dict(r) for r in rows]
+        try:
+            with self.db() as db:
+                for name in STARTING_LABELS:
+                    db.execute(
+                        "INSERT INTO labels (name, added_at) VALUES (?, ?)", (name, time.time())
+                    )
+        except self.IntegrityError:
+            pass  # another process made them first
+        with self.db() as db:
+            return [dict(r) for r in db.execute("SELECT id, name FROM labels ORDER BY id")]
+
+    def label_named(self, name):
+        return next((lb for lb in self.labels() if lb["name"].lower() == name.lower()), None)
+
+    def add_label(self, name):
+        """Returns False if there's already a label by that name, ignoring case."""
+        self.labels()
+        try:
+            with self.db() as db:
+                db.execute("INSERT INTO labels (name, added_at) VALUES (?, ?)", (name, time.time()))
+        except self.IntegrityError:
+            return False
+        return True
+
+    def rename_label(self, label_id, name):
+        """
+        Returns False if refused. Public keeps its name, since sign-ups are filed
+        under it, and no other label can take it.
+        """
+        names = {lb["id"]: lb["name"] for lb in self.labels()}
+        if names.get(label_id) in (None, PUBLIC) or name.lower() == PUBLIC.lower():
+            return False
+        try:
+            with self.db() as db:
+                db.execute("UPDATE labels SET name = ? WHERE id = ?", (name, label_id))
+        except self.IntegrityError:
+            return False
+        return True
+
+    def add_signup(self, email, now=None):
+        """A token for a new sign-up, or None if this address was sent one in the last 10 minutes."""
+        now = now or time.time()
+        with self.db() as db:
+            db.execute("DELETE FROM signups WHERE asked_at < ?", (now - SIGNUP_DAYS * 86400,))
+            recent = db.execute(
+                "SELECT id FROM signups WHERE email = ? AND asked_at >= ?",
+                (email, now - SIGNUP_RESEND_SECONDS),
+            ).fetchone()
+            if recent:
+                return None
+            token = secrets.token_urlsafe(24)
+            db.execute(
+                "INSERT INTO signups (email, token, asked_at) VALUES (?, ?, ?)",
+                (email, token, now),
+            )
+        return token
+
+    def signups_since(self, since):
+        with self.db() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS n FROM signups WHERE asked_at >= ?", (since,)
+            ).fetchone()
+        return int(row["n"])
+
+    def signup(self, token, now=None):
+        """A sign-up still waiting for its confirmation, or None once it's used or expired."""
+        now = now or time.time()
+        with self.db() as db:
+            row = db.execute(
+                "SELECT * FROM signups WHERE token = ? AND asked_at >= ?",
+                (token, now - SIGNUP_DAYS * 86400),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def remove_signups(self, email):
+        with self.db() as db:
+            db.execute("DELETE FROM signups WHERE email = ?", (email,))
 
     def recipient(self, recipient_id):
         with self.db() as db:
@@ -458,18 +739,18 @@ class Store:
         with self.db() as db:
             db.execute("DELETE FROM recipients WHERE id = ?", (recipient_id,))
 
+    def clear_recipients(self):
+        with self.db() as db:
+            db.execute("DELETE FROM recipients")
+
     def pref(self, key, default=None):
         with self.db() as db:
-            row = db.execute("SELECT value FROM prefs WHERE key = ?", (key,)).fetchone()
+            row = db.execute("SELECT value FROM prefs WHERE `key` = ?", (key,)).fetchone()
         return default if row is None else row["value"]
 
     def set_pref(self, key, value):
         with self.db() as db:
-            db.execute(
-                "INSERT INTO prefs (key, value) VALUES (?, ?) "
-                "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
+            db.execute("REPLACE INTO prefs (`key`, value) VALUES (?, ?)", (key, value))
 
     def log_email(self, kind, people, ok, message, check_id=None):
         with self.db() as db:
@@ -488,12 +769,43 @@ class Store:
         with self.db() as db:
             return [dict(r) for r in db.execute(sql, args).fetchall()]
 
+    def record_email_result(self, email, kind, ok, message):
+        """How the last email to one address went, shown beside it on Email alerts."""
+        with self.db() as db:
+            db.execute(
+                "REPLACE INTO email_results (email, sent_at, kind, ok, message) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (email.lower(), time.time(), kind, int(ok), message),
+            )
+
+    def email_results(self):
+        """{address in lower case: its last result}."""
+        with self.db() as db:
+            rows = db.execute("SELECT * FROM email_results").fetchall()
+        return {r["email"]: dict(r) for r in rows}
+
     def prune(self, now=None):
         now = now or time.time()
         with self.db() as db:
             db.execute("DELETE FROM scores WHERE time < ?", (now - SCORE_DAYS * 86400,))
             db.execute("DELETE FROM readings WHERE time < ?", (now - READING_DAYS * 86400,))
             db.execute("DELETE FROM weather WHERE time < ?", (now - SCORE_DAYS * 86400,))
+
+    def prune_daily(self, now=None):
+        """Prune at most once a day, whatever the check interval."""
+        now = now or time.time()
+        last = self.pref("pruned_at")
+        if last is not None and now - float(last) < PRUNE_EVERY:
+            return False
+        self.prune(now)
+        self.set_pref("pruned_at", repr(now))
+        return True
+
+
+def _source_row(row):
+    out = dict(row)
+    out["detail"] = json.loads(out["detail"]) if out.get("detail") else {}
+    return out
 
 
 class _Session:

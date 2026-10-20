@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}{{ site }}{% endblock %}
+{% block title %}{{ site | site_name }}{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('main.overview') }}">Overview</a>
-<p class="caption">{{ entry.name }}</p>
-<h1>{{ site }}</h1>
+{% if site | site_place %}<p class="caption">{{ site | site_place }}</p>{% endif %}
+<h1>{{ site | site_name }}</h1>
 <p>{{ sw.status(status.key, status.text) }}</p>
 <p>
-  {% if watched_by %}Watched by {{ watched_by | join(' and ') }}.{% else %}No model watches this site yet.{% endif %}
-  {% if entry.downstream %}Its water flows on to {{ entry.downstream }}.{% endif %}
+  {% if watched_by %}Models: {{ watched_by | join(', ') }}.{% else %}No models check this site.{% endif %}
+  {% if entry.downstream %}Downstream: <a href="{{ url_for('main.site', site=entry.downstream) }}">{{ entry.downstream | site_name }}</a>.{% endif %}
 </p>
 
-<h2>Is each sensor alive and sane?</h2>
-<p>One small line per sensor over the last 72 hours. A line breaks where readings stopped for more than 6 hours.</p>
+<h2>Sensors</h2>
+<p>Last 72 hours. A line breaks where data stopped for more than 6 hours.</p>
 <div class="sw-table-scroll">
   <table class="sw-table">
-    <caption class="visually-hidden">Sensors at {{ site }}</caption>
+    <caption class="visually-hidden">Sensors at {{ site | site_name }}</caption>
     <thead>
-      <tr><th scope="col">Sensor</th><th scope="col">Last 72 hours</th><th scope="col">Last value</th><th scope="col">When</th></tr>
+      <tr><th scope="col">Sensor</th><th scope="col">Last 72 hours</th><th scope="col">Latest value</th><th scope="col">Updated</th></tr>
     </thead>
     <tbody>
       {% for line in lines %}

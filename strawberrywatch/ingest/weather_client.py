@@ -30,7 +30,7 @@ def fetch_nws_weather(
     an empty DataFrame on failure.
 
     NWS only keeps a ~7-day rolling window for personal stations like LBNL1.
-    Requests for longer windows silently return only what's available.
+    Requests for longer windows return only what's available, without an error.
     """
     station = station_id or Config.NWS_STATION_ID
     base_url = f"https://api.weather.gov/stations/{station}/observations"

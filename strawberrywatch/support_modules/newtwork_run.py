@@ -2,9 +2,9 @@
 Newtwork Run: says whether a firing travelled, from the order nodes fired in.
 
 Ordering alone. Upstream before downstream is consistent with transport, and
-everything at once is consistent with a catchment wide cause like rain. That
-needs no travel time measurement, which is the point: it works on the data that
-exists today. An explainer, so it cannot change what fired.
+all at once is consistent with a catchment wide cause like rain. That needs no
+travel time measurement and works on the data we have today. It's an
+explainer and can't change what fired.
 """
 
 from __future__ import annotations
@@ -28,9 +28,9 @@ NOTHING_TO_EXPLAIN = "nothing_to_explain"
 #       "high_flow": {"minutes_to_peak": 15, "tolerance_minutes": 10},
 #   }
 #
-# Empty on purpose. Nothing in this repo has measured a travel time and a
-# plausible looking guess would turn into a number somebody trusts. Until it is
-# filled, ordering carries the whole judgement, and travel_window returns None.
+# Left empty. We haven't measured a travel time, and a plausible looking guess
+# would turn into a number somebody trusts. Until it's filled, ordering carries
+# the judgement and travel_window returns None.
 TRAVEL_TIMES = {}
 
 DEFAULT_FLOW_CONDITION = "unknown"
@@ -139,8 +139,8 @@ class NewtworkRun(SupportExplainer):
         """
         One account per node, from the order every node fired in.
 
-        window is unread. Ordering comes off the fired grid and the flow graph,
-        so this needs no readings at all, which is why it works today.
+        window is unread. Ordering comes off the fired grid and the flow graph.
+        This needs no readings, and that's why it works today.
         """
         fired = np.asarray(fired, dtype=bool)
         if fired.ndim != 2 or fired.shape[1] != len(nodes):
@@ -201,7 +201,7 @@ class NewtworkRun(SupportExplainer):
         }
 
     def _confidence(self, measured):
-        """Ordering alone is ordering alone. Say so rather than implying more."""
+        """Ordering is all we have. Say so, and don't imply more."""
         if not measured:
             return "ordering only (no measured travel times for these edges)"
         return f"ordering plus {len(measured)} measured travel times"

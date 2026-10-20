@@ -1,46 +1,44 @@
 """
 Cobble Shoal and Dusk Crayfish on the same events, in one joinable table.
 
-TEMP. Not wired into anything, nothing here is imported by production.
+TEMP. Not wired into anything, and production doesn't import it.
 
-The two models are not comparable as they stand and this file is the three
-pieces of work that make them so.
+The two models aren't comparable as they stand. This file does the three
+pieces of work that make them comparable.
 
 1. Separate threshold calibration. Cobble Shoal scores a combined Fisher
    statistic against a POT z_q; Dusk Crayfish scores a robust normalised
    conductivity residual against a per node threshold out of its metadata
-   pickle. Those live on unrelated scales and neither number transfers. The
-   only currency both speak is a measured false alarm rate, so every threshold
-   here is refitted as an empirical quantile of that model's own scores on one
-   common fault free span. The pickle's node_thresholds are printed for
-   reference and never used, because they were fitted on production's grid
-   rather than on this adapter's.
+   pickle. Those live on unrelated scales and neither number transfers. What
+   both share is a measured false alarm rate. We refit every threshold here as
+   an empirical quantile of that model's own scores on one common fault free
+   span. The pickle's node_thresholds are printed for reference but not used,
+   since they were fitted on production's grid and not this adapter's.
 
-2. A model_id column, and long format output. Two CSVs rather than one wide
+2. A model_id column, and long format output. Two CSVs instead of one wide
    table: scores keyed by (model_id, event, timestamp, site) and thresholds
    keyed by (model_id, site, rate). Anything you want later is a join, and
-   adding a fourth model does not change either schema.
+   adding a fourth model doesn't change either schema.
 
 3. A second graph adapter. Cobble Shoal's nodes are (site, variable) pairs,
    17 of them, and node_windows.build_window already builds that. Dusk
    Crayfish's nodes are whole sites with the variables as feature channels,
-   4 of them, and nothing built that from the archive. site_window() does.
+   4 of them. site_window() builds that from the archive.
 
     python scripts/temp_cross_model_compare.py
 
-What lines up and what does not
+What lines up and what doesn't
 
-Both models score grid step a from the 24 steps before it, so a Cobble anchor
-and a Dusk target index are the same instant and the rows join on timestamp.
+Both models score grid step a from the 24 steps before it. A Cobble anchor and
+a Dusk target index are the same instant, and the rows join on timestamp.
 
-They do not read the same array, and forcing them to would be worse. Dusk
+They don't read the same array, and forcing them to would be worse. Dusk
 Crayfish trained on exact aligned grids with zero fill plus a node mask; Cobble
-Shoal trained on carry forward values with a staleness channel. Each is driven
-the way it was trained, and the false alarm rate is what is held equal.
+Shoal trained on carry forward values with a staleness channel. We drive each
+the way it was trained and hold the false alarm rate equal.
 
-Rosters differ too. Dusk Crayfish has no footbridge, so the joinable site set is
-the intersection, and footbridge is reported as Cobble Shoal only rather than
-quietly dropped.
+Rosters differ too. Dusk Crayfish has no footbridge. The joinable site set is
+the intersection, and footbridge is reported as Cobble Shoal only.
 """
 
 from __future__ import annotations
@@ -74,8 +72,8 @@ from tests import event_catalog  # noqa: E402
 RATES = (1e-2, 1e-3)
 
 # Cobble Shoal's variable names on the left, Dusk Crayfish's feature names on
-# the right. depth_dev and depth are the same reading under two names; nothing
-# is rescaled crossing this line.
+# the right. depth_dev and depth are the same reading under two names, and
+# neither is rescaled.
 DUSK_FEATURE_FROM_VAR = {
     "conductivity": "conductivity",
     "depth_dev": "depth",
@@ -127,15 +125,15 @@ def site_window(tables, grid, metadata, inventory=None, as_of=None):
     """
     The second graph adapter: (T, sites, features) the way Dusk Crayfish reads it.
 
-    Sourced through node_windows.site_frames_from_archive so the inventory
-    masking, the sentinel handling and the plausibility filter are the same ones
-    Cobble Shoal gets. Only the reshape differs, which is the whole point: a
-    site is one node here and three nodes there.
+    Sourced through node_windows.site_frames_from_archive, which gives it the
+    same inventory masking, sentinel handling and plausibility filter Cobble
+    Shoal gets. Only the reshape differs: a site is one node here and three
+    nodes there.
 
-    Observations are floored to the 15 minute grid rather than exact matched.
-    The event fixtures sit on clean boundaries but the archive does not
-    (north_fork_0 reports at :17), and exact matching silently drops those sites
-    to nothing.
+    Observations are floored to the 15 minute grid, not exact matched. The
+    event fixtures sit on clean boundaries but the archive doesn't
+    (north_fork_0 reports at :17), and exact matching drops those sites to
+    nothing.
 
     Returns (values, node_mask) with values already through the trained scaler,
     missing cells zero filled, and node_mask True where conductivity is real.
@@ -160,7 +158,7 @@ def site_window(tables, grid, metadata, inventory=None, as_of=None):
             if var in binned.columns and feature in features:
                 values[:, node, features.index(feature)] = binned[var].to_numpy(dtype=float)
 
-    # Weather and clock are global, identical at every site, never missing.
+    # Weather and clock are global: identical at every site and always present.
     weather = weather_archive.load_weather(grid[0], grid[-1]).reindex(grid).ffill().bfill()
     shared = {name: weather[name].to_numpy(dtype=float) for name in WEATHER_FEATURES}
     shared.update(_time_features(grid))
@@ -193,10 +191,9 @@ class DuskDetector:
         self.metadata = metadata
         self.model = model
         self.edge_index = edge_index
-        # sites is the output order, which is the shared roster and not this
-        # model's own. Its node indices are not 0..3 in that order (the pickle
-        # has oxford at 3), so the mapping is kept explicitly rather than
-        # assumed from position.
+        # sites is the output order: the shared roster, not this model's own.
+        # Its node indices aren't 0..3 in that order (the pickle has oxford at
+        # 3), and we keep the mapping explicit.
         self.sites = list(sites or metadata["location_to_idx"])
         self.columns = [metadata["location_to_idx"][s] for s in self.sites]
         self.features = list(metadata["feature_cols"])
@@ -235,11 +232,11 @@ class DuskDetector:
 
 class CobbleDetector:
     """
-    Cobble Shoal reduced to one score per site, so the two tables can be joined.
+    Cobble Shoal reduced to one score per site, for joining the two tables.
 
-    The score at a site is the one at its conductivity node. That throws away
-    the other variables, which is a real loss and the price of comparing against
-    a model whose nodes are whole sites.
+    The score at a site is the one at its conductivity node. We lose the other
+    variables, the price of comparing against a model whose nodes are whole
+    sites.
     """
 
     family = "nested_node_batch"
@@ -278,10 +275,9 @@ def calibrate(detector, tables, inventory, as_of, anchors, grid):
     """
     One threshold per (site, rate) from this detector's own fault free scores.
 
-    Per site rather than one pooled number, because Dusk Crayfish's whole design
-    is a per node threshold and pooling it would flatten exactly the thing that
-    makes a hot site readable. The pooled figure goes out too, under site
-    __all__, so a join can pick either.
+    Per site, since Dusk Crayfish is built around a per node threshold and
+    pooling would flatten what makes a hot site readable. The pooled figure
+    goes out too, under site __all__, and a join can pick either.
     """
     window = detector.build(tables, grid, inventory, as_of)
     scores, live = detector.scores(window, anchors)

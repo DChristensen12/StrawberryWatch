@@ -1,14 +1,13 @@
 """
-Deciding what a check noticed, and what the last few days would have noticed at
-other settings. One set of rules for both, so the preview on Advanced settings
-says what checks would really have done.
+Decides what a check flagged, and what the last few days would have flagged at
+other settings. Both use the same rules, and the Advanced settings preview
+matches what checks really do.
 
-A (model, site, variable, rule) is noticed in a check when at least min_steps of
-the steps it scored in that check's window are over threshold * scale. That is
-serving.notice() over a window, done on arrays so the preview can replay a week
-of checks quickly. The same thing stays one item: while an event is in the
-window its first step over doesn't move. A new crossing soon after an item is a
-repeat and is ignored for repeat_hours.
+A (model, site, variable, rule) is flagged when at least min_steps of its
+scored steps in the window are over threshold * scale. It's serving.notice()
+on arrays, and a week of checks replays quickly. While an event stays in the
+window its first step over doesn't move, and it stays one alert. Another
+crossing within repeat_hours is a repeat and gets ignored.
 """
 
 from __future__ import annotations
@@ -103,8 +102,7 @@ def classify(item, previous, checked_at, repeat_hours):
 
 def replay(grouped_by_model, checks, settings, min_steps, seed=None):
     """
-    Walk a run of checks with one set of settings and say what each would have
-    noticed and kept.
+    Replays a run of checks with one set of settings.
 
     grouped_by_model is {model: series(...)} from stored scores. checks are the
     store's rows, in order, each with window_start, window_end and started_at.

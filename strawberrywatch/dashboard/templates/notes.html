@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Your notes{% endblock %}
+{% block title %}Notes{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('main.history') }}">History</a>
-<h1>Your notes</h1>
-<p class="narrow">Every note written about an unusual reading, newest first. To add one, open the reading from History or Unusual readings.</p>
+<h1>Notes</h1>
+<p class="narrow">Notes on alerts, newest first. To add a note, open an alert from Alerts or History.</p>
 
 {% if any_notes %}
   <form method="get" action="{{ url_for('main.notes') }}" class="sw-filters">
@@ -11,11 +11,11 @@
       <label for="site">Site</label>
       <select id="site" name="site">
         <option value="">All sites</option>
-        {% for s in sites %}<option value="{{ s }}"{% if filters.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}
+        {% for s in sites %}<option value="{{ s }}"{% if filters.site == s %} selected{% endif %}>{{ s | site_name }}</option>{% endfor %}
       </select>
     </div>
     <div class="sw-field">
-      <label for="from">Written from</label>
+      <label for="from">From</label>
       <input type="date" id="from" name="from" value="{{ filters.from or '' }}">
     </div>
     <div class="sw-field">
@@ -23,8 +23,8 @@
       <input type="date" id="to" name="to" value="{{ filters.to or '' }}">
     </div>
     <div class="sw-buttons">
-      <button type="submit" class="sw-button sw-button--secondary">Show notes</button>
-      {% if filtered %}<a href="{{ url_for('main.notes') }}">Show all notes</a>{% endif %}
+      <button type="submit" class="sw-button sw-button--secondary">Apply filters</button>
+      {% if filtered %}<a href="{{ url_for('main.notes') }}">Clear filters</a>{% endif %}
     </div>
   </form>
 {% endif %}
@@ -32,7 +32,7 @@
 {% if not any_notes %}
   <p>No notes yet.</p>
 {% elif not count %}
-  <p>No notes match. <a href="{{ url_for('main.notes') }}">Show all notes</a></p>
+  <p>No notes match these filters. <a href="{{ url_for('main.notes') }}">Clear filters</a></p>
 {% else %}
   <form method="get" action="{{ url_for('main.notes_export') }}" id="sw-export">
     {% for key in ('site', 'from', 'to') %}
@@ -41,9 +41,9 @@
     <div class="sw-exportbar">
       <div class="sw-choice" data-sw-js-only hidden>
         <input type="checkbox" id="sw-select-all">
-        <label for="sw-select-all">Select all shown</label>
+        <label for="sw-select-all">Select all</label>
       </div>
-      <p id="sw-export-count" aria-live="polite">Nothing ticked, so every note shown is included.</p>
+      <p id="sw-export-count" aria-live="polite">No notes selected, so all notes shown will be exported.</p>
       <div class="sw-buttons">
         <button type="submit" class="sw-button" name="format" value="csv">Download as CSV</button>
         <button type="submit" class="sw-button sw-button--secondary" name="format" value="pdf" formtarget="_blank">Save as PDF</button>
@@ -56,9 +56,9 @@
           <div class="sw-note-row">
             <input type="checkbox" name="note" value="{{ n.id }}" id="note-{{ n.id }}">
             <div>
-              <label for="note-{{ n.id }}" class="sw-note-row__when"><span class="visually-hidden">Include the note from {{ d.label }}, </span>{{ n.clock }}{% if n.author %} · Note by {{ n.author }}{% endif %}</label>
+              <label for="note-{{ n.id }}" class="sw-note-row__when"><span class="visually-hidden">Include the note from {{ d.label }}, </span>{{ n.clock }}{% if n.author %} · {{ n.author }}{% endif %}</label>
               <p class="sw-note-text">{{ n.text }}</p>
-              <p class="small muted">About {{ sw.status('flagged', '') }}<a href="{{ url_for('main.noticed', noticed_id=n.noticed_id) }}">unusual {{ n.item.label }} at {{ n.item.site }}</a>, noticed {{ n.item.when }} by {{ n.item.title }}</p>
+              <p class="small muted">{{ sw.status('flagged', '') }}<a href="{{ url_for('main.noticed', noticed_id=n.noticed_id) }}">{{ n.item.label | capitalize }} alert at {{ n.item.site_name }}</a>, {{ n.item.when }}, {{ n.item.title }}</p>
             </div>
           </div>
         {% endfor %}

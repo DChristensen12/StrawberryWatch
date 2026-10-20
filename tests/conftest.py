@@ -41,22 +41,12 @@ def _build_model(model_name, metadata):
     return model
 
 
-# Each test runs once per model, judged against that model's own trained
-# threshold from its own metadata. The model gets its node_mask passed so masked
-# pooling and feature propagation switch on.
+# Each test runs once per model, against that model's own trained threshold,
+# with its node_mask passed in.
 #
-# Only sequence-contract models belong here. The event tests drive the model
-# with (batch, seq_len, sites, features) windows, and Cobble Shoal reads
-# per-node series off the node registry instead, so adding it would not fail on
-# a keyword argument, it would have nothing to read.
-#
-# The adapter it was waiting on landed as preprocessing/node_windows.py, so the
-# blocker is no longer ingestion. What is left is that these tests score one
-# node's conductivity against a per-node threshold out of a metadata pickle,
-# and Cobble Shoal has neither: it scores every node at once against the POT
-# threshold in its calibration artifact. Grading it belongs in a test that
-# speaks that contract, which is what scripts/run_audit_comparison.py does by
-# hand today.
+# Only sequence-contract models belong here. Cobble Shoal scores every node at
+# once against the POT threshold in its calibration, not one node against a
+# metadata threshold. scripts/run_audit_comparison.py grades it instead.
 _MODELS = [
     ("dusk_crayfish", True),
 ]

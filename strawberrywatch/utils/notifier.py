@@ -10,7 +10,7 @@ load_dotenv()
 
 
 def _receivers():
-    """ALERT_EMAIL_RECEIVER as a list, so one address or several comma separated both work."""
+    """ALERT_EMAIL_RECEIVER as a list. One address or several comma separated both work."""
     raw = os.getenv("ALERT_EMAIL_RECEIVER") or ""
     return [part.strip() for part in raw.split(",") if part.strip()]
 
@@ -58,7 +58,7 @@ def _diagnosis_line(classification):
     Turn one Trial Bed account into a plain-English sentence for the email.
 
     Handles every verdict support_modules.trial_bed.classify can return, and
-    falls back to saying so when nothing classified the event at all.
+    says so when the event wasn't classified.
     """
     if classification is None:
         return "Spill type was not classified for this anomaly."
@@ -128,7 +128,7 @@ def send_anomaly_alert(location, score, threshold, event_time, classification=No
     Send one alert email for a single detected anomaly event.
 
     classification is the support_modules.trial_bed account for this event, or
-    None if nothing classified it. rule is which detection rule fired, so a site
+    None if it wasn't classified. rule is which detection rule fired. A site
     that trips both gets two distinguishable emails. Credential handling mirrors
     send_spill_alert, and so does the return: True only if the email went.
     """

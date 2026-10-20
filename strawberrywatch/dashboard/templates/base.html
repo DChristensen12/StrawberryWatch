@@ -1,19 +1,19 @@
-{#- The page frame from strawberrycreek.org's base.html: the black navbar with
-    the SCMG logo, the dark mode button in the corner and a plain footer. The
-    site's inline theme script lives in static/site-theme.js instead, so the
-    CSP can allow no inline script. -#}
+{#- The page frame from strawberrycreek.org's base.html. The site's inline theme
+    script is in static/site-theme.js instead, and the CSP can block all inline
+    script. -#}
 {%- import "macros.html" as sw -%}
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>{% block title %}{% endblock %} – StrawberryWatch</title>
+    <title>{% block title %}{% endblock %} | StrawberryWatch</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
     <link rel="stylesheet" href="{{ url_for('static', filename='uplot/uPlot.min.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+    {% block head %}{% endblock %}
   </head>
-  <body data-unsaved="{{ unsaved or 0 }}" data-settings-page="{{ 'yes' if settings_page else 'no' }}"{% block body_attrs %}{% endblock %}>
+  <body data-unsaved="{{ unsaved or 0 }}" data-settings-page="{{ 'yes' if settings_page else 'no' }}" data-root="{{ request.script_root }}"{% block body_attrs %}{% endblock %}>
     <script src="{{ url_for('static', filename='site-theme.js') }}"></script>
     <a class="sw-skip" href="#main-content">Skip to main content</a>
     <header class="navbar">
@@ -29,6 +29,7 @@
               {% for item in nav %}
                 <li><a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.text }}{% if item.count %} <span class="nav-count">{{ item.count }}</span>{% endif %}</a></li>
               {% endfor %}
+              {% if sign_out %}<li><a href="{{ sign_out }}">Sign out</a></li>{% endif %}
             </ul>
           </nav>
         {% endif %}
@@ -41,6 +42,23 @@
     </button>
 
     <main class="page-content{% block width %}{% endblock %}" id="main-content" tabindex="-1">
+      {% if paused %}
+        <div class="sw-banner" role="region" aria-labelledby="sw-paused-title">
+          <h2 class="sw-banner__title" id="sw-paused-title">Model checks paused after 3 failed checks.{% if not profile.checks_here %} Night Heron's threshold alerts still work.{% endif %}</h2>
+          {% if can_edit %}
+            <form method="post" action="{{ url_for('main.resume_checks') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="sw-button">Restart checks</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endif %}
+      {% if not public and not can_edit and profile and not profile.token_login %}
+        <p class="sw-readings">View-only access. Your account can't make changes.</p>
+      {% endif %}
+      {% if readings %}
+        <p class="sw-readings">Data source: {{ readings.words }}</p>
+      {% endif %}
       {{ sw.errors_summary(form) }}
       {% for kind, message in get_flashed_messages(with_categories=true) %}
         <p class="sw-message{{ ' sw-message--error' if kind == 'error' }}" role="{{ 'alert' if kind == 'error' else 'status' }}">{{ message }}</p>
@@ -49,10 +67,12 @@
     </main>
 
     <footer class="site-footer">
-      {% if email_on %}
-        <p>StrawberryWatch runs on this computer. When it notices something new, it emails the people on its email list.</p>
+      {% if profile and not profile.token_login %}
+        <p>StrawberryWatch runs on strawberrycreek.org.{% if email_on %} It emails new alerts to the recipients list.{% endif %}</p>
+      {% elif email_on %}
+        <p>StrawberryWatch runs on this computer and emails new alerts to the recipients list.</p>
       {% else %}
-        <p>StrawberryWatch runs on this computer. Nothing it notices leaves it.</p>
+        <p>StrawberryWatch runs on this computer. Email alerts are off.</p>
       {% endif %}
     </footer>
     <script src="{{ url_for('static', filename='uplot/uPlot.iife.min.js') }}"></script>

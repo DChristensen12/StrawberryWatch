@@ -1,11 +1,7 @@
 """
 One check, and the thread that runs one every 15 minutes while the app is open.
-
-Built from gnn_alerts.py's proven parts without importing it: the interval, a
-background thread, a busy guard so two checks never overlap, and a check that
-logs a failure instead of raising. Its MySQL reads are sources.py here, and
-nothing leaves the computer: what a check notices goes in the store and on
-the page, nowhere else.
+Borrows gnn_alerts.py's pattern without importing it: a background thread, a
+busy guard to stop checks overlapping, and failures logged instead of raised.
 """
 
 from __future__ import annotations
@@ -26,9 +22,16 @@ from strawberrywatch.watch import settings as settings_mod
 
 logger = logging.getLogger(__name__)
 
+# The last settings each store gave that read cleanly. A damaged row can't stop the checks
+_last_good = {}
+
 INTERVAL = timedelta(minutes=settings_mod.INTERVAL_MINUTES)
 LOOKBACK = timedelta(days=settings_mod.LOOKBACK_DAYS)
 HASHES_PATH = Path(__file__).resolve().parent / "model_files.sha256.json"
+# Failed or skipped checks in a row before checks pause, as gnn_alerts does on the website
+PAUSE_AFTER = 3
+# Saved beside a model update's files, the fingerprints they were checked against
+HASHES = "hashes.json"
 
 
 class ModelFileError(RuntimeError):
@@ -44,7 +47,7 @@ def sha256(path):
 
 
 def verify_files(cls, folder, hashes=None):
-    """Every file a model loads, checked against the hash it shipped with, before torch sees it."""
+    """Checks every file a model loads against its shipped hash, before torch sees it."""
     hashes = hashes if hashes is not None else json.loads(HASHES_PATH.read_text())
     for name in cls.FILES:
         path = Path(folder) / name
@@ -61,13 +64,17 @@ def verify_files(cls, folder, hashes=None):
 
 
 def load_detector(name, folder=None):
-    """A serving detector, cached, after its files pass verify_files."""
+    """
+    Loads (and caches) a serving detector once its files pass verify_files. A
+    model update's folder brings its own fingerprints.
+    """
     from strawberrywatch import paths
     from strawberrywatch.serving import detector_class
 
-    folder = folder or paths.checkpoints_dir()
+    folder = Path(folder or paths.checkpoints_dir())
     cls = detector_class(name)
-    verify_files(cls, folder)
+    listed = folder / HASHES
+    verify_files(cls, folder, json.loads(listed.read_text()) if listed.exists() else None)
     return cls.cached(folder, device="cpu")
 
 
@@ -86,7 +93,7 @@ def _grid(start, end):
 
 
 def _raw_window(tables, sites):
-    """The readings under inventory names, one frame with a location column, the way the support modules read them."""
+    """Readings the way the support modules want them: inventory names, one frame, a location column."""
     frames = []
     for site in sites:
         if site in tables:
@@ -96,8 +103,8 @@ def _raw_window(tables, sites):
 
 def screen(tables, sites, grid):
     """
-    Settling Pool's flags, applied: readings it doesn't trust are made missing
-    in a copy before the model reads them. Returns (tables, {site: readings held back}).
+    Applies Settling Pool. Readings it doesn't trust are blanked in a copy before
+    the model sees them. Returns (tables, {site: readings held back}).
     """
     from strawberrywatch.support_modules import qc_tests as qc
     from strawberrywatch.support_modules.settling_pool import SettlingPool
@@ -122,8 +129,8 @@ def screen(tables, sites, grid):
 
 def explain(support, model_name, model_sites, tables, grid, over, held):
     """
-    What each explainer turned on for this model says about each site, from
-    the modules' own explain(). over is decide.over_steps for the noticed groups.
+    Runs each explainer turned on for this model. over is decide.over_steps for
+    the flagged groups.
     """
     from strawberrywatch.support_modules import SupportStack
 
@@ -174,16 +181,63 @@ def explain(support, model_name, model_sites, tables, grid, over, held):
     return accounts
 
 
-def run_check(store, models, token=None, detectors=None, folder=None, clock=time.time):
+def read_settings(store):
     """
-    One check. Never raises: a failure is recorded on the check and logged, so a
-    bad day at the API doesn't stop the next check.
+    Returns (version id, settings, notice). Broken settings are swapped for the
+    last good ones, and the notice says so.
+    """
+    key = str(getattr(store, "path", id(store)))
+    try:
+        settings_id, applied = store.applied()
+        if applied is not None:
+            problems = settings_mod.out_of_range(applied)
+            if problems:
+                raise ValueError(" ".join(problems))
+    except Exception as exc:
+        logger.error("the saved settings couldn't be used (%s)", _plain(exc))
+        if key not in _last_good:
+            raise
+        settings_id, applied = _last_good[key]
+        return settings_id, applied, SETTINGS_NOTICE
+    if applied is not None:
+        _last_good[key] = (settings_id, applied)
+    return settings_id, applied, ""
 
-    detectors is {name: detector} to use instead of loading, for tests.
-    Returns the check id, or None before anything is applied or set up.
+
+SETTINGS_NOTICE = (
+    "The saved settings couldn't be read, so this check used the last ones that could."
+)
+NO_WEATHER = "Weather wasn't available for this check"
+
+
+def run_check(
+    store,
+    models,
+    token=None,
+    detectors=None,
+    folder=None,
+    clock=time.time,
+    memory=None,
+    max_models=None,
+):
     """
-    settings_id, applied = store.applied()
+    Runs one check. Doesn't raise. A bad day at the API can't stop the next
+    one. Failures are recorded on the check and logged.
+
+    token is the Strawberry Creek API token, the local app's backup source.
+    detectors swaps in {name: detector} for tests. memory reads peak memory in
+    MB so each model's cost gets recorded, and max_models caps how many run.
+    Returns the check id, or None if nothing's applied or set up yet.
+    """
     config = store.source()
+    try:
+        settings_id, applied, notice = read_settings(store)
+    except Exception as exc:
+        if config is None:
+            return None
+        check_id = store.start_check(config["kind"], None, None, None)
+        store.finish_check(check_id, False, _plain(exc), {})
+        return check_id
     if applied is None or config is None:
         return None
 
@@ -191,35 +245,53 @@ def run_check(store, models, token=None, detectors=None, folder=None, clock=time
         source = sources.from_config(config, token=token)
         start, end = source.window(LOOKBACK)
     except Exception as exc:
-        check_id = store.start_check(config["kind"], settings_id, None, None)
+        check_id = store.start_check(
+            config["kind"],
+            settings_id,
+            None,
+            None,
+            detail=config.get("event") or config.get("folder"),
+        )
         store.finish_check(check_id, False, _plain(exc), {})
         logger.warning("check couldn't start: %s", _plain(exc))
         return check_id
 
-    # The check's start is when it noticed anything, for the repeat rule here and in the preview
+    # Counts as the alert time for the repeat rule, here and in the preview
     started = clock()
     check_id = store.start_check(
-        source.kind, settings_id, start.timestamp(), end.timestamp(), started
+        source.kind, settings_id, start.timestamp(), end.timestamp(), started, detail=source.detail
     )
+    live = sources.is_live(source.kind)
     durations = {}
-    problems = []
+    problems = [notice] if notice else []
+    weather_ok = None
     try:
         from strawberrywatch import inventory as inv
+        from strawberrywatch.watch import model_updates
 
         inventory = inv.load()
         tables = source.tables(list(inventory.sites), start, end)
-        _save_readings(store, tables)
+        _save_readings(store, tables, live)
         on = [m for m in models if applied["models"].get(m.name, {}).get("on")]
+        if max_models is not None and len(on) > max_models:
+            skipped = ", ".join(m.title for m in on[max_models:])
+            problems.append(f"{skipped} didn't run: only {max_models} can run at once.")
+            on = on[:max_models]
         loaded = {}
         for model in on:
             try:
                 loaded[model.name] = (detectors or {}).get(model.name) or load_detector(
-                    model.name, folder
+                    model.name, model_updates.model_folder(store, model.name, folder)
                 )
+            except ModelFileError as exc:
+                logger.warning("%s is unavailable: %s", model.name, exc)
+                problems.append(f"{model.title} is unavailable: its files are missing or changed")
             except Exception as exc:
                 problems.append(f"{model.title} didn't run: {_plain(exc)}")
         wants = any(getattr(d, "wants_weather", False) for d in loaded.values()) or applied["rain"]
         weather = source.weather(start, end) if wants and loaded else None
+        if wants and loaded:
+            weather_ok = weather is not None
         _save_weather(store, weather)
         grid = _grid(start, end)
 
@@ -229,8 +301,11 @@ def run_check(store, models, token=None, detectors=None, folder=None, clock=time
                 continue
             spec = applied["models"][model.name]
             began = time.monotonic()
+            before = memory() if memory else None
             try:
                 configure_rain(detector, model, applied["rain"], spec["rain_multiplier"])
+                if hasattr(detector, "set_sensitivity"):
+                    detector.set_sensitivity(spec.get("rates"), spec.get("thresholds"))
                 mine = {name: tables[name] for name in detector.table_names if name in tables}
                 held = {}
                 if "settling_pool" in spec["support"]:
@@ -260,12 +335,19 @@ def run_check(store, models, token=None, detectors=None, folder=None, clock=time
                 logger.exception("%s failed this check", model.name)
                 problems.append(f"{model.title} failed this check: {_plain(exc)}")
             durations[model.name] = round(time.monotonic() - began, 2)
-        store.prune(end.timestamp())
+            if memory:
+                durations.setdefault("memory_mb", {})[model.name] = round(
+                    max(0.0, memory() - before), 1
+                )
+        if memory:
+            durations["peak_mb"] = round(memory(), 1)
+        if live:
+            store.prune_daily(clock())
         message = "; ".join(problems) if problems else ""
-        store.finish_check(check_id, not problems, message, durations)
+        store.finish_check(check_id, not problems, message, durations, weather_ok)
     except Exception as exc:
         logger.exception("check failed")
-        store.finish_check(check_id, False, _plain(exc), durations)
+        store.finish_check(check_id, False, _plain(exc), durations, weather_ok)
     return check_id
 
 
@@ -319,7 +401,7 @@ def _record(
         )
 
 
-def _save_readings(store, tables):
+def _save_readings(store, tables, live=True):
     rows = []
     for site, table in tables.items():
         tidied = sources.tidy(table)
@@ -342,7 +424,7 @@ def _save_readings(store, tables):
                 )
             )
     if rows:
-        store.save_readings(rows)
+        store.save_readings(rows, live)
 
 
 def _save_weather(store, weather):
@@ -361,31 +443,36 @@ def _num(value):
 
 
 def _plain(exc):
-    """An error as a sentence, without a traceback and without anything secret in it."""
+    """An error as a sentence, without a traceback or secrets."""
     text = str(exc).strip() or type(exc).__name__
     return text.splitlines()[0][:300]
 
 
 class Watcher:
     """
-    Runs a check every 15 minutes, and straight away when asked. Two checks
-    never overlap: one asked for while another runs waits for the next turn.
+    Runs a check every 15 minutes, and right away when asked. Checks don't
+    overlap. A request during one waits for the next turn.
+
+    Follows two of the website's limits: max_models_on from settings.yaml, and
+    a pause after PAUSE_AFTER failures in a row until someone presses Restart
+    checks.
     """
 
     def __init__(
         self,
         store,
         models,
-        token_getter=sources.get_token,
+        api_token=lambda: None,
         interval=INTERVAL,
         after_check=None,
         **check_kw,
     ):
         self.store = store
-        # Called with each check's id once it's recorded, as the dashboard's emails are
+        # Called with each check's id once it's saved, which is how emails go out
         self.after_check = after_check
         self.models = models
-        self.token_getter = token_getter
+        # The API token from .env, read at each check so a fixed .env needs no restart
+        self.api_token = api_token
         self.interval = interval.total_seconds()
         self.check_kw = check_kw
         self._wake = threading.Event()
@@ -415,8 +502,7 @@ class Watcher:
             self._thread.join(timeout)
 
     def _periodic(self):
-        config = self.store.source()
-        return bool(config) and config["kind"] != sources.REPLAY
+        return self.store.source() is not None
 
     def _loop(self):
         while not self._stop.is_set():
@@ -429,22 +515,48 @@ class Watcher:
             self._wake.wait(timeout=wait)
 
     def check(self):
-        """Run one check now unless one is already running. Returns its id or None."""
+        """Run one check now unless one is already running or checks are paused. Returns its id or None."""
         if not self._busy.acquire(blocking=False):
             return None
         try:
             began = time.time()
-            token = None
-            config = self.store.source()
-            if config and config["kind"] == sources.API:
-                try:
-                    token = self.token_getter()
-                except sources.SourceError as exc:
-                    logger.warning("%s", exc)
-            check_id = run_check(self.store, self.models, token=token, **self.check_kw)
             self.next_at = began + self.interval
+            if self.store.pref("checks_paused") == "yes":
+                return None
+            from strawberrywatch.watch.check_once import peak_mb
+
+            check_id = run_check(
+                self.store,
+                self.models,
+                token=self.api_token(),
+                memory=peak_mb,
+                max_models=int(settings_mod.website_limits()["max_models_on"]),
+                **self.check_kw,
+            )
+            count_outcome(self.store, check_id)
             if self.after_check is not None:
                 self.after_check(check_id)
             return check_id
         finally:
             self._busy.release()
+
+
+def count_outcome(store, check_id):
+    """
+    A good check clears the count. A failed or skipped one adds to it, and
+    PAUSE_AFTER in a row pause the checks, as gnn_alerts does on the website.
+    """
+    if check_id is None:
+        return
+    last = store.last_check()
+    if last and last.get("ok"):
+        store.set_pref("check_failures", "0")
+        return
+    try:
+        count = int(store.pref("check_failures") or 0) + 1
+    except ValueError:
+        count = 1
+    store.set_pref("check_failures", str(count))
+    if count >= PAUSE_AFTER:
+        store.set_pref("checks_paused", "yes")
+        logger.warning("%s checks failed in a row, model checks paused", count)

@@ -59,7 +59,7 @@ def test_operating_point_refuses_what_detect_anomalies_would_ignore_or_choke_on(
 
 def test_every_operating_point_key_is_one_detect_anomalies_reads():
     # detect_anomalies merges the override over its own dict and ignores any key
-    # it doesn't know, so a key main.py accepts and it doesn't would do nothing.
+    # it doesn't know. A key main.py accepts and it doesn't would have no effect.
     source = inspect.getsource(ad.detect_anomalies)
     for key in main._OPERATING_POINT:
         assert f'"{key}":' in source, key

@@ -2,14 +2,12 @@
 The one object an outside caller needs to run Dusk Crayfish.
 
 Hand it a directory with a checkpoint in it and Night Heron's site tables, get
-back a Finding for whatever fired. Nothing in here reads settings.yaml, resolves
-a repository root, opens a .env, or touches the ingest package. Everything that
-used to come from a module level constant is a constructor argument with our
-value as the default.
+back a Finding for whatever fired. This module doesn't read settings.yaml,
+resolve a repository root, open a .env, or import the ingest package. Every
+setting is a constructor argument with our value as the default.
 
-Loading is cached, keyed by directory and device, because the caller running
-this is a daemon that loops every twenty seconds and reading weights off disk
-every pass would be silly.
+Loading is cached by directory and device. The caller is a daemon that loops
+every twenty seconds, and reading weights off disk every pass would be silly.
 """
 
 from __future__ import annotations
@@ -35,8 +33,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW = 24
 
-# Raw logger column names to what the model calls them. The same mapping
-# ingest/data_loader.py uses, repeated so this module never imports ingest.
+# Raw logger column names to what the model calls them. Copied from
+# ingest/data_loader.py to keep ingest out of our imports.
 COLUMNS = {
     "Meter_Hydros21_Cond": "conductivity",
     "Meter_Hydros21_Depth": "depth",
@@ -45,8 +43,8 @@ COLUMNS = {
 
 WEATHER = ("rain_mm", "air_temp_c", "shortwave_radiation")
 
-# One entry per (directory, model, device). Small and long lived, so a plain
-# dict under a lock beats anything with an eviction policy.
+# One entry per (directory, model, device). It stays small and lives long, and
+# a plain dict under a lock is enough.
 _cache = {}
 _cache_lock = threading.Lock()
 
@@ -56,16 +54,16 @@ class DuskCrayfishDetector:
     Dusk Crayfish, loaded and ready to score.
 
     No base class shared with Cobble Shoal's detector in cobble.py. Their insides
-    have nothing worth sharing, so all the two agree on is contract.py: raw site
-    tables in, Findings out.
+    have little in common. The two only agree on contract.py: raw site tables
+    in, Findings out.
     """
 
     name = "dusk_crayfish"
     # As detect_anomalies names them in rules_fired
     RULES = ("forecast_residual", "level_shift")
-    # Only "don't flag". A site whose newest input is filled in rather than
-    # measured makes false alarms downstream, footbridge poisoned oxford that
-    # way twice, so leaving one out needs a retrain with sites dropped first.
+    # Only "don't flag". A site whose newest input is filled in instead of
+    # measured makes false alarms downstream (footbridge did this to oxford
+    # twice). Leaving a site out needs a retrain with it dropped first.
     SITE_CHOICE = (DONT_FLAG,)
     # All a checkpoint folder needs for load() to work with no checkout around it
     FILES = ("dusk_crayfish_weights.pt", "dusk_crayfish_serving.json")
@@ -106,10 +104,9 @@ class DuskCrayfishDetector:
         """
         Build the model and load its weights.
 
-        torch and torch_geometric are imported here rather than at module scope so
-        importing this package stays cheap. That matters for the Django daemon,
-        which imports us at startup and only pays for torch on the first cycle
-        that actually scores something.
+        torch and torch_geometric are imported here to keep importing this
+        package cheap. The Django daemon imports us at startup and only pays for
+        torch on the first cycle that scores something.
         """
         import torch
 
@@ -189,14 +186,14 @@ class DuskCrayfishDetector:
         return float((self.operating_point or {}).get("level_shift_k", LEVEL_SHIFT_K))
 
     def _judge(self, tables, weather):
-        """Stack the tables, merge weather and run score(). (frame, result), or None for nothing to judge."""
+        """Stack the tables, merge weather and run score(). (frame, result), or None if there's nothing to judge."""
         frame = self._frame(tables)
         if frame.empty:
             logger.info("%s: none of %s had readings", self.name, ", ".join(self.sites))
             return None
         if "conductivity" not in frame.columns:
             # Both rules score it, and _fill_absent would otherwise hand
-            # detect_anomalies the training mean dressed up as a reading.
+            # detect_anomalies the training mean in place of a reading
             logger.info("%s: no conductivity column on any table, nothing to judge", self.name)
             return None
 
@@ -252,7 +249,7 @@ class DuskCrayfishDetector:
 
         tables is {table: DataFrame} indexed by reading time, raw logger columns.
         weather is Open-Meteo on its 15 minute UTC index, or None. Comes back as a
-        list of Finding, empty when nothing fired or nothing could be judged.
+        list of Finding, empty when no site fired or none could be judged.
         """
         check_leave_out(self, leave_out)
         judged = self._judge(tables, weather)
@@ -293,10 +290,10 @@ class DuskCrayfishDetector:
         """
         The site tables stacked into the one long frame score() reads.
 
-        Only the logger columns this model knows come along, so weather or anything
-        else riding on a table cannot collide with what _merge_weather adds. A site
-        with no table or no rows is skipped, because one dead logger should not
-        stop the other three being scored.
+        Only the logger columns this model knows come along. Weather or other
+        extras on a table can't collide with what _merge_weather adds. A site
+        with no table or no rows is skipped, since one dead logger shouldn't stop
+        the other three being scored.
         """
         frames = []
         for site in self.sites:
@@ -316,8 +313,8 @@ class DuskCrayfishDetector:
 
         The window is 24 rows, not 24 hours. On our 15 minute grid that is six
         hours of creek. Hand the same model 5 minute data and the same 24 rows is
-        two hours, and the dynamics it learned no longer line up. Nothing in the
-        model checks, so a caller that cares should.
+        two hours, and the dynamics it learned no longer line up. The model
+        doesn't check this. A caller that cares should.
         """
         step = windows.cadence(frame)
         return None if step is None else step * self.window
@@ -331,9 +328,9 @@ class DuskCrayfishDetector:
         they are absent.
 
         rain is an optional Series of rain_mm indexed by time. Without it the rain
-        adjustment never engages, which leaves Rule 1 comparing against its dry
-        weather bar during a storm. That direction is the trigger happy one, so we
-        say so in the result rather than letting it pass quietly.
+        adjustment doesn't engage, and Rule 1 compares against its dry weather
+        bar during a storm. That errs toward more alerts, and we note it in the
+        result.
 
         Returns {"verdicts": {...}, "windows": int, "window_end": Timestamp or None,
         "timestamps": [...], "rain_applied": bool}. verdicts is what
@@ -371,8 +368,8 @@ class DuskCrayfishDetector:
         )
 
         # detect_anomalies reads two things off the raw frame: which steps a site
-        # really reported at, and rain. It wants them on one frame, so attach rain
-        # here rather than changing its signature.
+        # really reported at, and rain. It wants both on one frame. We attach rain
+        # here and leave its signature alone.
         raw = frame
         if rain is not None:
             raw = frame.copy()
@@ -406,10 +403,10 @@ def _merge_weather(frame, features, weather):
     """
     Merge the weather columns the model trained on, if the caller had any.
 
-    Night Heron does not store weather, so whoever calls us fetches it. Anything
-    missing stays absent and _fill_absent gives it the training mean, which costs
-    the model its weather context, mostly during storms, but not its ability to
-    run. Returns whether any weather made it in.
+    Night Heron doesn't store weather, and whoever calls us fetches it. A missing
+    column stays absent and _fill_absent gives it the training mean. The model
+    loses its weather context, mostly felt during storms, but still runs.
+    Returns whether any weather made it in.
     """
     wanted = [c for c in WEATHER if c in features]
     if not wanted or weather is None or weather.empty:
@@ -420,7 +417,7 @@ def _merge_weather(frame, features, weather):
         return frame, False
 
     # Weather is on its own 15 minute grid. Snap each reading to the quarter hour
-    # it falls in rather than merging on an exact timestamp match that will miss.
+    # it falls in, since exact timestamps won't match.
     keyed = frame.copy()
     keyed["_quarter"] = keyed.index.floor("15min")
     merged = keyed.merge(
@@ -438,8 +435,8 @@ def _fill_absent(frame, features, normalization):
     Give every trained feature a column, filling any we could not get.
 
     A missing feature gets its training mean, which lands on zero once the window
-    builder normalizes. That is the same thing main.py does when a weather fetch
-    fails mid run, and it means "no signal" rather than "a reading of zero".
+    builder normalizes. main.py does the same when a weather fetch fails mid run.
+    It means "no signal", not "a reading of zero".
     """
     out = frame.copy()
     for name in features:

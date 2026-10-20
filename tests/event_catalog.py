@@ -1,15 +1,7 @@
 """
-The labelled event catalog, read off tests/events.yaml.
-
-The catalog used to be a Python list inside tests/test_anomaly_detection.py and
-a second, drifting copy of it inside scripts/run_audit_comparison.py. Two copies
-of a list of facts is the same defect class tests/test_audit_sweep.py exists to
-catch, and it also meant adding an event was a code edit in two places. Both
-readers now come through here, so adding the seventh event is one entry in one
-file.
-
-Nothing in here loads data or scores anything. It validates the shape of the
-catalog and hands back rows.
+The labelled event catalog, read from tests/events.yaml. The anomaly tests and
+run_audit_comparison.py both read it through here. Adding an event is one
+entry in one file. It only checks the catalog's shape and hands back rows.
 """
 
 from __future__ import annotations
@@ -23,8 +15,8 @@ from strawberrywatch import paths
 
 CATALOG_PATH = Path(__file__).with_name("events.yaml")
 
-# What a label commits the detector to. relative_only is a record of an event we
-# know about rather than coverage of it: nothing grades those rows yet.
+# What a label commits the detector to. relative_only records an event we know
+# about without covering it. No test grades those rows yet.
 LABELS = ("anomaly", "true_negative", "relative_only")
 
 REQUIRED = ("folder", "group", "site", "label")
@@ -62,11 +54,8 @@ def _fail(index, entry, message):
 
 def parse(blob, known_sites=None):
     """
-    Validate an already-parsed mapping and return its events, in file order.
-
-    known_sites, when given, is the set of site names the repo recognises. A
-    typo in a site name would otherwise surface as a skipped test rather than a
-    failing one, which is the quiet failure mode this catalog exists to avoid.
+    Validates a parsed mapping and returns its events in file order. With
+    known_sites, a misspelled site fails here instead of becoming a skipped test.
     """
     if not isinstance(blob, dict) or "events" not in blob:
         raise CatalogError("tests/events.yaml has no top-level 'events:' key")
@@ -111,11 +100,8 @@ def parse(blob, known_sites=None):
 
 def known_sites():
     """
-    Site names the repo recognises, in either vocabulary.
-
-    The model calls the Wickson footbridge 'footbridge' and the inventory calls
-    its table 'scnf010'. A catalog entry may reasonably use either, so both are
-    accepted and the union is what a typo is checked against.
+    Site names in either vocabulary. The model says footbridge and the inventory
+    says scnf010, and an entry may use either.
     """
     from strawberrywatch.models.Cobble_Shoal import SITE_ORDER
 
@@ -148,10 +134,10 @@ def by_folder(events=None):
     """
     One row per event folder: (folder, group, sites, label), in file order.
 
-    Reports that score a whole event window rather than a single node want the
+    Reports that score a full event window instead of a single node want the
     folder, not the (folder, site) pair. Where a folder carries more than one
-    label its first entry decides, since that is the row the folder is named
-    for; the rest are the same event judged at other nodes.
+    label its first entry decides, since the folder is named for that row; the
+    rest are the same event judged at other nodes.
     """
     order, agg = [], {}
     for e in events if events is not None else load():

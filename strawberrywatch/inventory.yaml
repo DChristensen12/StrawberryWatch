@@ -1,18 +1,9 @@
-# ================================================================== #
-# WHAT IS RUNNING WHERE
-#
-#   yes  installed and in service
-#   no   installed, switched off right now
-#   -    no such probe at this site
-#
-# do = dissolved oyxgen
-# fc = floating conductivity
-# ph is ph
-# ctd means you have depth, temperature, and battery voltage. Though, battery voltage is not a metric we use for anomaly detection.
-#
-#
-#
-# =================================================================== #
+# What's running where. yes = installed and in service,
+# no = installed but out of service, - = no such probe at this site.
+# For a new probe, set its cell to yes and give it an install date under sites: below.
+# do = dissolved oxygen, fc = floating conductivity, ph = pH. ctd is depth,
+# temperature and battery voltage (battery isn't used for anomaly detection).
+# Check an edit with: python -m strawberrywatch.inventory
 in_service:
   botanical_garden:  {ctd: yes, do: -,   fc: -,   ph: -}
   south_fork_0:      {ctd: yes, do: -,   fc: -,   ph: -}
@@ -27,8 +18,7 @@ in_service:
   codornices:        {stage: yes, balance_feed: yes}
 
 
-# ======================================================================== #
-# IN SERVICE IS NOT THE SAME AS INSTALLED
+# In service is not the same as installed.
 #
 #   install   the date the probe went into the creek, or null. History. It
 #             does not change when you switch a probe off, and it decides
@@ -41,9 +31,8 @@ in_service:
 # the grid says -.
 #
 # Setting a probe to no drops it from live scoring and from the state table,
-# exactly as if it had never been fitted. Readings from before you switched
+# exactly as if it hadn't been fitted. Readings from before you switched
 # it off are still used to train the models.
-# ====================================================================== #
 
 
 # Below here is detail. You do not need to touch it to switch a sensor on or off.
@@ -51,14 +40,14 @@ in_service:
 #   removed      the date a probe came out of the creek for good
 #   inferred     the install date is a guess from the first reading; replace it
 #                with the real date when you know it, then delete the line
-#   unconfirmed  a question only a person can answer, never settled from data
+#   unconfirmed  a question only a person can answer, not settled from data
 
 # The allowed data gap, in hours. The group's own number, used by the daily
 # Slack outage bot. One definition of down, not two.
 staleness_hours: 2
 
-# Balance Hydrologics sites are webscraped and serve only the past 7 days, so
-# an absence older than this at a balance_hydrologics site is expected.
+# Balance Hydrologics sites are webscraped and serve only the past 7 days. An
+# absence older than this at a balance_hydrologics site is expected.
 balance_service_days: 7
 
 # Readings stamped before this are logger clock resets, not measurements.
@@ -83,7 +72,7 @@ flat_line_fail_count: 96
 window_steps: 24
 
 # Which variables each probe yields. CTD is one METER HYDROS 21 over SDI-12
-# reporting three channels together, so the three share one install date.
+# reporting three channels together. The three share one install date.
 sensor_variables:
   ctd: [conductivity, temperature, depth]
   do: [dissolved_oxygen]
@@ -93,7 +82,7 @@ sensor_variables:
   balance_feed: [conductivity, temperature]
 
 # The columns the grid at the top uses, one set per kind of station. A row has
-# to carry every column for its source, so nothing can be quietly left out.
+# to carry every column for its source. A missing one is an error.
 sensor_columns:
   mayfly: [ctd, do, fc, ph]
   balance_hydrologics: [stage, balance_feed]

@@ -9,7 +9,7 @@ from strawberrywatch import paths
 load_dotenv()
 
 # Names a yaml laid over settings.yaml for one run, same sections, holding only
-# what changes. The dashboard writes one per run so trying a number never means
+# what changes. The dashboard writes one per run. Trying a number doesn't mean
 # editing the file everyone shares.
 SETTINGS_ENV_VAR = "STRAWBERRYWATCH_SETTINGS"
 
@@ -18,9 +18,8 @@ def _read_overrides(path):
     """
     The override yaml at path, or {} with no path.
 
-    A path that isn't there raises rather than shrugging. A run that asked for
-    its own numbers and quietly got settings.yaml's would look fine and mean
-    nothing.
+    A path that isn't there raises. A run that asked for its own numbers and
+    got settings.yaml's instead would look fine and be wrong.
     """
     if not path:
         return {}
@@ -34,7 +33,7 @@ def _read_overrides(path):
 
 
 def _layered(base, overrides):
-    """base with overrides laid over it a section at a time, so a key left out keeps its value."""
+    """base with overrides laid over it a section at a time. A key left out keeps its value."""
     merged = {section: dict(values or {}) for section, values in (base or {}).items()}
     for section, values in overrides.items():
         if not isinstance(values, dict):
@@ -50,15 +49,15 @@ class Config:
         "https://www.strawberrycreek.org/api/creek-data/",
     )
 
-    # No API key needed, just a descriptive User-Agent.
-    # Set USE_NWS_RAIN=false in .env to disable rain-merge entirely.
+    # No API key, just a User-Agent with a contact. USE_NWS_RAIN=false in .env
+    # turns the rain merge off.
     NWS_STATION_ID = os.getenv("NWS_STATION_ID", "LBNL1")
     NWS_USER_AGENT = os.getenv("NWS_USER_AGENT", "SCMG-AnDeSys/1.0")
     USE_NWS_RAIN = os.getenv("USE_NWS_RAIN", "true").lower() == "true"
     USE_NWS_WEATHER = os.getenv("USE_NWS_WEATHER", "true").lower() == "true"
 
     # Only needed with --data-source sql. Schema is one table per site (lowercased
-    # site_code); sql_client uses SHOW COLUMNS, so no column overrides needed.
+    # site_code); sql_client uses SHOW COLUMNS, and needs no column overrides.
     MYSQL_HOST = os.getenv("MYSQL_HOST")
     MYSQL_USER = os.getenv("MYSQL_DATABASE_USER")
     MYSQL_PASSWORD = os.getenv("MYSQL_DATABASE_PASSWORD")
@@ -75,8 +74,8 @@ class Config:
         print(f"Warning: settings.yaml not found at {_yaml_path}. Using hardcoded defaults.")
         _s = {}
 
-    # Set when a run brought its own values. main.py prints it, so a log says
-    # which numbers it actually ran on.
+    # Set when a run brought its own values. main.py prints it, and a log says
+    # which numbers it ran on.
     SETTINGS_OVERRIDES = os.getenv(SETTINGS_ENV_VAR) or None
     _s = _layered(_s, _read_overrides(SETTINGS_OVERRIDES))
 
@@ -100,9 +99,6 @@ class Config:
     RAIN_THRESHOLD_MULTIPLIER = _s.get("detection", {}).get("rain_multiplier", 2.0)
     RAIN_AMOUNT_THRESHOLD = _s.get("detection", {}).get("rain_amount_threshold", 0.1)
     POST_RAIN_DECAY_HOURS = _s.get("detection", {}).get("post_rain_decay_hours", 36)
-    # RAIN_SATURATION_MM was here and nothing read it. Removed rather than
-    # wired: wiring it would change the shape of the production rain
-    # multiplier, which is a science decision, not a defect.
 
     # Preprocessing
     IMPUTATION_LIMIT_HOURS = _s.get("preprocessing", {}).get("imputation_limit_hours", 3)
@@ -115,8 +111,8 @@ class Config:
 
     SEQUENCE_LENGTH = 24
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Footbridge is off the roster. The API never served it, while the corpus
-    # imputed it at 100% of steps, so it fed oxford a synthetic upstream signal
+    # Footbridge is off the roster. The API didn't serve it, while the corpus
+    # imputed it at 100% of steps. It fed oxford a synthetic upstream signal
     # and oxford's skill sat at -7 to -8. Four nodes means the model trains on
     # the same set it serves.
     LOCATIONS = ["north_fork_0", "south_fork_2", "south_fork_1", "oxford"]
@@ -125,15 +121,10 @@ class Config:
     # Fetches are merged into this rolling window; older rows are trimmed.
     ROLLING_WINDOW_DAYS = int(os.getenv("ROLLING_WINDOW_DAYS", "90"))
 
-    # NUM_FEATURES is not used anywhere; the model reads sequences.shape[3]
-    # at runtime, which is the right thing. Leaving the line out intentionally;
-    # if anything tries to import it, that's a stale reference to clean up.
-
     @classmethod
     def data_file(cls):
         """
-        The rolling inference cache. A method rather than a constant because it
-        needs a project root, and resolving that at class-body time would mean
-        importing Config fails for anyone without a checkout.
+        The rolling inference cache. A method, since it needs a project root and
+        resolving that on import would break Config for anyone without a checkout.
         """
         return paths.data_file()

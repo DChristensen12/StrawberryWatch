@@ -1,10 +1,7 @@
 """
-What Trial Bed says, and that saying it costs the detector nothing.
-
-The table is the hard part, so the match tests are built out of the table
-itself rather than out of a copy of it. A row edited by the Water Quality team
-changes what these assert, which is the point: a test carrying its own copy of
-the directions would keep passing after the table stopped agreeing with it.
+What Trial Bed says, and that it costs the detector nothing. The match tests
+are built from the signature table itself, and they fail when the table
+changes.
 """
 
 from __future__ import annotations
@@ -41,7 +38,7 @@ EVENT_STEPS = (8, 9, 10, 11)
 DEPLOYED_CHANNELS = ("conductivity", "depth", "temperature")
 
 # The opposite of every direction the table asserts, for the row that must not
-# match. FLAT has no opposite, so it moves.
+# match. FLAT has no opposite and becomes a move.
 OPPOSITE = {sig.UP: sig.DOWN, sig.DOWN: sig.UP, sig.FLAT: sig.UP}
 
 
@@ -50,7 +47,7 @@ def a_gate():
 
 
 def a_run():
-    """Scores, p-values and rain where n1 fires over EVENT_STEPS and nothing else does."""
+    """Scores, p-values and rain where only n1 fires, over EVENT_STEPS."""
     scores = np.full((T, len(NODES)), 0.5 * BASE_THRESHOLD)
     for i in EVENT_STEPS:
         scores[i, 0] = 2.0 * BASE_THRESHOLD
@@ -59,10 +56,8 @@ def a_run():
 
 def a_window(channels=None, event_node="n1"):
     """
-    A raw frame where one node carries a sewage pattern over EVENT_STEPS.
-
-    channels limits it to a subset, which is how the deployed network's three
-    columns are put in front of a table that wants five.
+    A raw frame where one node shows a sewage pattern over EVENT_STEPS. channels
+    limits it to a subset, like the deployed network's three.
     """
     rng = np.random.default_rng(0)
     times = pd.date_range("2026-04-01", periods=T, freq="h", tz="UTC")
@@ -103,12 +98,7 @@ def firings(records):
 
 
 def test_metrics_is_gone_and_nothing_imports_it():
-    """
-    metrics.py was stranded: nothing on the live path built a classification,
-    so there was no behaviour to preserve and no output to pin the port
-    against. Its logic is here now, so the module must not still be importable
-    beside it, or the table would exist in two places.
-    """
+    """metrics.py's logic lives in Trial Bed now. The old module mustn't come back."""
     assert importlib.util.find_spec("strawberrywatch.anomalies.metrics") is None
 
 
@@ -141,15 +131,15 @@ def test_a_signature_does_not_match_its_own_opposite(pollutant):
     assert by_name[pollutant]["score"] == pytest.approx(0.0)
 
 
-# Degrading honestly
+# Missing parameters
 
 
 @pytest.mark.parametrize("pollutant", sorted(sig.SIGNATURES))
 def test_a_row_short_of_one_parameter_cannot_be_evaluated(pollutant):
     """
     Hold back one parameter a row needs and the row drops out, naming what was
-    missing. Scoring it on the rest would report a partial signature at the
-    same confidence as a whole one.
+    missing. Scored on the rest, a partial signature would get the same
+    confidence as a whole one.
     """
     required = sig.required_parameters(pollutant)
     withheld = required[-1]
@@ -162,7 +152,7 @@ def test_a_row_short_of_one_parameter_cannot_be_evaluated(pollutant):
 
 
 def test_three_parameters_of_a_row_that_needs_four_cannot_be_evaluated():
-    """The whole verdict, not just the row: two of sewage's four is not a match."""
+    """The verdict as well as the row: two of sewage's four is not a match."""
     required = sig.required_parameters("sewage")
     assert len(required) >= 3, "the table changed shape; this case needs a longer row"
 
@@ -178,10 +168,8 @@ def test_three_parameters_of_a_row_that_needs_four_cannot_be_evaluated():
 
 def test_no_signature_is_evaluable_on_the_deployed_channels():
     """
-    Conductivity, depth and temperature is what the network measures today.
-    Every row needs dissolved oxygen and floating conductivity, and depth is
-    not in the table at all, so nothing can be judged. Pinned as a number so a
-    table edit that changes it has to come past this test.
+    The network measures conductivity, depth and temperature today. Every row
+    needs dissolved oxygen and floating conductivity, and none can be judged.
     """
     assert sig.evaluable_on(DEPLOYED_CHANNELS) == []
     assert len(sig.SIGNATURES) == 5
@@ -225,9 +213,8 @@ def test_a_node_that_never_fired_has_nothing_to_explain():
 
 def test_flipping_one_direction_in_the_table_changes_the_answer():
     """
-    A matcher that had drifted off the table would keep naming sewage after
-    sewage stopped saying what it says. Mutated in a copy, so the shipped table
-    is untouched either way.
+    A matcher that had drifted off the table would keep naming sewage after the
+    sewage row changed. We mutate a copy and leave the shipped table alone.
     """
     observed = {p: sig.SIGNATURES["sewage"][p][0] for p in sig.required_parameters("sewage")}
     assert classify(observed)["cause"] == "sewage"
@@ -255,9 +242,9 @@ def test_a_direction_is_read_off_the_baselines_own_spread():
 
 def test_attaching_trial_bed_changes_no_firing():
     """
-    The same window, run with the explainer and without it. Every threshold,
-    every primary decision and the set of firing node-timesteps must come out
-    identical, or an explainer has quietly become a test.
+    The same window, run with the explainer and without it. Thresholds, primary
+    decisions and the set of firing node-timesteps must all match. Otherwise
+    the explainer has become a test.
     """
     s, p, rain = a_run()
     window = a_window()
@@ -275,7 +262,7 @@ def test_attaching_trial_bed_changes_no_firing():
         assert a["primary_fired"] is b["primary_fired"]
         assert a["verdict"] == b["verdict"]
 
-    # And it did have something to say, so the comparison above was not vacuous.
+    # And it had something to say, which makes the comparison above meaningful.
     entry = next(e for e in with_bed[0]["support"] if e["name"] == "trial_bed")
     assert entry["budget_q"] is None and entry["fired"] is None
 
@@ -294,8 +281,8 @@ def test_trial_bed_leaves_the_whole_budget_to_the_primary():
 )
 def test_the_same_readings_give_the_same_account_on_both_models(model):
     """
-    Nothing model-specific is threaded through. It reads the raw frame and the
-    timestamps, which main.py builds the same way whichever model ran.
+    No model-specific arguments. It reads the raw frame and the timestamps,
+    which main.py builds the same way whichever model ran.
     """
     s, p, rain = a_run()
     window = a_window()
@@ -327,8 +314,8 @@ def test_the_account_names_the_cause_the_evidence_and_the_confidence():
 
 def test_every_cell_carries_its_mechanism():
     """
-    Item 16. A direction with no mechanism is a claim nobody can argue with, so
-    the table is refused rather than shipped half sourced.
+    A direction with no mechanism is a claim nobody can argue with. We refuse
+    a half sourced table.
     """
     for pollutant, row in sig.SIGNATURES.items():
         for param, cell in row.items():
@@ -340,7 +327,7 @@ def test_every_cell_carries_its_mechanism():
 
 
 def test_the_table_holds_the_directions_it_should():
-    """The five rows, spelled out, so any drift in the table trips here."""
+    """The five rows, spelled out. Any drift in the table trips here."""
     expected = {
         "rain": (sig.INDET, sig.UP, sig.DOWN, sig.DOWN, sig.DOWN),
         "tapwater": (sig.DOWN, sig.DOWN, sig.UP, sig.DOWN, sig.DOWN),
@@ -360,7 +347,7 @@ def test_oil_marks_the_two_major_moves():
 
 
 def test_the_tapwater_constants_are_numbers_and_are_testable():
-    """Item 17. Berkeley tap water, encoded rather than left as a direction."""
+    """Berkeley tap water, encoded as values and not only a direction."""
     assert sig.TAPWATER_TEMP_C == 13.0
     assert sig.TAPWATER_PH == 9.4
 
@@ -372,8 +359,8 @@ def test_the_tapwater_constants_are_numbers_and_are_testable():
 
 def test_the_hydrant_event_is_recorded_as_an_exception_and_the_row_is_unchanged():
     """
-    Item 20. The March 2026 break showed no temperature move, which contradicts
-    the tapwater row. That is a finding for the group, not an edit.
+    The March 2026 break showed no temperature move, which contradicts the
+    tapwater row. That is a finding for the group, not an edit.
     """
     exceptions = [e for e in sig.KNOWN_EXCEPTIONS if e["row"] == "tapwater"]
     assert exceptions, "the hydrant contradiction is not recorded anywhere"
@@ -388,14 +375,14 @@ def test_the_hydrant_event_is_recorded_as_an_exception_and_the_row_is_unchanged(
     assert sig.direction("tapwater", "temperature") == sig.DOWN
 
 
-# Degrading honestly
+# Missing parameters
 
 
 def test_how_many_signatures_each_site_can_evaluate_today():
     """
-    Item 18 and 33. No site has a pH probe reporting, and rain, tapwater and oil
-    all assert a pH direction, so only the two rows with an indeterminate pH can
-    be judged anywhere.
+    No site has a pH probe reporting, and rain, tapwater and oil all assert a
+    pH direction. Only the two rows with an indeterminate pH can be judged
+    anywhere.
     """
     bed = TrialBed()
     per_site = bed.evaluable_per_site()
@@ -410,7 +397,7 @@ def test_how_many_signatures_each_site_can_evaluate_today():
 
 
 def test_a_row_needing_ph_is_never_scored_without_ph():
-    """Never a partial match and never a default."""
+    """No partial matches and no defaults."""
     observed = {
         "temperature": sig.DOWN,
         "dissolved_oxygen": sig.DOWN,
@@ -425,8 +412,8 @@ def test_a_row_needing_ph_is_never_scored_without_ph():
 
 def test_a_probe_never_fitted_and_a_probe_gone_silent_read_differently():
     """
-    Item 19. Both are the same silence in the data. They are different problems
-    and they get different sentences.
+    Both are the same silence in the data. They are different problems and
+    they get different sentences.
     """
     from strawberrywatch.support_modules.trial_bed import (
         INSTALLED_NO_DATA,
@@ -437,8 +424,8 @@ def test_a_probe_never_fitted_and_a_probe_gone_silent_read_differently():
     never = absence_reasons("south_fork_3", {})
     assert never["ph"] == NEVER_INSTALLED
 
-    # south_fork_3 has a DO probe fitted since 2026-02-20, so a window with no
-    # DO reading is a silent probe rather than an absent one
+    # south_fork_3 has had a DO probe since 2026-02-20. A window with no DO
+    # reading means a silent probe, not a missing one
     assert never["dissolved_oxygen"] == INSTALLED_NO_DATA
 
     silent_sentence = classify({}, reasons=never)["explanation"]
@@ -462,7 +449,7 @@ def test_an_unevaluable_site_says_what_was_missing_rather_than_going_quiet():
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_it_spends_no_false_alarm_budget_on_either_model(model):
-    """Item 21. Same firings with the explainer attached and without it."""
+    """Same firings with the explainer attached and without it."""
     import numpy as np
 
     from strawberrywatch.anomalies.rain_gate import RainGate

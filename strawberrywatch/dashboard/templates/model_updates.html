@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Model updates{% endblock %}
+{#- Reloads every few seconds while an update runs. The result shows without a click -#}
+{% block head %}{% if running %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block width %} narrow{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('main.settings') }}">Settings</a>
+<h1>Model updates</h1>
+<p>Updates the models to the newest files on the {{ branch }} branch of StrawberryWatch on GitHub. Only models whose files changed are updated, and each one is test-run on a past event before it's used.</p>
+
+<div class="sw-headline{{ ' sw-headline--late' if state.lines and not running }}" role="status">
+  {% if running %}
+    <p class="lead">Updating models…</p>
+    <p>Started {{ started }}{% if state.by %} by {{ state.by }}{% endif %}. This page refreshes until it's done.</p>
+  {% elif state.headline %}
+    <p class="lead">{{ state.headline }}</p>
+    {% for line in state.lines %}<p>{{ line }}</p>{% endfor %}
+    <p class="small muted">Last run {{ finished }}{% if state.by %} by {{ state.by }}{% endif %}{% if state.commit %}, from GitHub commit {{ state.commit[:7] }}{% endif %}.</p>
+  {% else %}
+    <p class="lead">No update has been run yet.</p>
+  {% endif %}
+  {% if can_edit and not running %}
+    <form method="post" action="{{ url_for('main.update_models') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="sw-buttons"><button type="submit" class="sw-button">Update all models from GitHub</button></div>
+    </form>
+  {% endif %}
+</div>
+
+<h2>Model files in use</h2>
+<div class="sw-table-scroll">
+  <table class="sw-table">
+    <caption class="visually-hidden">Model files in use</caption>
+    <thead>
+      <tr><th scope="col">Model</th><th scope="col">Files</th>{% if can_edit %}<th scope="col"><span class="visually-hidden">Undo</span></th>{% endif %}</tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+        <tr>
+          <th scope="row">{{ r.title }}</th>
+          <td>{{ r.files }}</td>
+          {% if can_edit %}
+            <td class="num">
+              {% if r.updated and not running %}
+                <form method="post" action="{{ url_for('main.undo_model_update') }}" data-sw-confirm="Undo the last update to {{ r.title }}? It goes back to the files it had before.">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="model" value="{{ r.name }}">
+                  <button type="submit" class="sw-link-button">Undo last update<span class="visually-hidden"> to {{ r.title }}</span></button>
+                </form>
+              {% endif %}
+            </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="small muted">New files are used from the next check, within 15 minutes.</p>
+{% endblock %}

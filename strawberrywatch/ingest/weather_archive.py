@@ -46,10 +46,10 @@ def load_weather(start, end, cache_dir=None, allow_fetch=True):
     """
     15-min air_temp_c/rain_mm/shortwave_radiation over [start, end], UTC.
 
-    Whole months land in data/rain_cache/ under the rain_{start}_{end}.csv name
+    Whole months go in data/rain_cache/ under the rain_{start}_{end}.csv name
     the rest of the repo already reads. A partial trailing month is fetched but
-    not cached: writing it would leave a file that looks like a full month and
-    is silently short the moment the archive grows.
+    not cached. Written out, it would look like a full month and be short as
+    soon as the archive grows.
     """
     cache_dir = cache_dir or paths.rain_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,7 @@ def load_weather(start, end, cache_dir=None, allow_fetch=True):
             raise RuntimeError(f"Open-Meteo returned nothing for {lo:%Y-%m-%d}..{hi:%Y-%m-%d}")
         misses += 1
         # Only whole months get cached. A partial month written under the same
-        # name would read back later as complete and be silently short.
+        # name would read back later as complete, but be short.
         if hi == (lo + pd.offsets.MonthEnd(1)).normalize():
             got.to_csv(path)
         chunks.append(got)

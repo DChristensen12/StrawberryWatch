@@ -1,6 +1,6 @@
 """
-Data generation, not assertion. Nothing in here tests anything.
+Data generation, not assertion. These modules don't test.
 
-The modules under tests/ import across this boundary; nothing here imports back
-out of it, which is the property that keeps the split meaningful.
+The modules under tests/ import across this boundary, and these don't import
+back out of it. That keeps the split meaningful.
 """

@@ -1,9 +1,9 @@
 """
 Quality tests. Each one takes numbers and returns flags.
 
-Nothing here imports the config, the inventory or the storage layer, and no
-function applies, corrects or cleans anything. That split is deliberate: tests
-know about arrays, callers know where the arrays came from.
+This module doesn't import the config, the inventory or the storage layer, and
+no function applies, corrects or cleans data. Tests know about arrays, and
+callers know where the arrays came from.
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ def rate_of_change(values, threshold, window):
 def sentinel(values, sentinels=(-9999,)):
     """
     Flag the sentinel readings. A -9999 in a CTD channel means the SDI-12
-    address is wrong, which is a field fix rather than noise.
+    address is wrong. That's a field fix, not noise.
     """
     v, flags = _base(values)
     ok = ~np.isnan(v)
@@ -225,7 +225,7 @@ def staleness(timestamps, present, max_gap_seconds):
 
 def worst(*flag_arrays):
     """
-    Combine flags by severity, not by value. UNKNOWN never beats a real verdict.
+    Combine flags by severity, not by value. UNKNOWN loses to any real verdict.
 
     MISSING outranks everything, then FAIL, SUSPECT, GOOD, UNKNOWN last.
     """

@@ -5,35 +5,23 @@ import torch
 from strawberrywatch.config import Config
 from strawberrywatch.models import model_calls
 
-# Same sustained-crossing bar tests/test_anomaly_detection.py uses, ported so
-# a lone noisy point doesn't flag but a real event does. Applies to both rules
-# below, "sustained" means at least this many scored timesteps over threshold
-# in the window, not necessarily consecutive, that's what the test path
-# means by it and what the deployment battery was validated against.
+# Scored steps over the line a rule needs in the window, not necessarily in a
+# row. One noisy point can't flag on its own. Applies to both rules.
 MIN_TIMESTEPS_OVER_THRESHOLD = 3
 
-# Rule 2: how many robust deviations from a node's normal conductivity level
-# before it counts as shifted. Starting guess, not yet calibrated, Stage 3
-# is what tells us if this is too loose or too tight.
+# Rule 2: robust deviations from a node's normal level before it counts as
+# shifted. A starting guess, not calibrated yet.
 LEVEL_SHIFT_K = 4.0
 
-# Same "don't judge on scraps" bar tests/test_anomaly_detection.py uses. A node
-# with fewer than this many REAL (non-fabricated) readings in the window
-# doesn't get scored at all. See _extract_real_mask below for why that's
-# not optional.
+# Real readings a node needs in the window to be judged at all (see _extract_real_mask)
 MIN_TIMESTEPS_TO_JUDGE = 30
 
 
 def run_model_over_sequences(model, sequences, node_mask, edge_index, device):
     """
-    One forward pass over a batch of sequences, per-node predictions kept
-    (never averaged). Passes node_mask only if the loaded model class accepts
-    it, the same check trainer.py uses, so this works no matter which model the
-    registry handed us.
-
-    sequences: (T, seq_len, num_nodes, num_features) normalized
-    node_mask: (T, seq_len, num_nodes) bool, or None
-    Returns predictions, (T, num_nodes, num_features) normalized.
+    One forward pass over a batch, keeping per-node predictions. node_mask only
+    goes to models that take it. sequences is (T, seq_len, nodes, features),
+    normalized, and predictions come back as (T, nodes, features).
     """
     model.eval()
     model = model.to(device)
@@ -49,10 +37,8 @@ def run_model_over_sequences(model, sequences, node_mask, edge_index, device):
 
 def _extract_rain_series(df_original, locations):
     """
-    Pull rain from the first known location, because rain is one shared
-    weather signal over the whole small creek, not a per-node quantity, so one
-    site's rain_mm column speaks for all of them. Returns a rain_mm Series
-    indexed by datetime, or None if rain data isn't available this run.
+    Rain from the first site that has it, since it's the same across the
+    creek. A rain_mm Series by time, or None.
     """
     has_rain = (
         df_original is not None
@@ -77,14 +63,9 @@ def _rain_multipliers(
     post_rain_decay_hours,
 ):
     """
-    Rule 1's rain adjustment: full multiplier the moment lookback rain clears
-    the floor, then a linear taper back to 1.0 over post_rain_decay_hours once
-    it stops. Note this is a step, not the saturation-scaled ramp
-    tests/test_anomaly_detection.py's _rain_adjusted_thresholds uses. The two
-    rain formulas in this codebase disagree and production uses this one. Worth
-    reconciling in the rain tuning pass.
-
-    Returns (multipliers, rain_flags), both length len(timestamps).
+    Rule 1's rain adjustment. The full multiplier once lookback rain clears the
+    floor, then a straight taper back to 1 over post_rain_decay_hours after it
+    stops. Returns (multipliers, rain_flags), one per timestamp.
     """
     n = len(timestamps)
     multipliers = np.ones(n, dtype=float)
@@ -118,20 +99,13 @@ def _rain_multipliers(
 
 def _extract_real_mask(df_original, timestamps, location_to_idx):
     """
-    (T, num_nodes) bool, True where that node has an actual conductivity
-    reading at that timestep, straight from the raw data, not from node_mask.
+    (T, nodes) bool, True where a node really reported conductivity, read from
+    the raw data instead of node_mask.
 
-    node_mask/target_mask (from prepare_sequences_normalized) only carry
-    signal when the source data has a QC 'valid' column, which only exists
-    for the wide training-corpus format (scripts/build_training_corpus.py). A
-    live API pull has no such column, so node_mask defaults to all-True
-    everywhere, including for a node with zero rows this window. It was
-    never told "this node is absent," only ever told "nothing flagged this as
-    QC-bad." Scoring a node whose target is the zero-fill placeholder
-    (permanently-absent cells get zeroed before this function ever sees them)
-    against the model's real prediction produces a huge, completely fake
-    error. This is a second, independent check: not "is this QC-trustworthy"
-    but "did a sensor actually report here at all."
+    node_mask only means something when the data has a QC valid column. A live
+    API pull doesn't, and there it's all True even for a node with no rows.
+    Scoring that node's zero-filled target against a real prediction makes a
+    huge fake error. This checks whether a sensor reported at all.
     """
     num_nodes = len(location_to_idx)
     real_mask = np.zeros((len(timestamps), num_nodes), dtype=bool)
@@ -141,7 +115,7 @@ def _extract_real_mask(df_original, timestamps, location_to_idx):
         or "conductivity" not in df_original.columns
     ):
         return (
-            real_mask  # no raw data to check against, treat everything as unreal rather than guess
+            real_mask  # no raw data to check against, treat all of it as unreal instead of guessing
         )
     for site, node_idx in location_to_idx.items():
         site_rows = df_original[df_original["location"] == site]
@@ -153,13 +127,10 @@ def _extract_real_mask(df_original, timestamps, location_to_idx):
 
 def _rain_adjust_level_k(k, timestamps, rain_series):
     """
-    Hook for Rule 2's rain behavior. Currently a flat pass-through, k unchanged
-    at every timestep, deliberately not wired to Rule 1's multiplier. Rain
-    raises the model's forecast error (what Rule 1 tunes for) for a different
-    reason than it raises the water's actual level (what Rule 2 looks at), so
-    inheriting Rule 1's multiplier here isn't obviously correct, just
-    convenient. Leaving this as an explicit no-op hook rather than guessing,
-    the deployment battery is what tells us whether Rule 2 even needs it.
+    Hook for Rule 2's rain handling, a no-op for now. Rain raises the forecast
+    error and the actual level for different reasons, and borrowing Rule 1's
+    multiplier isn't obviously right. The deployment battery will say
+    whether Rule 2 needs anything here.
     """
     return np.full(len(timestamps), float(k))
 
@@ -182,12 +153,9 @@ def _rule1_forecast_residual(
     min_timesteps_over=MIN_TIMESTEPS_OVER_THRESHOLD,
 ):
     """
-    Ported from tests/test_anomaly_detection.py: robust-normalized reconstruction
-    error against a per-node, rain-adjusted threshold. Catches onsets and ramps,
-    anything that keeps surprising the model step after step. Structurally blind
-    to a clean step/spike past the first timestep or two, since the model
-    absorbs a level shift into its own forecast almost immediately. That gap
-    is exactly what Rule 2 exists to cover.
+    Rule 1: robust-normalized forecast error against a per-node, rain-adjusted
+    threshold. Catches onsets and ramps. A clean step goes quiet after a step or
+    two because the model absorbs it, which is the gap Rule 2 covers.
     """
     normalized = (errors_node - error_median) / error_iqr
     thresholds = node_threshold * rain_multipliers
@@ -198,11 +166,9 @@ def _rule1_forecast_residual(
         "n_over_threshold": n_over,
         "longest_run": _longest_run(over),
         "peak_deviation": float(normalized.max()) if len(normalized) else float("nan"),
-        # Which of this node's real timesteps went over, for anything that has
-        # to point at the readings behind the flag rather than count them.
+        # Which real steps went over, for whatever points at the readings
         "over": over,
-        # What was compared, step by step, so serving can hand out scores and
-        # not only the verdict. Exposed, not recomputed.
+        # Step-by-step scores, for serving to hand out with the verdict
         "score": normalized,
         "threshold": thresholds,
     }
@@ -212,11 +178,9 @@ def _rule2_level_shift(
     level_node, cond_median, cond_iqr, k, min_timesteps_over=MIN_TIMESTEPS_OVER_THRESHOLD
 ):
     """
-    Level-shift rule: how far the node's actual normalized conductivity sits
-    from where it normally sits, in robust deviations, sustained over multiple
-    timesteps. cond_median/cond_iqr anchor on the LEVEL itself, not the model's
-    error, which is what lets this stay flagged for as long as the water
-    actually stays elevated, even after Rule 1's residual has gone quiet.
+    Rule 2: how far a node's conductivity level sits from its normal level, in
+    robust deviations, sustained. It anchors on the level and not the model's
+    error, and stays flagged for as long as the water does.
     """
     deviation = (level_node - cond_median) / cond_iqr
     over = np.abs(deviation) > k
@@ -247,40 +211,25 @@ def detect_anomalies(
     rain_params=None,
 ):
     """
-    Production detection, per node, never averaged. Runs the model with
-    node_mask so feature propagation and masked pooling actually happen live,
-    then scores each node against both rules independently. A node is
-    anomalous if either rule fires; which one fired is in the result, since an
-    onset (Rule 1) and a sustained abnormal level (Rule 2) mean different
-    things operationally.
+    Production detection, per node, without averaging. Runs the model with
+    node_mask and scores each node against both rules. A node is flagged if
+    either fires, and the result says which, since an onset (Rule 1) and a
+    lasting level (Rule 2) mean different things on the ground.
 
-    metadata needs feature_cols, location_to_idx, error_median, error_iqr,
-    node_thresholds (Rule 1), and cond_median, cond_iqr (Rule 2), all written
-    by trainer.py/main.py's train path. A node missing from node_thresholds
-    (never calibrated, e.g. not enough real data at train time) is skipped
-    rather than guessed at.
+    metadata needs feature_cols, location_to_idx, error_median, error_iqr and
+    node_thresholds for Rule 1, plus cond_median and cond_iqr for Rule 2. A node
+    without a threshold is skipped, not guessed at.
 
-    df_original is also what tells this function which timesteps are REAL for
-    each node, as opposed to the zero-fill placeholder permanently-absent
-    cells get. Without that check a fully offline node (no rows in df_original
-    at all) still gets scored against its fabricated zero target, which reads
-    as a huge fake error/level deviation and flags a node that reported
-    nothing. See _extract_real_mask. Pass df_original or this will silently
-    treat every node as having zero real data and skip all of them, not treat
-    everything as real, the unsafe direction is assuming real, not the other
-    way around.
+    Pass df_original. It's how real readings are told apart from zero-filled
+    gaps (see _extract_real_mask). Without it we skip every node, the safe way
+    round.
 
-    operating_point and rain_params override the module constants and the Config
-    values. Both default to None, meaning use ours. They are arguments because
-    these numbers were fitted on our data and our validation split, so a caller
-    running this against a different feed has every right to bring its own
-    without editing this file.
+    operating_point and rain_params override our fitted constants, for anyone
+    running this on a different feed.
 
-    Returns a dict keyed by site name. A node that never got real data this
-    window: {"judged": False, "reason": "insufficient_real_data", ...}. A node
-    that did: {"judged": True, "flagged": bool, "rules_fired": [...],
-    "rule1": {...}, "rule2": {...}, "n_real": int}. Plus rain_flags, the
-    per-timestep bool array of whether rain was pushing Rule 1's threshold up.
+    Returns {site: result}. An unjudged node is {"judged": False, "reason": ...},
+    a judged one has flagged, rules_fired, rule1, rule2 and n_real. rain_flags
+    says, per step, whether rain was raising Rule 1's line.
     """
     if device is None:
         device = Config.DEVICE
@@ -313,8 +262,7 @@ def detect_anomalies(
     cond_idx = feature_cols.index("conductivity")
 
     idx_to_location = {idx: loc for loc, idx in location_to_idx.items()}
-    # needs to support boolean fancy-indexing below (timestamps[real]), a plain
-    # list (what prepare_sequences_normalized actually returns) doesn't
+    # A DatetimeIndex, for timestamps[real]. The plain list it arrives as can't do that.
     timestamps = pd.DatetimeIndex(timestamps)
 
     predictions = run_model_over_sequences(model, sequences, node_mask, edge_index, device)
@@ -334,7 +282,7 @@ def detect_anomalies(
             or site not in error_median
             or site not in error_iqr
         ):
-            continue  # never calibrated for this node, nothing to judge against
+            continue  # not calibrated for this node, no threshold to judge against
 
         real = real_mask[:, node_idx]
         n_real = int(real.sum())
@@ -384,8 +332,8 @@ def detect_anomalies(
         over_timesteps = np.zeros(len(timestamps), dtype=bool)
         over_timesteps[real] = rule1["over"] | rule2["over"]
 
-        # Same scatter per rule, so an alert can say when each one crossed
-        # instead of only when either did.
+        # Same scatter per rule. An alert can then say when each one crossed,
+        # not only when either did.
         for rule in (rule1, rule2):
             per_rule = np.zeros(len(timestamps), dtype=bool)
             per_rule[real] = rule["over"]

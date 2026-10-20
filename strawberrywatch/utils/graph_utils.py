@@ -11,9 +11,9 @@ def _create_edge_index(edges, location_to_idx):
     return edge_index
 
 
-# north_fork_0 used to reach oxford through footbridge. With footbridge off the
-# roster (see Config.LOCATIONS) that edge is contracted rather than cut, since
-# the water still flows that way, we just have no sensor in between.
+# north_fork_0 drains to oxford through footbridge, which is off the roster (see
+# Config.LOCATIONS). The edge is contracted, not cut, since the water still
+# flows that way.
 DEFAULT_FLOW_EDGES = [
     ("north_fork_0", "oxford"),
     ("south_fork_1", "south_fork_2"),
@@ -25,12 +25,12 @@ def create_graph_topology(location_to_idx=None, edges=None, device=None, announc
     """
     Build the creek flow graph.
 
-    Called with nothing it reads Config and behaves exactly as it always has,
-    which is what main.py and the scripts want. Serving passes the node ordering
-    in from the checkpoint instead, because node identity is positional: the
-    model has one learned embedding row per node index, so feeding it a different
-    ordering than it trained on silently attaches every site to the wrong
-    embedding. Nothing raises. The numbers just quietly stop meaning anything.
+    Called with no arguments it reads Config, as main.py and the scripts want.
+    Serving passes the node ordering in from the checkpoint instead, because
+    node identity is positional. The model has one learned embedding row per
+    node index. Feeding it a different ordering than it trained on attaches
+    each site to the wrong embedding. No error is raised, and the numbers stop
+    meaning anything.
 
     announce is there because a library has no business printing.
     """

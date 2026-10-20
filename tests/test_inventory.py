@@ -2,8 +2,8 @@
 The inventory: what it refuses to load, and how it resolves sensor state.
 
 The load tests matter more than they look. A typo that produces a site with no
-sensors gives a site that is silent everywhere, which reads downstream as a
-healthy site with nothing to say.
+sensors gives a site that is silent everywhere. Downstream that reads as a
+healthy, quiet site.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_the_shipped_inventory_loads_and_covers_every_site():
 
 
 def test_a_site_with_no_sensors_is_refused():
-    """The failure this whole file exists to prevent."""
+    """The failure this file exists to prevent."""
     raw = build(**{"sites.upstream.sensors": {}})
     with pytest.raises(inv.InventoryError, match="declares no sensors"):
         inv.from_dict(raw)
@@ -143,8 +143,8 @@ def index_for(hours):
 
 def test_before_install_is_not_installed_and_after_install_with_no_reading_is_missing():
     """
-    The distinction the whole inventory exists to make. These two are the same
-    silence in the data and opposite things to whoever gets the alert.
+    The inventory exists to tell these apart. They're the same silence in the
+    data and opposite things to whoever gets the alert.
     """
     inventory = inv.from_dict(build())
     index = pd.date_range("2024-12-20", periods=24, freq="D", tz="UTC")
@@ -176,15 +176,13 @@ def test_a_gap_inside_the_allowed_two_hours_is_stale_and_beyond_it_is_missing():
 
     states = inventory.resolve_series("upstream", "conductivity", values)
     assert states.iloc[0] == inv.PRESENT
-    # 15 minute steps, so step 8 is two hours after the reading
+    # 15 minute steps. Step 8 is two hours after the reading
     assert states.iloc[8] == inv.STALE
     assert states.iloc[9] == inv.MISSING
 
 
 def test_absence_outside_the_balance_window_is_expected_and_the_same_gap_at_mayfly_is_a_fault():
-    """
-    Item 7. Read off the source in the inventory, never off the site name.
-    """
+    """Read off the source in the inventory, not the site name."""
     inventory = inv.from_dict(build())
     index = pd.date_range("2025-06-01", periods=30, freq="D", tz="UTC")
     values = pd.Series(np.nan, index=index)
@@ -205,7 +203,7 @@ def test_the_balance_rule_follows_the_source_when_the_source_changes():
     as_of = index[-1]
 
     as_balance = inv.from_dict(build()).resolve_series("oxford", "depth", values, as_of=as_of)
-    # same site and same variable, moved onto a Mayfly, so only the source differs
+    # same site and same variable, moved onto a Mayfly. Only the source differs
     flipped = build(
         **{
             "sites.oxford.source": "mayfly",
@@ -266,7 +264,7 @@ def test_every_inferred_date_carries_the_reading_it_came_from():
 
 
 def test_the_dates_that_are_known_are_not_marked_inferred():
-    """scnf010 DO and FC have real install dates, so nothing backfilled them."""
+    """scnf010 DO and FC have real install dates and weren't backfilled."""
     inventory = inv.load()
     for name in ("do", "fc"):
         sensor = inventory.site("scnf010").sensors[name]
@@ -276,9 +274,9 @@ def test_the_dates_that_are_known_are_not_marked_inferred():
 
 def test_the_scalar_and_series_paths_agree():
     """
-    resolve_state and resolve_series apply the same rule twice, so they get
-    pinned together. Two implementations that quietly disagree is how a state
-    table stops matching what the live path reports.
+    resolve_state and resolve_series apply the same rule twice, and we pin them
+    together. If the two drift apart, a state table stops matching what the
+    live path reports.
     """
     inventory = inv.from_dict(build())
     index = index_for(6)

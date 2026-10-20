@@ -4,10 +4,10 @@
 {% block body_attrs %} data-sw-print="yes"{% endblock %}
 {% block content %}
 <div class="sw-print-help">
-  <p>In the print window, choose <strong>Save as PDF</strong> as the printer to keep these notes as a PDF.</p>
+  <p>To save as a PDF, choose <strong>Save as PDF</strong> as the printer.</p>
   <div class="sw-buttons">
-    <button type="button" class="sw-button" id="sw-print">Open the print window</button>
-    <a href="{{ back }}">Back to your notes</a>
+    <button type="button" class="sw-button" id="sw-print">Print</button>
+    <a href="{{ back }}">Back to notes</a>
   </div>
 </div>
 
@@ -18,28 +18,28 @@
     {% for n in d.notes %}
       {% set item = n.item %}
       <article class="sw-print-note">
-        {#- Inside the first note, so a page never ends on a day's heading -#}
+        {#- Inside the first note, which keeps a page from ending on a day's heading -#}
         {% if loop.first %}<h2>{{ d.label }}</h2>{% endif %}
-        <p class="sw-print-note__when">{{ n.clock }}{% if n.author %}, note by {{ n.author }}{% endif %}</p>
+        <p class="sw-print-note__when">{{ n.clock }}{% if n.author %}, {{ n.author }}{% endif %}</p>
         <blockquote>{{ n.text }}</blockquote>
         <dl class="sw-summary">
-          <div class="sw-summary__row"><dt>About</dt><dd>Unusual {{ item.label }} at {{ item.site }}</dd></div>
-          <div class="sw-summary__row"><dt>Noticed</dt><dd>{{ item.when }} by {{ item.title }}</dd></div>
-          <div class="sw-summary__row"><dt>What happened</dt><dd>{{ item.happened }}</dd></div>
+          <div class="sw-summary__row"><dt>Alert</dt><dd>{{ item.label | capitalize }} alert at {{ item.site_name }}</dd></div>
+          <div class="sw-summary__row"><dt>Started</dt><dd>{{ item.when }}, flagged by {{ item.title }}</dd></div>
+          <div class="sw-summary__row"><dt>Details</dt><dd>{{ item.happened }}</dd></div>
           {% if item.extras %}
             <div class="sw-summary__row"><dt>Support modules</dt><dd>{% for line in item.extras %}<p>{{ line }}</p>{% endfor %}</dd></div>
           {% endif %}
         </dl>
         {% if n.chart %}
           {{ sw.chart_data("chart-note-" ~ n.id, n.chart) }}
-          <div class="sw-chart" data-sw-chart="score" data-sw-source="chart-note-{{ n.id }}" role="img" aria-label="How unusual {{ item.label }} looked, against the line it had to cross"></div>
+          <div class="sw-chart" data-sw-chart="score" data-sw-source="chart-note-{{ n.id }}" role="img" aria-label="{{ item.title }}'s score for {{ item.label }} against the alert line"></div>
         {% else %}
-          <p class="small muted">The chart isn't available any more. Scores are kept for 30 days.</p>
+          <p class="small muted">Chart not available. Scores are only kept for 30 days.</p>
         {% endif %}
       </article>
     {% endfor %}
   </section>
 {% else %}
-  <p>No notes to include.</p>
+  <p>No notes selected.</p>
 {% endfor %}
 {% endblock %}

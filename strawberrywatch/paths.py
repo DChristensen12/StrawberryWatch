@@ -1,9 +1,9 @@
 """
 Where the data and checkpoints live.
 
-Nothing here runs at import time. A consumer that only wants the classifier or
-the alert sender should never trip over a missing data/ directory, so paths are
-resolved when something actually reads or writes, not when the module loads.
+No code here runs at import time. A consumer that only wants the classifier or
+the alert sender shouldn't trip over a missing data/ directory. Paths are
+resolved when something reads or writes, not when the module loads.
 """
 
 import os
@@ -20,7 +20,7 @@ def project_root():
     """
     Find the repo root, or None if there isn't one.
 
-    Returns None rather than guessing at the cwd. Falling back to Path.cwd() is
+    Returns None instead of guessing at the cwd. Falling back to Path.cwd() is
     how you end up writing a creek dataset into whatever directory someone
     happened to launch from.
     """
@@ -71,10 +71,11 @@ def anomalies_dir(root=None):
 
 def checkpoints_dir(root=None):
     """
-    Trained weights and metadata. Called checkpoints rather than models so it
-    does not collide with strawberrywatch.models, which is code.
+    Trained weights and metadata. Called checkpoints, not models, to avoid
+    colliding with strawberrywatch.models, which is code.
     """
-    env = os.getenv("STRAWBERRYWATCH_CHECKPOINTS_DIR")
+    # The website's .env names it GNN_CHECKPOINT_DIR, for Night Heron's hook
+    env = os.getenv("STRAWBERRYWATCH_CHECKPOINTS_DIR") or os.getenv("GNN_CHECKPOINT_DIR")
     if env:
         return Path(env).expanduser().resolve()
     return (root or _require_root("the checkpoints directory", "model_dir")) / "checkpoints"

@@ -1,14 +1,13 @@
 """
-Forecast skill gate: does Dusk Crayfish actually beat trivial baselines at one-step
+Forecast skill gate: does Dusk Crayfish beat trivial baselines at one-step
 conductivity forecasting, on real observed data in the held-out split?
 
-Every anomaly test in the suite passes when reconstruction error is HIGH, so a
-model that just forecasts badly passes those tests for free. This is the test
-that has to pass before any of that is meaningful: if the model doesn't clearly
-beat persistence per node, its error is noise around a lagged value and nothing
-downstream is interpretable.
+The anomaly tests in the suite pass when reconstruction error is HIGH. A model
+that forecasts badly passes them for free. This test has to pass first: if the
+model doesn't clearly beat persistence per node, its error is noise around a
+lagged value and the results downstream can't be interpreted.
 
-Read-only. Doesn't touch the model, the corpus, or anything else in the repo.
+Read-only. Doesn't touch the model, the corpus, or other repo files.
 """
 
 import pickle
@@ -105,7 +104,7 @@ def step1_split_and_correspondence(metadata):
         "edge_index": edge_index,
         "location_to_idx": location_to_idx,
         "feature_cols": feature_cols,
-        "scaler": metadata["scaler"],  # the one the checkpoint actually trained with
+        "scaler": metadata["scaler"],  # the one the checkpoint trained with
         "held_seq": sequences[split_idx:],
         "held_tgt": targets[split_idx:],
         "held_ts": held_ts,
@@ -115,15 +114,10 @@ def step1_split_and_correspondence(metadata):
 
 def build_real_observation_lookups(node_names):
     """
-     Per site: a Series of RAW (un-imputed) conductivity indexed by datetime,
-     read straight off training_corpus.csv, plus the {site}_valid QC column.
-
-     NaN in the raw column means that grid step had no underlying raw sensor
-     reading. Checked this is bit-identical to freshly resampling
-     data/raw_data/ onto the same grid (build_training_corpus.py never imputes
-    . Only prepare_sequences_normalized does, and only in memory at train
-     time), so reading the corpus directly IS the reconstruction the task
-     asked for, not a shortcut around it.
+    Per site, raw (un-imputed) conductivity by datetime straight off
+    training_corpus.csv, plus its {site}_valid QC column. NaN means no raw
+    reading at that grid step. This matches resampling data/raw_data/ bit for
+    bit, since the corpus isn't imputed on disk.
     """
     corpus = pd.read_csv(CORPUS_PATH)
     corpus["datetime"] = pd.to_datetime(corpus["datetime"], utc=True)
@@ -138,14 +132,10 @@ def build_real_observation_lookups(node_names):
 
 def run_model_over_held_out(model, edge_index, held_seq, held_node_mask, num_nodes, batch_size=256):
     """
-    Same calling convention test_anomaly_detection.py::_reconstruction_errors
-    uses (node_mask passed when USE_MASK, model.eval() + no_grad already set),
-    just batched instead of one sequence at a time. Verified first that this
-    model has no batch-dependent layers (no batchnorm, dropout is off in
-    eval()), batched output matched single-sequence output to float32
-    precision (max abs diff ~6e-8) on a synthetic check, so this is a speed
-    fix, not a change to what's being measured. 5,820 sequences one at a time
-    didn't finish in 10 minutes; this does.
+    The same call as test_anomaly_detection's _reconstruction_errors, batched.
+    The model has no batch-dependent layers, and batched output matched one at
+    a time to float32 precision (max abs diff about 6e-8). Only speed
+    changes. 5,820 sequences one at a time didn't finish in 10 minutes.
     """
     assert held_seq.shape[2] == num_nodes, (
         f"caller says {num_nodes} nodes, sequences carry {held_seq.shape[2]}"

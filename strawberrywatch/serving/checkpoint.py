@@ -1,19 +1,14 @@
 """
 Reading a trained checkpoint without needing this repository around it.
 
-The training path writes two files per model, {name}_weights.pt and
-{name}_metadata.pkl, into whatever directory paths.checkpoints_dir() resolves
-to. That resolver walks up from the package looking for a pyproject.toml or a
-.git, so it works in a checkout and raises in site-packages. Everything here
-takes the directory as an argument instead.
+Training writes {name}_weights.pt and {name}_metadata.pkl. paths.checkpoints_dir()
+only works in a checkout, and the functions here take the directory as an
+argument.
 
-The metadata pickle holds a live sklearn StandardScaler. Two problems with
-that once the checkpoint leaves this repo. Unpickling it imports sklearn and
-runs its constructor, and the pickle is tied to the sklearn version that wrote
-it, which is not necessarily the one on the machine reading it. Normalizing is
-subtract a mean and divide by a scale, so we pull those two arrays out once and
-let a caller store them as JSON. After that the serving path never needs sklearn
-at all.
+The metadata pickle holds a live sklearn StandardScaler. Unpickling it needs
+sklearn, and the same version that wrote it. Normalizing is just a mean and a
+scale. We pull those two arrays out once and store them as JSON, and serving
+doesn't need sklearn.
 """
 
 from __future__ import annotations
@@ -37,9 +32,9 @@ class Checkpoint:
     """
     One trained model's weights path plus everything needed to run it.
 
-    Deliberately not the model itself. Building the model needs torch, and there
-    are useful things to do with a checkpoint (check which sites it covers, check
-    which features it wants) that should not cost a torch import.
+    Not the model itself. Building the model needs torch, and some useful
+    things to do with a checkpoint (check which sites it covers, check which
+    features it wants) shouldn't cost a torch import.
     """
 
     def __init__(
@@ -68,7 +63,7 @@ class Checkpoint:
         return [s for s, _ in sorted(self.location_to_idx.items(), key=lambda kv: kv[1])]
 
     def normalization(self):
-        """{feature: (mean, scale)}, looked up by name rather than position."""
+        """{feature: (mean, scale)}, looked up by name, not position."""
         return dict(zip(self.feature_cols, zip(self.means, self.scales, strict=True), strict=True))
 
     def detection_metadata(self):
@@ -146,9 +141,9 @@ def load_checkpoint(checkpoint_dir, model_name="dusk_crayfish"):
     """
     Read a checkpoint out of one directory.
 
-    Prefers the JSON sidecar if it is there, because that path touches no pickle
-    and no sklearn. Falls back to the metadata pickle, which is what every
-    checkpoint trained so far actually has.
+    Prefers the JSON sidecar if it's there, because that path skips the pickle
+    and sklearn. Falls back to the metadata pickle, which every checkpoint
+    trained so far has.
     """
     weights, meta_pickle, sidecar = _paths(checkpoint_dir, model_name)
     if not weights.exists():
@@ -167,8 +162,8 @@ def load_checkpoint(checkpoint_dir, model_name="dusk_crayfish"):
             f"the model wants, what order its nodes are in, or where its thresholds sit."
         )
 
-    # Unpickling runs whatever the file references, so this is only safe on a
-    # checkpoint you produced. That is the other reason the sidecar exists.
+    # Unpickling runs whatever the file references. It's only safe on a
+    # checkpoint you produced, and that's the other reason for the sidecar.
     with open(meta_pickle, "rb") as f:
         blob = pickle.load(f)  # nosec B301: see above; the dashboard's hash check needs the sidecar first
     return _from_blob(blob, weights, str(meta_pickle), scaler=blob.get("scaler"))

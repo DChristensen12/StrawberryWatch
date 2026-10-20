@@ -20,3 +20,13 @@ preprocessing:
   # Gaps shorter than this (in hours) are filled by linear time-interpolation.
   # Longer gaps are left as NaN and excluded by the validity check downstream.
   imputation_limit_hours: 24 # originally 3
+
+# Limits for the website's checks, which share a server with other OCF groups,
+# so a model check can't take Night Heron's alerts down. Cautious guesses until
+# scripts/load_test.py has measured the server and suggested real ones.
+website:
+  # Where the site mounts the dashboard, for the links in StrawberryWatch's emails
+  address: https://www.strawberrycreek.org/strawberrywatch
+  check_timeout_minutes: 7
+  min_free_memory_mb: 1024
+  max_models_on: 2

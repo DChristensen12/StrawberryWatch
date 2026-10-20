@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from strawberrywatch.serving.cobble import CobbleShoalDetector
 from strawberrywatch.serving.detector import DuskCrayfishDetector
+from strawberrywatch.serving.flame import FlameSkimmerDetector
+from strawberrywatch.serving.water_strider import WaterStriderDetector
 
-# What GNN_MODELS, or anything else outside, names a model by. A new model is a
-# detector speaking contract.py plus a line here, and it is ready once
-# tests/test_serving_conformance.py passes for it. The Night Heron runner does
-# not change.
+# The names GNN_MODELS and everything else outside use. A new model is a
+# contract.py detector plus a line here, ready once
+# tests/test_serving_conformance.py passes for it.
 SERVING_REGISTRY = {
     DuskCrayfishDetector.name: DuskCrayfishDetector,
     CobbleShoalDetector.name: CobbleShoalDetector,
+    WaterStriderDetector.name: WaterStriderDetector,
+    FlameSkimmerDetector.name: FlameSkimmerDetector,
 }
 
 
@@ -27,8 +30,8 @@ def detector_class(name):
     """
     The detector registered under one name, or raise listing the valid ones.
 
-    Raising is the point. A misspelt model in someone's .env that quietly
-    resolved to nothing would look exactly like a creek with nothing wrong in it.
+    It has to raise. A misspelt model in someone's .env that resolved to no
+    detector would look exactly like a healthy creek.
     """
     try:
         return SERVING_REGISTRY[name]

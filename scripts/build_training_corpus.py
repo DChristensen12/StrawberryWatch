@@ -4,8 +4,7 @@ applied. Unlike full_creek_gnn.csv (long format: one row per site per
 timestep), this is WIDE: one row per 15-minute grid step, with per-site
 sensor columns plus a per-site {site}_valid flag. That shape is what lets a
 bad node get masked out for a timestep while its neighbors keep their data
-in the same row. Part 3 turns these _valid columns directly into the model's
-node_mask.
+in the same row. The _valid columns become the model's node_mask.
 
 Does not touch full_creek_gnn.csv, which stays the rolling 90-day inference
 cache.
@@ -89,10 +88,9 @@ def _build_grid(raw_sites, node_names):
     Shared 15-min grid spans from when the LAST graph node comes online to
     the latest timestamp any graph node reports. Footbridge has a sparse
     trickle of readings back to 2021 (long before the rest of the network
-    existed); starting the grid there would be years of rows where nearly
-    every node has nothing to say. Starting at the latest "first reading"
-    across the roster keeps the corpus to the period the graph actually ran
-    as a system.
+    existed); starting the grid there would add years of rows where nearly
+    every node is empty. Starting at the latest "first reading" across the
+    roster keeps the corpus to the period the graph ran as a system.
     """
     starts = [raw_sites[n].index.min() for n in node_names if not raw_sites[n].empty]
     ends = [raw_sites[n].index.max() for n in node_names if not raw_sites[n].empty]
@@ -150,7 +148,7 @@ def _merge_weather(grid):
     Native 15-min air_temp_c/rain_mm/shortwave_radiation for the grid's span,
     from Open-Meteo's Historical Forecast API. rain_mm prefers data/rain_cache/
     where a cached 15-min step exists, falls back to the fresh fetch otherwise.
-    Source cadence already matches the grid, so there's nothing to disaggregate.
+    Source cadence already matches the grid, and needs no disaggregating.
     """
     print(f"fetching Open-Meteo weather {grid.min().date()} to {grid.max().date()}...")
     weather = fetch_open_meteo_weather(grid.min(), grid.max())
@@ -188,7 +186,7 @@ def main():
     if missing:
         raise RuntimeError(f"no raw_data file found for graph node(s): {missing}")
 
-    # --- oxford/university_house duplication range, from Part 1's checker ---
+    # The stretch where oxford duplicated university_house
     if "university_house" in all_raw:
         dup_df = pd.concat(
             [
@@ -211,7 +209,7 @@ def main():
         oxford_dup_ranges = []
     print()
 
-    # --- shared grid + per-node resample ---
+    # Shared grid and per-node resample
     grid = _build_grid(all_raw, node_names)
     print(f"shared grid: {grid.min()} -> {grid.max()} ({len(grid):,} steps @ {GRID_FREQ})\n")
 
@@ -226,9 +224,8 @@ def main():
     for site, valid in valid_series.items():
         corpus[f"{site}_valid"] = valid
 
-    # oxford invalid for its duplicated stretch (a. runs before sentinel/streak
-    # per the spec order, but all three land on the same column so order
-    # only matters for the print-out, not the result)
+    # oxford is invalid for its duplicated stretch. All three checks write the
+    # same column, and their order only changes the printout.
     for start, end in oxford_dup_ranges:
         in_range = (corpus.index >= start) & (corpus.index <= end)
         corpus.loc[in_range, "oxford_valid"] = False
@@ -240,7 +237,7 @@ def main():
         print(f"  {site}: {n_invalid:,} / {len(corpus):,} ({pct:.2f}%)")
     print()
 
-    # --- exclusion (a): anomaly windows, full-row removal ---
+    # Anomaly windows, full rows removed
     windows = _anomaly_windows()
     print(f"anomaly exclusion windows ({len(windows)}, {_KEEP_IN_TRAINING} kept in):")
     total_removed = 0
@@ -255,13 +252,13 @@ def main():
 
     corpus = corpus[keep_mask]
 
-    # --- weather ---
+    # Weather
     weather = _merge_weather(corpus.index)
     corpus = corpus.join(weather)
     n_with_weather = corpus["air_temp_c"].notna().sum()
     print(f"weather merged: {n_with_weather:,}/{len(corpus):,} rows have weather\n")
 
-    # --- time encoding, exact formulation from data_loader.py ---
+    # Time encoding, exactly as data_loader.py does it
     idx = corpus.index
     hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
     doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0

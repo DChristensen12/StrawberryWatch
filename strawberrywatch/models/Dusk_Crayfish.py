@@ -34,8 +34,8 @@ def _from_settings_yaml(name):
 def _pick(value, name):
     if value is not None:
         return value
-    # node_embed_dim never made it into settings.yaml, it was a constructor
-    # default. Nothing to look up, so take the recorded one.
+    # node_embed_dim was a constructor default and didn't make it into
+    # settings.yaml. We take the recorded one.
     if name == "node_embed_dim":
         return ARCHITECTURE_DEFAULTS[name]
     return _from_settings_yaml(name)
@@ -43,16 +43,10 @@ def _pick(value, name):
 
 def build_symmetric_norm_adjacency(edge_index, num_nodes, device):
     """
-    Build the symmetric normalized adjacency D^-1/2 (A + I) D^-1/2 for the graph.
-
-    Feature propagation needs an undirected, self-looped, normalized adjacency to
-    diffuse over. The creek graph is stored as directed flow edges, so we
-    symmetrize here (water carries a signal downstream, but for filling in a
-    missing reading we want information to flow both ways between neighbors).
-    Self loops keep a node's own value in the mix during diffusion.
-
-    Returns a dense (num_nodes, num_nodes) tensor. Fine at this graph's size,
-    do not use this path for a large graph.
+    D^-1/2 (A + I) D^-1/2, for feature propagation to diffuse over. The flow
+    edges are directed, but filling in a missing reading should draw on
+    neighbours both ways. We symmetrize it and add self loops, which lets a
+    node keep its own value. Dense, fine at this size but not for a big graph.
     """
     adj = torch.zeros(num_nodes, num_nodes, device=device)
     src, dst = edge_index[0], edge_index[1]
@@ -71,44 +65,32 @@ def build_symmetric_norm_adjacency(edge_index, num_nodes, device):
 
 def propagate_missing_features(x, node_mask, norm_adj, num_iters=40):
     """
-    Fill missing node features by diffusing the known ones across the graph.
+    Fills missing node features by diffusing the known ones across the graph.
+    An offline site between two reporting ones ends up between them, not at
+    the average.
 
-    The version this replaced treated an offline sensor as if it were reading
-    the average value. An offline site between two reporting sites now ends up
-    with an estimate that sits between them, which on a creek is physically
-    sensible.
-
-    x:         (batch, num_nodes, num_features) for a single timestep
-    node_mask: (batch, num_nodes) bool, True where the node has real data
-    norm_adj:  (num_nodes, num_nodes) symmetric normalized adjacency
-    num_iters: how many diffusion steps. Convergence is fast and the result does
-               not depend on the unknown init, so a few dozen is plenty here.
-
-    Each step multiplies by norm_adj (the diffusion), then resets the known nodes
-    back to their real values so they anchor the solution. Missing nodes settle
-    to a smooth blend of their neighbors. Runs per feature channel automatically
-    since the matmul hits all channels at once.
+    x is (batch, nodes, features) for one timestep and node_mask is True where a
+    node has real data. Each step diffuses, then resets the known nodes so they
+    anchor the result. It converges fast whatever the start, and a few dozen
+    steps is plenty.
     """
     known = node_mask.unsqueeze(-1).float()  # (batch, num_nodes, 1)
     x_known = x * known  # zero out the missing rows to start
 
-    # Both of these used to be rebuilt inside the loop, which is num_iters copies
-    # of the same two tensors per timestep and was the single hottest thing in
-    # the model. They do not depend on the iterate, so they are built once.
+    # Built once, outside the loop, since they don't depend on the iterate
     free = 1.0 - known
     anchored = x_known * known
 
-    # With every node known the reset overwrites the whole diffusion, so all
-    # num_iters steps land on exactly the tensor one step would. Skipping them is
-    # the identical result, not an approximation of it.
+    # With all nodes known the reset overwrites the diffusion, and num_iters
+    # steps give exactly the tensor one step would. Skipping them gives the
+    # identical result, not an approximation.
     if bool(known.all()):
         return anchored
 
     out = x_known.clone()
     for _ in range(num_iters):
-        # Diffuse: (num_nodes, num_nodes) times (batch, num_nodes, feat) per batch
-        # einsum keeps the batch dimension clean. Not matmul: the two disagree in
-        # the last bits of float32 and forty iterations compound it.
+        # einsum, not matmul. They differ in the last bits of float32, and forty
+        # iterations compound it.
         out = torch.einsum("ij,bjf->bif", norm_adj, out)
         # Reset the known nodes to their real values so they stay fixed
         out = out * free + anchored
@@ -117,14 +99,8 @@ def propagate_missing_features(x, node_mask, norm_adj, num_iters=40):
 
 def masked_mean_pool(h, node_mask):
     """
-    Mean across nodes counting only the ones that have real data.
-
-    h:         (batch, num_nodes, hidden)
-    node_mask: (batch, num_nodes) bool, True where the node is real
-
-    Sum the kept node rows, divide by how many were kept. If somehow every node
-    at a timestep is missing, fall back to a plain mean so we never divide by
-    zero (that timestep should have been filtered upstream anyway).
+    Mean over nodes, counting only the real ones. A step with no real nodes
+    falls back to a plain mean, though it should have been filtered upstream.
     """
     mask = node_mask.unsqueeze(-1).float()  # (batch, num_nodes, 1)
     summed = (h * mask).sum(dim=1)  # (batch, hidden)
@@ -144,29 +120,26 @@ class DuskCrayfish(nn.Module):
 
     forward returns (batch, num_nodes, num_features) predictions for the next
     timestep. The extra node_mask argument is optional. Pass it to turn on
-    feature propagation and masked pooling. Leave it out and every node is
-    treated as present, which is what lets training run unchanged.
+    feature propagation and masked pooling. Leave it out and all nodes are
+    treated as present. Training runs unchanged that way.
     """
 
     INPUT_CONTRACT = model_calls.SEQUENCE_TENSOR
 
     # What this model already does internally. The loader refuses to attach a
     # module named here, see registry.check_collision. Rain: anomaly_detector
-    # applies a multiplier to Rule 1's threshold, so a rain modulator on top
+    # applies a multiplier to Rule 1's threshold, and a rain modulator on top
     # would raise the bar twice.
     BUILTIN_SUPPORT = ("rain",)
 
     @classmethod
     def from_metadata(cls, metadata):
         """
-        Rebuild from a trained metadata blob, for loading a checkpoint.
-
-        Sizes come from the feature and node lists the checkpoint carries. The
-        architecture comes from an "architecture" dict if training wrote one.
-        Older checkpoints predate that, so anything missing falls through to
-        ARCHITECTURE_DEFAULTS, which is what those runs used anyway. Getting this
-        wrong is worse than it sounds: a bad hidden_dim raises a size mismatch you
-        cannot miss, but a bad dropout loads clean and quietly behaves differently.
+        Rebuild from a trained metadata blob. Sizes come from the checkpoint's
+        feature and node lists, the architecture from its "architecture" dict,
+        and anything older checkpoints didn't record from ARCHITECTURE_DEFAULTS.
+        A wrong hidden_dim fails loudly, but a wrong dropout loads clean and
+        behaves differently without any warning.
         """
         architecture = metadata.get("architecture") or {}
         return cls(
@@ -188,9 +161,7 @@ class DuskCrayfish(nn.Module):
     ):
         super().__init__()
 
-        # None means "whatever settings.yaml says", which is what a training run
-        # wants. Every one of these used to be read straight off Config, so a
-        # checkpoint could not describe the model that produced it.
+        # None means whatever settings.yaml says. Training wants that
         node_embed_dim = _pick(node_embed_dim, "node_embed_dim")
         hidden_dim = _pick(hidden_dim, "hidden_dim")
         gnn_type = _pick(gnn_type, "gnn_type")
@@ -216,7 +187,7 @@ class DuskCrayfish(nn.Module):
         # from north_fork_0 instead of every node looking the same to it
         self.node_embedding = nn.Embedding(num_nodes, node_embed_dim)
 
-        # Spatial layers, same as the original
+        # Spatial layers
         self.gnn_layers = nn.ModuleList()
         if self.gnn_type == "GCN":
             self.gnn_layers.append(GCNConv(num_node_features, self.hidden_dim))
@@ -255,11 +226,8 @@ class DuskCrayfish(nn.Module):
         """
         batch_size, seq_len, num_nodes, num_features = x_sequence.shape
 
-        # Batched edge index for the per-timestep GCN. One shared graph batches
-        # block-diagonally, so this is the same columns once per graph, each copy
-        # shifted by that graph's node offset. Going through Batch.from_data_list
-        # meant allocating batch_size dummy node-feature blocks to arrive at the
-        # same indices and throw the features away.
+        # Batched edge index for the per-timestep GCN: the same columns once per
+        # graph, each copy shifted by its node offset
         device = x_sequence.device
         edges = edge_index.to(device)
         offsets = (
@@ -291,9 +259,9 @@ class DuskCrayfish(nn.Module):
 
             h = h.reshape(batch_size, num_nodes, -1)
 
-            # graph level context. still masked so dead nodes do not drag the mean
-            # down, but this gets concatenated onto each node now instead of
-            # replacing it, which is what wiped out per node identity before.
+            # Graph-level context, masked to keep dead nodes from dragging the
+            # mean down. Added onto each node instead of replacing it, and nodes
+            # keep their identity
             if node_mask is not None:
                 h_graph = masked_mean_pool(h, node_mask[:, t, :])
             else:
@@ -317,8 +285,8 @@ class DuskCrayfish(nn.Module):
 
         lstm_input = torch.cat([node_seq, graph_seq, node_ids], dim=-1)
 
-        # fold nodes into the batch dim so the LSTM runs over time per node rather
-        # than over one pooled sequence for the whole graph
+        # fold nodes into the batch dim. The LSTM then runs over time per node,
+        # not over one pooled sequence for the graph
         lstm_input = lstm_input.permute(0, 2, 1, 3).reshape(batch_size * num_nodes, seq_len, -1)
         lstm_out, _ = self.lstm(lstm_input)
         last_hidden = lstm_out[:, -1, :]

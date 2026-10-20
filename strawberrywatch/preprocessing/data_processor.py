@@ -9,8 +9,8 @@ from strawberrywatch.ingest.data_loader import _NON_FEATURE_COLUMNS
 def _impute_short_gaps(df, feature_cols, limit_hours):
     """
     For each (location, feature) pair, linearly interpolate over gaps shorter
-    than limit_hours. Longer gaps are left as NaN so the absence-tracking
-    logic downstream can treat them as missing rather than fabricated.
+    than limit_hours. Longer gaps stay NaN, and the absence tracking
+    downstream treats them as missing instead of made up.
     limit_area='inside' prevents extrapolation beyond first/last real obs.
     """
     timestamps = pd.DatetimeIndex(sorted(df.index.unique()))
@@ -70,33 +70,20 @@ def prepare_sequences_normalized(
     scaler_feature_cols=None,
 ):
     """
-    Normalize and slice df_featured into (sequences, targets) for training.
+    Normalizes df_featured and slices it into (sequences, targets).
 
-    Missing data comes in three flavors. Permanently absent means an (node,
-    feature) cell has no valid values across the whole loaded window, which
-    covers fully-offline sensors and sites that never had a given feature (e.g.
-    footbridge fully down, or oxford lacking a sensor installed elsewhere).
-    Transiently absent means the cell is NaN at some timesteps but valid at
-    others, which includes sites that came online mid-window, calibration
-    blackouts, and outages longer than the short-gap imputation limit. Present
-    means a real value, or one filled in by short-gap imputation.
+    Missing data comes three ways: permanently absent (no valid value all
+    window, like an offline site or a sensor a site didn't have), transiently
+    absent (NaN at some steps), and present (real, or filled by short-gap
+    imputation). All three are zero-filled, and a timestep's validity is only
+    checked against present cells.
 
-    All three are zero-filled before the model sees them. Timestep validity is
-    checked only against cells that are actually present.
+    A 'valid' column from the wide training corpus is a different signal: the
+    number looks real but QC doesn't trust it. Those rows stay out of the scaler
+    fit, and return_node_mask=True also returns node masks built from them.
 
-    If df_featured has a 'valid' column (from a wide training corpus, see
-    scripts/build_training_corpus.py), that's a DIFFERENT signal from
-    absence: a masked cell still has a real-looking number in it, we just
-    don't trust it (QC-flagged sentinel/streak/duplicate). It's excluded from
-    the scaler fit here. Pass return_node_mask=True to also get back
-    per-sequence node_mask arrays derived from it, for the model's feature
-    propagation / masked pooling and for loss masking. Without a 'valid'
-    column, or with return_node_mask=False, this behaves exactly as before.
-
-    scaler / scaler_feature_cols: pass the trained scaler (and the feature
-    order it was fit on) to normalize with it instead of fitting a new one.
-    Inference has to do this, see the reuse branch below for why. Leave both
-    None to fit fresh, which is what training does.
+    At inference pass the trained scaler and its feature order instead of
+    fitting a fresh one (see the reuse branch). Training leaves both None.
     """
     exclude_cols = _NON_FEATURE_COLUMNS | {"location"}
     feature_cols = [
@@ -106,16 +93,16 @@ def prepare_sequences_normalized(
     ]
     print(f"using {len(feature_cols)} features: {', '.join(feature_cols)}")
 
-    # Fill short gaps before anything else. Anything still NaN after this is
-    # a long enough gap that we won't pretend we know its value.
+    # Fill short gaps first. A cell still NaN after this sits in a long gap,
+    # and we don't guess its value.
     df_featured = _impute_short_gaps(df_featured, feature_cols, Config.IMPUTATION_LIMIT_HOURS)
 
     num_nodes = len(location_to_idx)
     num_features = len(feature_cols)
 
     # A cell is permanently absent if it has zero non-null values across the
-    # whole loaded window. "Sensor never installed" and "sensor offline all
-    # window" are indistinguishable from data alone.
+    # loaded window. "Sensor not installed" and "sensor offline all window"
+    # look the same in the data.
     print("checking for permanently absent channels...")
     permanent_absent = set()  # {(node_idx, feat_idx), ...}
     for location, node_idx in location_to_idx.items():
@@ -132,8 +119,8 @@ def prepare_sequences_normalized(
 
     reuse_scaler = scaler is not None
     if reuse_scaler:
-        # Refitting on a live window moves the goalposts: live conductivity
-        # averages ~602 against the trained ~497, so every input lands ~105
+        # Refitting on a live window moves the goalposts. Live conductivity
+        # averages ~602 against the trained ~497, which puts each input ~105
         # uS/cm outside the space the model learned.
         #
         # Lined up by name, not position: air_temp_c and rain_mm swap depending
@@ -153,11 +140,9 @@ def prepare_sequences_normalized(
                 f"feature alignment drops them before the model sees them"
             )
     else:
-        # Fit only on fully-valid rows so long outages don't corrupt the scaler stats.
-        # QC-invalid rows (masked oxford during the university_house duplication, a
-        # stuck sensor's streak, etc.) get excluded here too, they're not NaN, so
-        # the outage check alone wouldn't catch them, but they're not real readings
-        # either and would otherwise shift the mean and scale.
+        # Fit only on fully valid rows. Outages and QC-flagged readings (like
+        # oxford during the university_house duplication) would skew the mean and
+        # scale. Flagged rows aren't NaN, and the outage check alone misses them.
         all_data = []
         all_qc_valid = []
         for location in location_to_idx.keys():
@@ -193,20 +178,17 @@ def prepare_sequences_normalized(
     print("building 3D array...")
     timestamps_all = sorted(df_normalized.index.unique())
     data_3d = np.full((len(timestamps_all), num_nodes, num_features), np.nan)
-    # QC verdicts only, which is why this cannot be the mask on its own:
-    # absence and "nothing flagged it" are different things and this array
-    # carries only the second. Presence gets ANDed in once nan_mask exists.
+    # QC verdicts only. Absence and "not flagged" are different things and this
+    # array carries only the second. It can't be the mask by itself. Presence
+    # gets ANDed in once nan_mask exists.
     qc_valid_3d = np.ones((len(timestamps_all), num_nodes), dtype=bool)
 
-    # One scatter over the whole frame. This was a .loc label lookup per timestep
-    # and a Series build per row inside it, which on the training corpus is
-    # 116,000 of each and minutes of wall clock for an array assignment. A
-    # duplicate (timestamp, location) still resolves to the last row for that
-    # cell, because the row order handed to the scatter is the frame's own.
+    # One scatter over the frame. A duplicate (timestamp, location) still
+    # resolves to its last row, since the rows keep the frame's order.
     row_idx = pd.DatetimeIndex(timestamps_all).get_indexer(df_normalized.index)
     node_idx = df_normalized["location"].map(location_to_idx)
     if node_idx.isna().any():
-        # The loop raised KeyError off location_to_idx here. Same failure, named.
+        # An unknown location fails here, by name
         unknown = sorted(set(df_normalized["location"][node_idx.isna()]))
         raise KeyError(f"no node index for location(s) {unknown}")
     node_idx = node_idx.to_numpy(dtype=np.intp)
@@ -222,13 +204,9 @@ def prepare_sequences_normalized(
     for node_idx, feat_idx in permanent_absent:
         permanent_mask[node_idx, feat_idx] = True
 
-    # node_mask disambiguation. The wide corpus carries a real QC 'valid'
-    # column; a live API pull does not, so valid_3d defaulted to all-True and
-    # masked pooling never engaged live.
-    #
-    # A node is trustworthy only if it reported AND QC did not flag it. QC alone
-    # was the whole mask once, and a missing node has no row to flag: 11,709
-    # fabricated zeros, 10.05% of target cells, reached the loss as real.
+    # A node counts only if it reported and QC didn't flag it. A live pull has
+    # no QC column, and a missing node has no row to flag. Using QC alone once
+    # let 11,709 made-up zeros (10.05% of target cells) reach the loss.
     if "conductivity" in feature_cols:
         cond_idx = feature_cols.index("conductivity")
         present_3d = ~nan_mask[:, :, cond_idx]
@@ -255,11 +233,8 @@ def prepare_sequences_normalized(
         f"({100 * n_transient / n_total_cells:.1f}% of all (t, node, feature) cells)\n"
     )
 
-    # A timestep is valid if zeroing out all known absences leaves no NaN.
-    # That means every NaN is accounted for, and at least one cell had real data.
-    # Asked of the whole array at once rather than one copied timestep at a time:
-    # a NaN survives the zeroing exactly when it is neither permanently nor
-    # transiently absent.
+    # A timestep is valid when each NaN is a known absence. We ask this of the
+    # array in one go
     unaccounted = nan_mask & ~permanent_mask[np.newaxis, :, :] & ~transient_absent_mask
     valid_mask = ~unaccounted.any(axis=(1, 2))
     print(f"valid timesteps: {valid_mask.sum():,} / {len(valid_mask):,}")
@@ -274,13 +249,12 @@ def prepare_sequences_normalized(
 
     print(f"creating sequences (length {sequence_length})...")
 
-    # Zero the absences once over the whole corpus instead of once per window
-    # they fall in, which was sequence_length times over for every interior step.
+    # Zero the absences once over the corpus, not once per window
     cleaned = data_3d.copy()
     cleaned[:, permanent_mask] = 0
     cleaned[transient_absent_mask] = 0
 
-    # Which windows are wholly valid, from one cumulative sum rather than a
+    # Which windows are fully valid, from one cumulative sum instead of a
     # rescan of sequence_length+1 flags per candidate start.
     n_starts = max(len(timestamps_all) - sequence_length, 0)
     run = np.concatenate([[0], np.cumsum(valid_mask, dtype=np.int64)])
@@ -290,9 +264,7 @@ def prepare_sequences_normalized(
     )
 
     if starts.size:
-        # Gathered straight into the returned array. Collecting a list of window
-        # copies first and stacking it afterwards held two full copies of the
-        # corpus in memory at once.
+        # Gathered straight into the returned array to avoid holding the corpus twice
         window_idx = starts[:, None] + np.arange(sequence_length)
         sequences = cleaned[window_idx]
         targets = cleaned[starts + sequence_length]

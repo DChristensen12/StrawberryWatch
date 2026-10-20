@@ -148,7 +148,7 @@ def test_weather_is_fetched_only_when_a_model_wants_it(reads, monkeypatch):
 
 
 def test_pending_alerts_never_waits_on_the_models(reads, monkeypatch):
-    """Their loop pings a systemd watchdog every pass, so a slow model cannot hold it up."""
+    """Their loop pings a systemd watchdog every pass. A slow model mustn't hold it up."""
     release = threading.Event()
 
     class Slow(_Fake):

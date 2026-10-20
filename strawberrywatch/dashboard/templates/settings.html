@@ -3,35 +3,45 @@
 {% block content %}
 <h1>Settings</h1>
 {{ sw.unsaved_note(unsaved, banner) }}
-<p class="narrow">Nothing changes until you save. Your changes are kept while you move between pages.</p>
-<p class="narrow">Also in Settings: <a href="{{ url_for('main.advanced') }}">Advanced settings</a> for each model's own values, and <a href="{{ url_for('main.email') }}">Email alerts</a> for who gets emailed.</p>
+<p class="narrow">Changes apply only after you save. Unsaved changes are kept if you switch pages.</p>
+{#- Each row is one link, the way Home Assistant's settings page lists its
+    areas (src/panels/config/dashboard/ha-config-navigation.ts, Apache-2.0) -#}
+<nav class="narrow" aria-label="More settings">
+  <ul class="sw-rows">
+    <li><a href="{{ url_for('main.advanced') }}"><span class="sw-rows__title">Advanced settings</span><span class="sw-rows__about">Thresholds, rain and support modules for each model</span></a></li>
+    <li><a href="{{ url_for('main.email') }}"><span class="sw-rows__title">Email alerts</span><span class="sw-rows__about">Who gets emailed, and test emails</span></a></li>
+    {% if model_updates %}
+      <li><a href="{{ url_for('main.model_updates_page') }}"><span class="sw-rows__title">Model updates</span><span class="sw-rows__about">Get the newest model files from GitHub</span></a></li>
+    {% endif %}
+  </ul>
+</nav>
 
 {{ sw.discard_form('settings') }}
 <form method="post" novalidate data-sw-autosave="yes">
   {{ form.csrf_token }}
-  <h2>Which sites to watch</h2>
-  <p class="narrow">Every site in the order water flows. Untick a site to stop it being flagged. It's still checked.</p>
-  <div class="sw-map-scroll">{{ sw.creek_map(map, "Creek map with the sites you watch in green") }}</div>
+  <h2>Sites</h2>
+  <p class="narrow">Untick a site to turn off its alerts. Its data is still checked.</p>
+  <div class="sw-map-scroll">{{ sw.creek_map(map, "Creek map. Sites with alerts on are green.") }}</div>
   <ul class="sw-legend">
-    <li>{{ sw.status('watched', 'Watched') }}</li>
-    <li>{{ sw.status('unwatched', 'Not watched, never flagged') }}</li>
+    <li>{{ sw.status('watched', 'Alerts on') }}</li>
+    <li>{{ sw.status('unwatched', 'Alerts off') }}</li>
   </ul>
   <div class="narrow">
-    {{ sw.checkboxes(form.watch, legend='Which sites to watch', legend_class='visually-hidden', hint='') }}
+    {{ sw.checkboxes(form.watch, legend='Sites with alerts on', legend_class='visually-hidden', hint='') }}
 
     {% if custom %}
-      <p class="sw-warning">You've set custom values in Advanced settings. Choosing one of these replaces them.</p>
+      <p class="sw-warning">Custom values are set in Advanced settings. Choosing an option here replaces them.</p>
     {% endif %}
-    {{ sw.radios(form.alerts, legend='How many alerts do you want?') }}
+    {{ sw.radios(form.alerts, legend='Alert sensitivity') }}
 
-    <h2>Allow for rain</h2>
+    <h2>Rain</h2>
     {{ sw.checkbox(form.rain, hint=form.rain.description) }}
 
     <h2>Models</h2>
     {% for m in models %}
       {{ sw.radios(form['model_' ~ m.name], legend=m.title, legend_class='as-small', inline=True) }}
     {% endfor %}
-    <p>More about each model is on the <a href="{{ url_for('main.models') }}">Models page</a>.</p>
+    <p>Model descriptions are on the <a href="{{ url_for('main.models') }}">Models page</a>.</p>
 
     {{ sw.save_buttons(unsaved) }}
   </div>

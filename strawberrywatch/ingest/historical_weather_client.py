@@ -39,7 +39,7 @@ def fetch_open_meteo_weather(
     for the given date range.
 
     Returns a DataFrame with a UTC DatetimeIndex and the same columns as
-    fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation), so data_loader
+    fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation). data_loader
     can swap sources without knowing which one ran. rain_mm is the actual mm
     that fell in that 15-min window, not an hourly accumulation, no
     disaggregation needed downstream.

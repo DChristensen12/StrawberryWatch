@@ -47,7 +47,7 @@ from strawberrywatch.models.Flame_Skimmer import build_flame_skimmer  # noqa: E4
 from strawberrywatch.paths import checkpoints_dir  # noqa: E402
 from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 
-# Fraction of all optimiser steps over which beta climbs from 0 to 1.
+# Share of the optimiser steps spent warming beta from 0 to 1
 BETA_WARMUP_FRACTION = 0.10
 
 # Anchors per side used for the epistemic share diagnostic each epoch. Enough
@@ -57,12 +57,10 @@ SHARE_ANCHORS = 600
 
 def build_corpus(args):
     """
-    The training window, scaled on the training side only, with unseen nodes held offline.
-
-    Same steps, same order, same helpers as train_cobble_shoal_real.main, so
-    the anchors here are the anchors the Cobble Shoal clock model trained on.
-
-    returns (win, train_rows, train_anchors, val_anchors, offline, scaler)
+    The training window, scaled on the training side only, with unseen nodes
+    held offline. Same steps and helpers as train_cobble_shoal_real.main, so
+    these are the anchors the Cobble Shoal clock model trained on. Returns
+    (win, train_rows, train_anchors, val_anchors, offline, scaler).
     """
     inventory = inv.load()
     tables = load_archive_by_table(earliest=inventory.earliest_plausible_reading)
@@ -104,10 +102,9 @@ def build_corpus(args):
 
 def supervised_targets(win, anchors):
     """
-    Count of (anchor, node) pairs the loss actually scores, which is N_train for the KL.
-
-    Same mask as gaussian_nll sees in FlameSkimmer.loss: a target at the anchor
-    and a fresh enough last reading to predict a delta from.
+    How many (anchor, node) pairs the loss actually scores, which is N_train for
+    the KL. Same mask as FlameSkimmer.loss: a target at the anchor, and a recent
+    enough reading to predict a delta from.
     """
     a = np.asarray(anchors)
     mask = win["target_mask"][a] & (win["staleness"][a - 1] <= MAX_ANCHOR_STALENESS_STEPS)
@@ -123,12 +120,9 @@ def beta_at(step, warmup_steps):
 
 def evaluate(net, win, anchors, graph, batch_size, seed):
     """
-    Mean validation NLL and negative ELBO at beta = 1, per supervised target.
-
-    Fixed generator, so the head noise is the same every epoch and the change
-    between epochs is the weights, not the draw.
-
-    returns (val_nll, val_loss)
+    Mean validation NLL and negative ELBO at beta = 1, per supervised target,
+    as (val_nll, val_loss). The generator is fixed. The change between epochs
+    is the weights and not the draw.
     """
     net.eval()
     gen = torch.Generator().manual_seed(seed)
@@ -147,11 +141,7 @@ def evaluate(net, win, anchors, graph, batch_size, seed):
 
 
 def epistemic_share(net, win, anchors, graph, batch_size):
-    """
-    epistemic / total on every supervised target, under the fixed serving noise.
-
-    returns np.ndarray of shares, one per (anchor, node) target
-    """
+    """epistemic / total for every supervised target, under the fixed serving noise."""
     net.eval()
     out = []
     with torch.no_grad():
@@ -165,9 +155,8 @@ def epistemic_share(net, win, anchors, graph, batch_size):
 
 def train(net, win, train_anchors, val_anchors, graph, args):
     """
-    Adam with gradient clipping, beta warmup, and train_cobble_shoal_real's early stopping rule.
-
-    returns {"best_val", "best_epoch", "history"}
+    Adam with gradient clipping, beta warmup and train_cobble_shoal_real's early
+    stopping. Returns {"best_val", "best_epoch", "history"}.
     """
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
     sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, factor=0.5, patience=2)
@@ -266,9 +255,8 @@ def temp_paths(tag, checkpoint_dir=None):
 
 def load_temp_flame(tag, checkpoint_dir=None):
     """
-    Load a checkpoint this script wrote, as the same TempModel the Cobble Shoal loader returns.
-
-    Raises if either half is missing.
+    Loads a checkpoint this script wrote, as the same TempModel the Cobble Shoal
+    loader returns. Raises if either file is missing.
     """
     weights, cal_path = temp_paths(tag, checkpoint_dir)
     for path in (weights, cal_path):

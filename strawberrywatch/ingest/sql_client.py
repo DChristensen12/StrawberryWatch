@@ -16,8 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 @contextmanager
-def _connect() -> Iterator[mysql.connector.MySQLConnection]:
-    """Open a MySQL connection from Config; always closes."""
+def _connect(credentials=None) -> Iterator[mysql.connector.MySQLConnection]:
+    """
+    Opens a MySQL connection from Config, or from a credentials dict (host, port,
+    user, password, database) when given. Always closes.
+    """
+    if credentials is not None:
+        conn = mysql.connector.connect(
+            host=credentials["host"],
+            port=int(credentials.get("port") or 3306),
+            user=credentials["user"],
+            password=credentials["password"],
+            database=credentials["database"],
+            connection_timeout=30,
+        )
+        try:
+            yield conn
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return
+
     missing = [
         name
         for name, val in [
@@ -51,7 +72,7 @@ def _connect() -> Iterator[mysql.connector.MySQLConnection]:
             pass
 
 
-# Site-to-table-name resolution.
+# Site to table names
 
 # Sites whose production table names preserve capitalization. Extend if
 # more sites come online.
@@ -89,7 +110,13 @@ def _is_safe_identifier(name: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name))
 
 
-def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
+def ping(credentials=None) -> None:
+    """Connect and disconnect, raising if the database can't be reached with this login."""
+    with _connect(credentials) if credentials is not None else _connect() as conn:
+        conn.ping(reconnect=False)
+
+
+def fetch_creek_data_sql(site: str, start_time, end_time, credentials=None) -> pd.DataFrame:
     """
     Pull all sensor columns for one site from MySQL over [start_time, end_time].
 
@@ -111,7 +138,8 @@ def fetch_creek_data_sql(site: str, start_time, end_time) -> pd.DataFrame:
 
     df, missing = None, []
     try:
-        with _connect() as conn:
+        # No argument without a login, same as every caller before the dashboard
+        with _connect(credentials) if credentials is not None else _connect() as conn:
             cursor = conn.cursor(buffered=True)
             try:
                 for table in tables:

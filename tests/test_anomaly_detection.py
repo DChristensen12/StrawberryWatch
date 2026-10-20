@@ -22,51 +22,26 @@ COLUMN_MAP = {
     "Meter_Hydros21_Temp": "temperature",
 }
 
-# The raw event folders carry one CSV per site, named by the model's site name.
-# footbridge is the file the raw data calls north_fork_1 (scnf010), already
-# renamed at fixture-build time, so the filename matches the model's location.
+# One CSV per site in each event folder, named the way the model names the site.
+# footbridge is scnf010, renamed when the fixtures were built.
 
-# A node counts as live for an event only if it has at least this many readings
-# that actually land on the shared 15-minute grid. Raw row count is not enough:
-# footbridge reports on a broken irregular cadence, so it can show a high raw
-# count yet contribute almost nothing once aligned. Aligning first then counting
-# is what correctly drops it.
+# A node counts as live once this many readings land on the shared grid. Raw
+# row counts mislead, since footbridge's broken cadence gives lots of rows that
+# barely align.
 MIN_ALIGNED_ROWS = 30
 
-# How many scored points a window needs before it can be judged, and how many
-# must cross the threshold before it counts as an event. Both imported from
-# production rather than restated: they used to be a second copy of the same two
-# numbers, and a test that grades against its own copy of a rule stops being
-# evidence about production the moment either side moves.
+# Imported from production, not copied. These tests grade the rule that runs
 MIN_TIMESTEPS_TO_JUDGE = _ad.MIN_TIMESTEPS_TO_JUDGE
 MIN_TIMESTEPS_OVER_THRESHOLD = _ad.MIN_TIMESTEPS_OVER_THRESHOLD
 
 
-# The catalog moved out to tests/events.yaml. It used to be this list, plus a
-# drifting second copy of it in scripts/run_audit_comparison.py, which made
-# adding an event a code edit in two places and made the two able to disagree
-# about what a label meant. Both now read tests/event_catalog.py.
-#
-# Still four-tuples of (event_folder, target_site, label, group), because that
-# is what the two parametrize blocks below want. label: "anomaly" must flag,
-# "true_negative" must not flag, "relative_only" judged by comparison rather
-# than absolute threshold. target_site is the node whose conductivity error we
-# score, named in the model's vocabulary.
-#
-# Heads up: nothing consumes "relative_only". Only test_anomaly_detected and
-# test_true_negative_not_flagged parametrize off this list, and they filter to
-# their own labels, so the relative_only rows are documentation of events we
-# know about, not coverage. Writing the comparison test would turn them back
-# into real cases.
+# (event_folder, target_site, label, group) from tests/events.yaml. "anomaly"
+# must flag and "true_negative" mustn't. "relative_only" has no test yet.
 EVENT_CATALOG = [e.as_tuple() for e in event_catalog.load()]
 
 
 def _load_threshold(model_metadata, target_site):
-    """
-    Per-node threshold, median, and IQR for target_site. One global threshold
-    doesn't work once you have sites that just run hotter or colder than the
-    network average, each node needs to be judged against its own spread.
-    """
+    """Per-node threshold, median and IQR, since some sites just run hotter or colder."""
     node_thresholds = model_metadata.get("node_thresholds")
     error_median = model_metadata.get("error_median")
     error_iqr = model_metadata.get("error_iqr")
@@ -89,11 +64,7 @@ def _load_threshold(model_metadata, target_site):
 
 
 def _add_time_features(index):
-    """
-    Build the four cyclical time features from a datetime index, matching what
-    data_loader appends in production. Returns a dict of column name to array.
-    These are never missing since every timestep has a clock.
-    """
+    """The four cyclical time features data_loader adds in production, as {column: array}."""
     idx = pd.DatetimeIndex(index)
     hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
     doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0
@@ -107,21 +78,11 @@ def _add_time_features(index):
 
 def _load_event_grid(event_folder, feature_cols, location_to_idx):
     """
-    Read every site CSV in an event folder, align them onto one shared 15-minute
-    timestamp grid, and build the model's (time, node, feature) array plus a
-    node_mask marking which nodes have a real conductivity reading at each step.
-
-    The grid is the union of timestamps from sites that sit on the clean 15-min
-    cadence. Each site is exact-joined onto it. A site whose readings do not land
-    on the grid (footbridge's broken cadence) or that has too few aligned rows
-    contributes mostly NaN and ends up masked missing, which is the honest result.
-
-    Returns (data_3d, node_mask, time_index, live_sites, rain_series):
-      data_3d:    (T, num_nodes, num_features) raw values, missing filled with 0
-      node_mask:  (T, num_nodes) bool, True where that node has real conductivity
-      time_index: the shared DatetimeIndex
-      live_sites: list of site names that cleared MIN_ALIGNED_ROWS
-      rain_series: raw per-15-min rain indexed by the grid, or None if unavailable
+    Reads an event folder onto one shared 15-minute grid. Returns (data_3d,
+    node_mask, time_index, live_sites, rain_series), where data_3d is
+    (time, node, feature) with gaps as 0 and node_mask is True where a node has
+    real conductivity. A site that barely lands on the grid, like footbridge,
+    ends up masked as missing.
     """
     folder = ANOMALY_DIR / event_folder
     if not folder.exists():
@@ -148,9 +109,8 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
     if not per_site:
         pytest.skip(f"{event_folder}: no readable core-site CSVs.")
 
-    # Build the shared grid from sites on a regular 15-min cadence. A site is
-    # "regular" if its median gap is 15 min. Footbridge fails this and does not
-    # define the grid, though it can still align onto it where it happens to land.
+    # The grid comes from sites whose median gap is 15 minutes. Footbridge isn't
+    # one, but it can still align where it happens to land.
     grid_sources = []
     for df in per_site.values():
         if len(df) < 2:
@@ -166,7 +126,7 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         grid = grid.union(other)
     grid = pd.DatetimeIndex(sorted(grid))
 
-    # Assemble the 3D array. Start all-NaN, fill each site's aligned rows.
+    # All NaN to start, then each site's aligned rows
     data_3d = np.full((len(grid), num_nodes, num_features), np.nan)
     live_sites = []
 
@@ -175,14 +135,11 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         aligned = df.reindex(grid)  # exact join, non-matching rows become NaN
         real_cond = aligned["conductivity"].notna().sum()
         if real_cond < MIN_ALIGNED_ROWS:
-            # Too few readings actually land on the grid. Treat as absent.
+            # Too few readings fall on the grid. Treat as absent.
             continue
         live_sites.append(site)
-        # Sensor channels plus the weather the fixtures now carry. Weather columns
-        # already use the model's internal names (rain_mm, air_temp_c,
-        # shortwave_radiation) so no rename is needed. Feeding real weather here
-        # matters: the model trained with these three channels, so zero-filling
-        # them made it predict from blanks and threw off every event, not just rain.
+        # Real weather too. The model trained with these three channels, and
+        # zero-filling them threw off every event, not just rainy ones.
         for feat in [
             "conductivity",
             "depth",
@@ -197,7 +154,7 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
     if not live_sites:
         pytest.skip(f"{event_folder}: no core site cleared {MIN_ALIGNED_ROWS} aligned rows.")
 
-    # Time features are global, identical across nodes, never missing.
+    # Time features are global: identical across nodes and always present.
     time_feats = _add_time_features(grid)
     for fname, vals in time_feats.items():
         if fname in feature_cols:
@@ -208,10 +165,8 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
     # node_mask: a node is real at a step if its conductivity is real there.
     node_mask = ~np.isnan(data_3d[:, :, cond_idx])
 
-    # Rain series aligned to the grid, for the rain-adjusted threshold. Rain is
-    # global (same weather over the whole small creek), so pull it from the first
-    # live site that has it. Values are the per-15-min disaggregated rain the
-    # fixtures carry, indexed by the grid timestamps.
+    # Rain is the same across the creek. Take it from the first live site that
+    # has it
     rain_series = None
     rain_idx = feature_cols.index("rain_mm") if "rain_mm" in feature_cols else None
     if rain_idx is not None and live_sites:
@@ -220,9 +175,7 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         if not np.isnan(rain_vals).all():
             rain_series = pd.Series(np.nan_to_num(rain_vals, nan=0.0), index=grid)
 
-    # Fill the remaining NaNs with 0 (the post-z-score neutral value) so the
-    # array is clean. The mask records what was real; the model decides what to
-    # do with the zeros (ignore them if a mask is passed, average them if not).
+    # 0 is the neutral z-score. The mask says what was real.
     data_3d = np.nan_to_num(data_3d, nan=0.0)
 
     return data_3d, node_mask, grid, live_sites, rain_series
@@ -239,23 +192,9 @@ def _normalize(data_3d, scaler, feature_cols, location_to_idx):
 
 def _rain_adjusted_thresholds(base_threshold, timestamps, rain_series):
     """
-    Per-timestep threshold that rises during and after rain, delegating to the
-    production rule rather than restating it.
-
-    This used to carry its own formula, which scaled the multiplier by how much
-    rain fell, between the amount floor and a saturation level. Production's
-    _rain_multipliers does not do that: it applies the full multiplier whenever
-    the lookback total clears the floor, then tapers. The test was therefore
-    validating a rule nothing runs, and could pass while production behaved
-    differently. Calling production directly is what makes these tests evidence
-    about production, and makes the two impossible to drift apart again.
-
-    The amount-scaled ramp is a proposal, not an implementation. Adopting it
-    would change the shape of the production rain multiplier, which is a
-    science decision rather than a defect, so it is escalated and not done here.
-
-    timestamps is the DatetimeIndex for the scored errors (the target timesteps).
-    rain_series is raw per-15-min rain indexed by the grid, or None.
+    Threshold per scored step, raised during and after rain by production's own
+    _rain_multipliers. The test can't drift from what runs. rain_series is
+    per-15-minute rain on the grid, or None.
     """
     multipliers, _ = _rain_multipliers(
         timestamps,
@@ -272,14 +211,9 @@ def _reconstruction_errors(
     event_folder, target_site, model, model_metadata, edge_index, use_mask=False
 ):
     """
-    Run an event folder through the model. Returns the per-timestep robust-
-    normalized conductivity errors for the target node, the timestamps those
-    errors land on, and the rain series for the window (used to build the
-    rain-adjusted threshold).
-
-    use_mask=True passes the node_mask to the model, which turns on feature
-    propagation and masked pooling. A model that does not accept the argument
-    is called without it.
+    Runs an event through the model. Returns the target node's normalized
+    conductivity errors, their timestamps and the rain. use_mask passes the
+    node mask to models that take one.
     """
     feature_cols = model_metadata["feature_cols"]
     scaler = model_metadata["scaler"]
@@ -296,8 +230,7 @@ def _reconstruction_errors(
         )
     node_idx = location_to_idx[target_site]
 
-    # this node's own error median/IQR, so a site that just runs hotter than
-    # everyone else doesn't look permanently anomalous next to the rest
+    # Its own median and IQR. A site that runs hotter shouldn't look anomalous
     error_median = model_metadata["error_median"][target_site]
     error_iqr = model_metadata["error_iqr"][target_site]
 
@@ -305,7 +238,7 @@ def _reconstruction_errors(
         event_folder, feature_cols, location_to_idx
     )
 
-    # The target node must itself be live, or there is nothing to score.
+    # The target node must itself be live, or there's no score.
     if target_site not in live_sites:
         pytest.skip(
             f"{event_folder}: target '{target_site}' has too little data this "
@@ -340,8 +273,7 @@ def _reconstruction_errors(
                 pred[0, node_idx] - torch.FloatTensor(target[node_idx]).to(Config.DEVICE)
             )
             raw_err = err[cond_idx].item()
-            # robust-normalized so a site that naturally runs high doesn't
-            # look permanently anomalous next to sites that run low
+            # Same reason, a site that runs high shouldn't look anomalous
             errors.append((raw_err - error_median) / error_iqr)
             target_times.append(grid[i + seq_len])
             target_real.append(bool(node_mask[i + seq_len, node_idx]))
@@ -350,15 +282,9 @@ def _reconstruction_errors(
     target_times = pd.DatetimeIndex(target_times)
     real = np.array(target_real, dtype=bool)
 
-    # Score only the timesteps where the target node actually reported.
-    # _load_event_grid zero-fills missing conductivity (the post-z-score neutral
-    # value) and records what was real in node_mask, but this loop used to score
-    # every timestep regardless, differencing a fabricated zero against the
-    # model's real prediction and calling the result an error. On the June 2025
-    # spill that was 1542 of 2094 scored points, and 1542 of the 1818 points
-    # over threshold: the event "detected" was mostly an absent sensor.
-    # Production already filters this way, in anomaly_detector.py via
-    # _extract_real_mask and errors[real, node_idx]; this path did not.
+    # Only steps where the target really reported, same as production's
+    # _extract_real_mask. Scoring the zero-filled gaps once made most of the
+    # June 2025 spill's "detection" an absent sensor.
     return errors[real], target_times[real], rain_series
 
 
@@ -374,8 +300,7 @@ def _curve_shape(errors, n_buckets=10):
 
 
 def _report(name, errors, thresholds):
-    # thresholds is a per-timestep array (rain-adjusted). Report the base for
-    # readability, which is the min since rain only raises it.
+    # Rain only raises the line. The lowest one is the base
     over = int((errors > thresholds).sum())
     base = float(np.min(thresholds))
     print(
@@ -388,13 +313,9 @@ def _report(name, errors, thresholds):
 
 def _is_flagged(errors, thresholds):
     """
-    Production's Rule 1 verdict, taken from production.
-
-    errors are already robust-normalised and thresholds are already
-    rain-adjusted here, so _rule1_forecast_residual is handed an identity
-    median/IQR and a unit multiplier and contributes exactly the
-    over-threshold count and the flagged decision, which is the part that
-    must not be restated in a test.
+    Production's Rule 1 verdict. The errors and thresholds are already
+    normalized and rain-adjusted. _rule1_forecast_residual gets an identity
+    median, IQR and multiplier and only does the counting.
     """
     return bool(
         _ad._rule1_forecast_residual(

@@ -1,8 +1,7 @@
 """
-The forms, on Flask-WTF. They only validate: templates/macros.html draws each
-field. Site and model choices are built per request from the inventory and the
-serving registry, so a name that isn't one of theirs fails validation instead
-of being stored.
+Flask-WTF forms. These only validate, templates/macros.html draws them. Site
+and model choices are built per request. An unknown name fails validation
+instead of getting stored.
 """
 
 from __future__ import annotations
@@ -12,16 +11,19 @@ import math
 from flask_wtf import FlaskForm
 from wtforms import (
     BooleanField,
-    PasswordField,
     RadioField,
+    SelectField,
     SelectMultipleField,
     StringField,
     TextAreaField,
 )
-from wtforms.validators import DataRequired, InputRequired, Length, Optional, ValidationError
+from wtforms.validators import DataRequired, Length, Optional, ValidationError
 
 from strawberrywatch.watch import settings as ws
-from strawberrywatch.watch import sources
+
+
+def _strip(text):
+    return text.strip() if text else text
 
 
 def number_between(lo, hi, what):
@@ -36,78 +38,16 @@ def number_between(lo, hi, what):
     return check
 
 
-class SetupForm(FlaskForm):
-    source = RadioField(
-        "Where should readings come from?",
-        choices=[
-            (sources.API, "The Strawberry Creek API. You'll need a token."),
-            (sources.CSV, "A folder of CSV files on this computer"),
-            (sources.REPLAY, "Try it on a past event first"),
-        ],
-        validators=[InputRequired(message="Choose where readings should come from")],
-    )
-    token = PasswordField("Token", validators=[Optional(), Length(max=400)])
-    folder = StringField(
-        "Folder",
-        description="The full path of a folder with one CSV per site, named like south_fork_1.csv.",
-        validators=[Optional(), Length(max=1000)],
-    )
-    event = RadioField("Which past event?", validators=[Optional()], choices=[])
-
-    def __init__(self, *args, token_saved=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.token_saved = token_saved
-        self.event.choices = [(e["folder"], e["title"]) for e in sources.replay_events()]
-
-    def validate(self, extra_validators=None):
-        """
-        What each choice needs, checked after the fields themselves. Optional()
-        stops a field's own checks when it's empty, so an empty token or folder
-        has to be caught here or it would sail through.
-        """
-        ok = super().validate(extra_validators)
-        kind = self.source.data
-        if kind == sources.API and not (self.token.data or "").strip() and not self.token_saved:
-            self.token.errors = [*self.token.errors, "Enter your API token"]
-            ok = False
-        if kind == sources.CSV:
-            folder = (self.folder.data or "").strip()
-            problem = "" if folder else "Enter the folder the CSV files are in"
-            if folder:
-                try:
-                    sources.CsvSource(folder)
-                except sources.SourceError as exc:
-                    problem = str(exc)
-            if problem:
-                self.folder.errors = [*self.folder.errors, problem]
-                ok = False
-        if kind == sources.REPLAY and not self.event.data:
-            self.event.errors = [*self.event.errors, "Choose an event to replay"]
-            ok = False
-        return ok
-
-
-class TokenForm(FlaskForm):
-    token = PasswordField(
-        "New token",
-        validators=[InputRequired(message="Enter your API token"), Length(max=400)],
-    )
-
-
 class NoteForm(FlaskForm):
     note = TextAreaField(
         "Add a note",
-        description="Anything worth remembering, like what you found when you went to look.",
+        description="For example, what you found on site.",
         filters=[lambda text: text.strip() if text else text],
         validators=[
-            DataRequired(message="Write the note before adding it"),
-            Length(max=2000, message="Keep the note under 2,000 characters"),
+            DataRequired(message="Enter a note"),
+            Length(max=2000, message="Note must be 2,000 characters or less"),
         ],
     )
-
-
-def _strip(text):
-    return text.strip() if text else text
 
 
 class RecipientForm(FlaskForm):
@@ -118,16 +58,72 @@ class RecipientForm(FlaskForm):
     )
     name = StringField(
         "Name",
-        description="Optional. So you know who it is.",
+        description="Optional.",
         filters=[_strip],
-        validators=[Optional(), Length(max=100, message="Keep the name under 100 characters")],
+        validators=[Optional(), Length(max=100, message="Name must be 100 characters or less")],
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Shown under the list after saving, if the domain couldn't be looked up
+        self.note = ""
+
+    def validate_email(self, field):
+        from strawberrywatch.dashboard import mail
+
+        try:
+            field.data, self.note = mail.check_address(field.data)
+        except mail.MailError as exc:
+            raise ValidationError(str(exc)) from None
+
+    def validate_name(self, field):
+        from strawberrywatch.dashboard import mail
+
+        try:
+            mail.check_name(field.data)
+        except mail.MailError as exc:
+            raise ValidationError(str(exc)) from None
+
+
+def labelled_recipient_form(labels):
+    """The website's add form: the same fields, plus the one label each person gets."""
+
+    class Form(RecipientForm):
+        label = SelectField(
+            "Label",
+            description="Labels are only for telling people apart. They don't give any access.",
+            choices=[(str(lb["id"]), lb["name"]) for lb in labels],
+            validators=[DataRequired(message="Choose a label")],
+        )
+
+    return Form
+
+
+class LabelForm(FlaskForm):
+    name = StringField(
+        "Label name",
+        filters=[_strip],
+        validators=[
+            DataRequired(message="Enter a label name"),
+            Length(max=50, message="Label name must be 50 characters or less"),
+        ],
+    )
+
+
+class SignupForm(FlaskForm):
+    email = StringField(
+        "Email address",
+        filters=[_strip],
+        validators=[DataRequired(message="Enter an email address"), Length(max=254)],
     )
 
     def validate_email(self, field):
         from strawberrywatch.dashboard import mail
 
-        if not mail.valid(field.data):
-            raise ValidationError("Enter a whole email address, with an @ and the part after it")
+        try:
+            field.data, _note = mail.check_address(field.data)
+        except mail.MailError as exc:
+            raise ValidationError(str(exc)) from None
 
 
 def settings_form(sites, labels, models):
@@ -135,19 +131,20 @@ def settings_form(sites, labels, models):
 
     class Form(FlaskForm):
         watch = SelectMultipleField(
-            "Which sites to watch",
+            "Sites with alerts on",
             choices=[(s, labels.get(s, s)) for s in sites],
-            description="Unticked sites are still checked, but never flagged.",
+            description="Unticked sites are still checked, but don't raise alerts.",
             validators=[Optional()],
         )
         alerts = RadioField(
-            "How many alerts do you want?",
+            "Alert sensitivity",
             choices=[(key, f"{label}. {sentence}") for key, label, _, sentence in ws.PRESETS],
             validators=[Optional()],
         )
         rain = BooleanField(
-            "Expect bigger swings during and after rain",
-            description="Rain makes most readings look unusual. Leave this on unless you're testing something.",
+            "Raise the alert line during and after rain",
+            description="Rain changes most readings, so without this, storms set off alerts. "
+            "Leave it on unless you're testing.",
         )
 
     for model in models:
@@ -168,8 +165,9 @@ def advanced_form(models, support_options):
 
     class Form(FlaskForm):
         repeat_hours = StringField(
-            "Ignore repeats of the same thing for",
-            validators=[number_between(*ws.REPEAT_RANGE, "Ignore repeats for")],
+            "Ignore repeat alerts for",
+            description=ws.range_hint("repeat_hours", "hours"),
+            validators=[number_between(*ws.REPEAT_RANGE, "Ignore repeat alerts for")],
         )
 
     lo, hi = ws.SCALE_RANGE
@@ -183,15 +181,18 @@ def advanced_form(models, support_options):
                 validators=[Optional()],
             ),
         )
-        for rule in model.rules:
+        if model.sensitivity == "rate":
+            _rate_fields(Form, model)
+        for rule in model.rules if model.sensitivity == "scale" else ():
             label = ws.RULE_WORDS.get(rule, (rule, ""))[0]
             setattr(
                 Form,
                 f"scale_{model.name}_{rule}",
                 StringField(
                     label,
-                    description=ws.RULE_WORDS.get(rule, ("", ""))[1],
-                    validators=[number_between(lo, hi, f"{model.title}'s {label.lower()}")],
+                    description=f"{ws.RULE_WORDS.get(rule, ('', ''))[1]} "
+                    f"{ws.range_hint('scale', 'times the tested value')}",
+                    validators=[number_between(lo, hi, f"{model.title} {label.lower()}")],
                 ),
             )
         setattr(
@@ -199,8 +200,9 @@ def advanced_form(models, support_options):
             f"rain_{model.name}",
             StringField(
                 "Rain multiplier",
-                description="How far the line rises while it's wet. 1 means no allowance for rain.",
-                validators=[number_between(*ws.RAIN_RANGE, f"{model.title}'s rain multiplier")],
+                description="How much the alert line rises during rain. 1 means it doesn't rise. "
+                + ws.range_hint("rain_multiplier"),
+                validators=[number_between(*ws.RAIN_RANGE, f"{model.title} rain multiplier")],
             ),
         )
         if "leave_out" in model.site_choice:
@@ -208,12 +210,9 @@ def advanced_form(models, support_options):
                 Form,
                 f"leave_{model.name}",
                 SelectMultipleField(
-                    "Leave a site out",
-                    choices=[(s, s) for s in model.sites],
-                    description=(
-                        "A site left out is treated as missing before the model reads it, so it "
-                        "neither feeds its neighbors nor gets checked."
-                    ),
+                    "Sites to leave out",
+                    choices=[(s, ws.site_name(s)) for s in model.sites],
+                    description="This model won't use or check a left-out site's data.",
                     validators=[Optional()],
                 ),
             )
@@ -227,3 +226,46 @@ def advanced_form(models, support_options):
             ),
         )
     return Form
+
+
+def _rate_fields(Form, model):
+    """Calibrated models get a five-stop slider per test, plus one typed threshold."""
+    stops = [str(i) for i in range(len(ws.stops()))]
+
+    def a_stop(_form, field):
+        if str(field.data).strip() not in stops:
+            raise ValidationError(f"Choose one of the {len(stops)} stops")
+
+    for rule in model.rules:
+        words = ws.RULE_WORDS.get(rule, (rule, ""))
+        setattr(
+            Form,
+            f"rate_{model.name}_{rule}",
+            StringField(words[0], description=words[1], validators=[a_stop]),
+        )
+    keys = [f"{key}.{rule}" for key in sorted(model.tails) for rule in model.rules]
+    setattr(
+        Form,
+        f"typed_key_{model.name}",
+        SelectField(
+            "Sensor and test",
+            choices=[("", "Choose one")] + [(k, ws.sensor_words(k).capitalize()) for k in keys],
+            validators=[Optional()],
+        ),
+    )
+    setattr(
+        Form,
+        f"typed_value_{model.name}",
+        StringField(
+            "Threshold",
+            description="Only this test changes. The table below shows the false alarm rate it means.",
+            validators=[Optional(), number_between(1e-9, 1e9, "The threshold")],
+        ),
+    )
+    setattr(
+        Form,
+        f"untype_{model.name}",
+        SelectMultipleField(
+            "Reset to calibrated", choices=[(k, k) for k in keys], validators=[Optional()]
+        ),
+    )

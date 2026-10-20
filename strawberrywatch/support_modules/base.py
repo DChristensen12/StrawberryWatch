@@ -32,20 +32,19 @@ class SupportModule:
     """
     The parts every kind shares.
 
-    Subclass one of the four kinds below, not this. `kind` is what the
-    registry, the budget split and the audit record all dispatch on, so a class
-    that leaves it empty is refused at registration rather than silently
-    treated as a modulator.
+    Subclass one of the four kinds below, not this. The registry, the budget
+    split and the audit record all dispatch on `kind`, and a class that leaves
+    it empty is refused at registration.
 
-    Nothing in this module imports a model or names one. A module attaches to
-    anything declaring the contract it needs, which is what lets one module
-    reach both models by the same path.
+    This module doesn't import or name a model. A support module attaches to any
+    model declaring the contract it needs, and that's how one module reaches
+    both models by the same path.
     """
 
     # Short identifier used on the command line and as the audit record key.
     name: str = ""
 
-    # Set by a kind, never by a concrete module.
+    # Set by a kind, not by a concrete module
     kind: str = ""
 
     # The INPUT_CONTRACT a model must declare for this module to attach, or
@@ -68,12 +67,11 @@ class SupportModule:
         """
         Raise if this module cannot attach to this model.
 
-        Reads what the model declares about itself and never asks which model
+        Reads what the model declares about itself without asking which model
         it is. A subclass adding its own checks should call up to this first.
 
-        Collision against a model's BUILTIN_SUPPORT is deliberately not here.
-        That applies to every module equally, so it lives in the loader where a
-        subclass overriding validate cannot drop it.
+        The collision check against BUILTIN_SUPPORT lives in the loader instead,
+        where a subclass overriding validate can't drop it.
         """
         if not self.name:
             raise SupportError(f"{type(self).__name__} has no name; it cannot be asked for by name")
@@ -99,9 +97,9 @@ class SupportModulator(SupportModule):
     """
     Moves the alerting threshold. Adds no test and spends no budget.
 
-    Separate from SupportDetector because that is what makes the budget
-    divisible. One class with a flag and nothing stops three modules running at
-    q each while the real rate goes to 3q.
+    It's a separate class from SupportDetector because that keeps the budget
+    divisible. With one class and a flag, three modules could each run at q
+    while the real rate went to 3q.
     """
 
     kind = "modulator"
@@ -110,11 +108,11 @@ class SupportModulator(SupportModule):
         """
         Per-timestep per-node multiplier on the threshold, shape (T, len(nodes)).
 
-        Always >= 1, never NaN. A timestep with no reading behind it is 1.0, so an
-        uninformed modulator is inert rather than suppressing.
+        Always >= 1 and not NaN. A timestep with no reading behind it gets 1.0,
+        which leaves an uninformed modulator inert.
 
-        The score is never touched. Scaling scores instead would invalidate the
-        null they are judged against, argued in full in anomalies/rain_gate.py.
+        We don't touch the score. Scaling it would invalidate the null it's
+        judged against (anomalies/rain_gate.py has the full argument).
         """
         raise NotImplementedError(f"{self.name}.multipliers")
 
@@ -133,10 +131,9 @@ class SupportDetector(SupportModule):
         """
         One raw score per node, shape (len(nodes),). Larger is more anomalous.
 
-        NaN where the score cannot honestly be computed. NaN is not zero and it
-        is not "did not exceed": it means this detector had nothing to say, and
-        the framework carries it through to the audit record as unscorable
-        rather than as a quiet all-clear.
+        NaN where we can't compute a score. NaN isn't zero and it isn't "did not
+        exceed": it means this detector had no opinion, and the audit record
+        shows it as unscorable instead of as an all-clear.
         """
         raise NotImplementedError(f"{self.name}.score")
 
@@ -144,11 +141,10 @@ class SupportDetector(SupportModule):
         """
         The fitted null this detector's raw scores are calibrated against.
 
-        Anything exposing to_pvalue(score) will do; the shipped one is
-        anomalies.channel_scoring.ChannelNull. Fitted at calibration time and
-        loaded from an artifact, never fitted here. A detector that fits its
-        null on the window it is judging has no null, it has a description of
-        the data it just saw.
+        Anything with to_pvalue(score) will do, and the shipped one is
+        anomalies.channel_scoring.ChannelNull. It's fitted at calibration time
+        and loaded from a file. A detector that fit its null on the window it's
+        judging would only be describing the data it just saw.
         """
         raise NotImplementedError(f"{self.name}.null")
 
@@ -160,16 +156,10 @@ class SupportScreen(SupportModule):
 
     def admit(self, window, nodes):
         """
-        Per-timestep per-node bool, shape (T, len(nodes)). True where the
-        reading is fit for the model to consume.
-
-        Deliberately not multipliers() and not score(). A screen adds no test,
-        so it is not a detector and takes no budget; it moves no threshold, so
-        it is not a modulator. What it changes is the model's input, and that
-        has a consequence neither of the other kinds carries: the calibrated
-        null and z_q were fitted on unscreened windows, so screening changes
-        the distribution the primary score is drawn from and the calibration
-        no longer describes it.
+        Per-timestep per-node bool, (T, len(nodes)), True where a reading is fit
+        for the model. A screen adds no test and moves no threshold. It changes
+        the model's input, and since the null and z_q were fitted on unscreened
+        windows, the calibration no longer quite describes the score.
         """
         raise NotImplementedError(f"{self.name}.admit")
 
@@ -181,21 +171,14 @@ class SupportExplainer(SupportModule):
 
     def explain(self, window, nodes, fired):
         """
-        One account per node, in `nodes` order, of what fired and why.
+        One account per node, in `nodes` order, of what fired and why. fired is
+        the (T, len(nodes)) grid of primary firings at the final threshold. An
+        explainer only reads that decision, and the decision doesn't depend on
+        what it says. It adds no test and moves no threshold, and takes no budget.
 
-        fired is the (T, len(nodes)) bool grid of primary firings at the final
-        threshold. An explainer reads the decision rather than remaking it, so
-        it runs last and nothing downstream of it depends on what it says.
-
-        Deliberately not score(), multipliers() or admit(). A detector adds a
-        second tail and allocate() charges it; this adds no test, so charging
-        it would cost the primary sensitivity for a module that cannot fire. A
-        modulator moves the threshold and a screen moves the model's input;
-        this moves neither, and tests/test_support_modules.py pins that.
-
-        A node that cannot be explained comes back saying so, naming what was
-        missing. Never a partial match and never a default: a guess with the
-        evidence filed off reaches an operator as a diagnosis.
+        A node we can't explain says so and names what was missing. No partial
+        matches or defaults, because an operator would read a guess as a
+        diagnosis.
         """
         raise NotImplementedError(f"{self.name}.explain")
 
@@ -204,7 +187,7 @@ class SupportExplainer(SupportModule):
 
 
 def _rate(name, value):
-    """A false alarm rate has to be strictly inside (0, 1) to mean anything."""
+    """A false alarm rate has to sit strictly inside (0, 1)."""
     try:
         v = float(value)
     except (TypeError, ValueError):
@@ -220,10 +203,9 @@ def default_weights(n_detectors):
     """
     An even split across the primary and every detector.
 
-    n+1 shares for n detectors, so each weight is 1/(n+1) and the sum is
-    n/(n+1), below one for every n. Even is the honest default: weighting a
-    detector higher is a claim about which test is more likely to fire, and
-    nothing has measured that yet.
+    n+1 shares for n detectors. Each weight is 1/(n+1) and the sum is n/(n+1),
+    below one for any n. Weighting a detector higher would be a claim about
+    which test fires more often, and we haven't measured that.
     """
     if n_detectors < 0:
         raise BudgetError(f"cannot allocate for {n_detectors} detectors")
@@ -234,30 +216,22 @@ def default_weights(n_detectors):
 
 def allocate(q_total, detectors, weights=None):
     """
-    Divide q_total across the primary and the detectors.
+    Divides q_total across the primary and the detectors:
 
         allocate(q_total, detectors) -> (primary_q, [detector_q, ...])
 
-    Primary at q plus a detector at q alerts at about 2q, and every component
-    is individually correct while it happens. So the operator sets one total
-    and it gets split, never handed out fresh per module. Modulators and
-    screens add no test and take nothing.
-
-    detectors is the list of detector modules (or anything len() works on; only
-    the count is read). weights is one fraction of q_total per detector,
-    defaulting to an even split. The primary keeps whatever is left:
+    A primary at q plus a detector at q alerts at about 2q, with each part
+    correct on its own. The operator sets one total and we split it. Modulators
+    and screens take nothing. weights is one fraction per detector (even by
+    default), and the primary keeps the rest:
 
         primary_q = q_total * (1 - sum(weights))
 
-    which is why the weights must sum below one. At a sum of exactly one the
-    primary is left a budget of zero, meaning a threshold at infinity and a
-    detector that can never fire; above one it is negative, which is not a rate
-    at all. Both raise rather than clamping, because a clamp here would produce
-    a working-looking run whose primary had been silently switched off.
-
-    The split is a union bound, so the real combined rate lands under q_total
-    rather than on it. Detector budgets come back in the same order as
-    `detectors`.
+    The weights have to sum below one. At one the primary's threshold is
+    infinite and above one the rate is negative. Both raise instead of
+    clamping, because a clamp would switch the primary off without a word.
+    It's a union bound, and the real combined rate comes in under q_total.
+    Budgets come back in the order of `detectors`.
     """
     q = _rate("q_total", q_total)
     n = len(detectors)
@@ -322,9 +296,9 @@ def verdict(primary_fired, detector_fired, primary_scorable):
     """
     One node's verdict at one timestep, from the tests that ran.
 
-    Union over the primary and the detectors, which is the same assumption the
-    budget split is built on. A node with nothing scorable is reported as such
-    rather than as clear.
+    A union over the primary and the detectors, the same assumption the budget
+    split makes. A node with no scorable test is reported as unscorable, not
+    clear.
     """
     if primary_fired or any(detector_fired):
         return FIRED
@@ -337,8 +311,8 @@ def _fired(score, threshold):
     """
     NaN never fires, same rule as anomalies/rain_gate.py's fired().
 
-    A scalar version because that one takes arrays and this walks a record at a
-    time. Written twice, so test_the_two_firing_rules_agree pins them together.
+    A scalar version, because that one takes arrays and this walks a record at
+    a time. test_the_two_firing_rules_agree keeps the two in step.
     """
     return bool(np.isfinite(score) and score > threshold)
 
@@ -347,8 +321,7 @@ def primary_fired_grid(base_records, nodes, support_multiplier):
     """
     Which node-timesteps the primary fired on, at the modulated threshold.
 
-    Built once so the record loop and the explainers read the same firings
-    rather than each applying the rule to the same numbers separately.
+    Built once, and both the record loop and the explainers read it.
     """
     node_pos = {node: j for j, node in enumerate(nodes)}
     grid = np.zeros(support_multiplier.shape, dtype=bool)
@@ -364,8 +337,8 @@ def module_entry(module, **fields):
     """
     One module's row inside a record.
 
-    Name, kind and description are always present so a reader can account for
-    every attached module even when it did nothing.
+    Name, kind and description are always there, including for a module that
+    did nothing.
     """
     entry = {
         "name": module.name,
@@ -408,11 +381,9 @@ def extend_records(
     detector_budgets      {name: q} this module's share of q_total
     explanations          {name: [per-node result]} what each explainer said
 
-    A detector scores a node once for the whole window, so the same score
-    appears on every timestep of that node's rows. Spreading it over timesteps
-    would put a breakdown in the record that no module ever computed. An
-    explainer's account is per node for the same reason and is carried the
-    same way.
+    A detector scores a node once per window. We repeat that score on each of
+    the node's rows instead of inventing a per-step breakdown. Explainer
+    accounts are per node too.
     """
     node_pos = {node: j for j, node in enumerate(nodes)}
     explanations = explanations or {}
@@ -444,9 +415,8 @@ def extend_records(
             d_score = float(detector_scores[d.name][j])
             d_p = float(detector_pvalues[d.name][j])
             d_q = detector_budgets[d.name]
-            # Fires on the p-value, not the raw score, so detectors with
-            # different score units stay comparable and the budget means the
-            # same thing for all of them.
+            # We fire on the p-value. Raw scores come in different units, and
+            # the budget only means one thing across detectors this way.
             d_fired = bool(np.isfinite(d_p) and d_p < d_q)
             fired_flags.append(d_fired)
             entries.append(
@@ -487,8 +457,7 @@ def extend_records(
             others = [f for idx, f in enumerate(fired_flags) if idx != k]
             without[d.name] = verdict(primary_fired, others, scorable)
         for x in explainers:
-            # An explainer casts no vote, so switching it off cannot move the
-            # verdict. Written down anyway, so the record shows it costs nothing.
+            # An explainer casts no vote. We record that anyway, to show it's free.
             without[x.name] = final
 
         record.update(
@@ -513,20 +482,16 @@ class SupportStack:
     """
     The modules attached to one run, and the arithmetic that combines them.
 
-    Built through load() so that name resolution, contract validation, builtin
-    collision and the budget split all happen before anything runs. A stack
-    that exists is a stack that has already been checked.
+    Built through load(). Name resolution, contract checks, collisions and the
+    budget split all happen there, before anything runs.
 
-    Modules come in as a list and get sorted by name, so command line order
-    cannot reach anything downstream. Sorted rather than trusting
-    commutativity: a*b == b*a holds, but (a*b)*c and (a*c)*b need not, and
-    three modulators reaches that. An empty stack is the identity with no
-    special case, so zero modules walk the same code as three.
+    We sort modules by name. (a*b)*c and (a*c)*b can differ in floating point,
+    and command line order shouldn't change a result. An empty stack is the
+    identity, with no special case.
     """
 
     def __init__(self, modules=None, q_total=DEFAULT_Q_TOTAL, weights=None):
-        # sorted here as well as in registry.load, so the ordering guarantee
-        # holds for a stack built directly in a test
+        # Sorted here as well as in registry.load, for stacks built directly in tests
         self.modules = sorted(modules or [], key=lambda m: m.name)
         self.q_total = q_total
         self.weights = weights
@@ -631,9 +596,8 @@ class SupportStack:
         """
         Every detector's raw score and its p-value against its own null.
 
-        Returns ({name: (N,) score}, {name: (N,) pvalue}). Raw scores are not
-        comparable across detectors, which is exactly why the firing decision
-        downstream is made on the p-value and never on the score.
+        Returns ({name: (N,) score}, {name: (N,) pvalue}). Raw scores aren't
+        comparable across detectors. Firing is decided on the p-value.
         """
         scores, pvalues = {}, {}
         n = len(nodes)
@@ -651,8 +615,8 @@ class SupportStack:
         """
         Every explainer's per-node account, keyed by module name.
 
-        Returns {name: [result, ...]} in `nodes` order. A wrong length is
-        refused here rather than written into the record against the wrong node.
+        Returns {name: [result, ...]} in `nodes` order. We refuse a wrong
+        length here, before it gets filed against the wrong node.
         """
         out = {}
         n = len(nodes)
@@ -670,11 +634,10 @@ class SupportStack:
         The full audit trail: the rain gate's record for every timestep and
         node, extended with every support module that ran.
 
-        gate is an anomalies.rain_gate.RainGate. Its record is produced first
-        and unmodified, so the primary decision is written down exactly as the
-        gate made it, and the support fields are added on top. With no modules
-        attached the added fields describe an empty stack and the verdict
-        matches the gate's own `fired` for every row.
+        gate is an anomalies.rain_gate.RainGate. We take its record first,
+        unmodified, and add the support fields on top. With no modules attached
+        the extra fields describe an empty stack and every verdict matches the
+        gate's own `fired`.
         """
         records = gate.decisions(scores, pvalues, rain_mm, timestamps=timestamps, nodes=nodes)
         shape = (len(records) // len(nodes), len(nodes))
@@ -682,8 +645,7 @@ class SupportStack:
         product, per_module = self.multipliers(window, nodes, shape)
         det_scores, det_pvalues = self.detector_results(window, nodes)
 
-        # Explainers run last and read the firings the rest of the stack
-        # produced, which is what keeps them out of the decision entirely.
+        # Explainers run last, on the firings the rest of the stack produced
         fired_grid = primary_fired_grid(records, nodes, product)
         accounts = self.explanations(window, nodes, fired_grid)
 

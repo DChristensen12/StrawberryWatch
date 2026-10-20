@@ -1,15 +1,13 @@
 """
-Rain gate: threshold adjustment, never score adjustment.
+Rain gate: it adjusts the threshold, not the score.
 
 The gate raises the alerting bar during and after rain. POT calibrated z_q
-against the fault-free score distribution, so scaling a score would invalidate
+against the fault-free score distribution. Scaling a score would invalidate
 that fit and every p-value under it, while scaling the threshold leaves both
-alone. The no-contamination test at the bottom is what holds that line.
+alone. The no-contamination test at the bottom checks this.
 
-The detection-cost and false-alarm numbers that justified the design were
-measured against the comparison harness corpus, which is gone. They are
-recorded in the rain_gate module docstring and cannot be recomputed here
-without that corpus.
+The numbers behind the design are in the rain_gate module docstring. The
+corpus they came from is gone, and they can't be recomputed here.
 """
 
 import numpy as np
@@ -34,10 +32,9 @@ def z_q():
 @pytest.fixture(scope="module")
 def combined_null():
     """
-    A fault-free distribution for the combined score, so the audit trail shows
-    a p-value from the same distribution the threshold came from rather than
-    the optimistic chi-squared tail. Fitted here because this is a test, not a
-    serving path; production loads its nulls from the calibration artifact.
+    A fault-free null for the combined score. The audit trail's p-values come
+    from the same distribution as the threshold. Fitted here because this is a
+    test. Production loads its nulls from the calibration file.
     """
     rng = np.random.default_rng(0)
     return scoring.ChannelNull().fit(rng.gamma(shape=4.0, scale=2.0, size=20000))
@@ -75,9 +72,9 @@ def test_off_mode_reproduces_the_ungated_decision(z_q, combined_null):
 def test_step_matches_a_hand_computation(z_q):
     """
     multiplier 2.0, lookback 12 h, wet_mm 0.1, hourly samples. Rain of
-    0.5 mm/h at hours 5, 6, 7 and nothing else.
+    0.5 mm/h at hours 5, 6 and 7 only.
 
-    The window at hour t covers [t-12, t], so the last hour whose window still
+    The window at hour t covers [t-12, t]. The last hour whose window still
     holds hour 7 is t = 19. The bar is doubled for hours 5 to 19 inclusive.
     """
     n = 40
@@ -215,7 +212,7 @@ def test_delayed_first_flush_separates_the_modes(z_q):
     Rain, then a conductivity pulse 21 h after it stops: outside the 12 h
     lookback, inside the 36 h decay. step is back at base by then and flags the
     pulse at any magnitude; decay and deployed still hold the bar up. Neither
-    is asserted correct, the point is that they differ.
+    is asserted correct. We only check that they differ.
     """
     n, pulse_t = 80, 36
     rain = np.zeros(n)
@@ -244,8 +241,8 @@ def test_delayed_first_flush_separates_the_modes(z_q):
 
 def test_scores_and_pvalues_are_identical_across_modes(z_q, combined_null):
     """
-    The gate may move the threshold and nothing else. Bit-identical, because
-    "close enough" here would mean the detector was being touched.
+    The gate may move the threshold and only the threshold. Bit-identical,
+    because "close enough" here would mean the detector was being touched.
     """
     rng = np.random.default_rng(2)
     scores = rng.gamma(shape=4.0, scale=2.0, size=(300, 17)) * 4.0
@@ -309,11 +306,7 @@ def test_audit_record_carries_the_whole_decision(z_q, combined_null):
 
 
 def test_nan_never_fires_in_either_path(z_q, combined_null):
-    """
-    The array path and the audit path must agree, including on NaN. They used
-    to state the comparison separately, so a change to fired() left decisions()
-    untouched.
-    """
+    """The array path and the audit path must agree, NaN included."""
     tau = np.full((4, 1), z_q)
     scores = np.array([[np.nan], [z_q * 2], [z_q * 0.5], [np.nan]])
     gate = RainGate(base_threshold=z_q, mode="off", sample_hours=1.0)

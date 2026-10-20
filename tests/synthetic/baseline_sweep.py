@@ -1,13 +1,10 @@
 """
-The fault sweep, run over any detector that exposes score(batch, nulls).
+The fault sweep, for any detector with score(batch, nulls). Models and control
+charts go through the same code path. A comparison compares the detectors and
+not two scoring functions.
 
-Lives beside creek_synthetic because it is the same kind of thing. Models and
-control charts go through one code path here. A comparison whose two halves are
-scored by two functions is a comparison of the two functions.
-
-Dusk Crayfish is absent by construction. Its feature_cols want rain_mm,
-air_temp_c and shortwave_radiation, and creek_synthetic produces no weather, so
-there is nothing to feed it. It gets compared on the real audit events instead.
+Dusk Crayfish isn't here. It wants weather channels and the generator makes
+none. It's compared on the real audit events instead.
 """
 
 from __future__ import annotations
@@ -55,7 +52,7 @@ def _window(seed):
     """
     One generated creek per seed, cached.
 
-    build_batch regenerates the whole series every call. Fine for a handful of
+    build_batch regenerates the full series every call. Fine for a handful of
     batches, quadratic misery over 1375 cases, since the regrid alone is a
     merge_asof per node.
     """
@@ -107,8 +104,8 @@ def rank_of_truth(scores, faulted):
     """
     1-based rank of the best placed true node. 1 means it topped the list.
 
-    Best placed rather than a mean, since slow_all faults every node and any of
-    them coming first is a correct localisation.
+    Best placed, not a mean, since slow_all faults every node and any of them
+    coming first is a correct localisation.
     """
     order = np.argsort(-np.asarray(scores).ravel(), kind="stable")
     positions = {int(node): i + 1 for i, node in enumerate(order)}

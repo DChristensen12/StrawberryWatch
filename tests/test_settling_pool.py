@@ -1,9 +1,9 @@
 """
 Settling Pool: the tests it runs, the flags it emits, and the layering it keeps.
 
-The layering test is the load bearing one. The split works because the tests
-know nothing about where the data came from, and a single import of the config
-into qc_tests.py would quietly undo that.
+The layering test matters most. The split works because the tests don't know
+where the data came from, and a single import of the config into qc_tests.py
+would undo that.
 """
 
 from __future__ import annotations
@@ -40,8 +40,8 @@ def frame(site, variable, values, idx=None):
 
 def test_the_tests_import_nothing_from_the_config_or_the_storage_layer():
     """
-    Item 9, read off the parsed tree rather than the text so a comment naming
-    the config does not trip it.
+    Read off the parsed tree and not the text. A comment naming the config
+    doesn't trip it.
     """
     tree = ast.parse(inspect.getsource(qc))
     imported = set()
@@ -151,7 +151,7 @@ def test_staleness_uses_the_gap_it_is_given():
 def test_worst_ranks_by_severity_not_by_flag_value():
     good = np.array([qc.GOOD] * 3, dtype=np.uint8)
     unknown = np.array([qc.UNKNOWN] * 3, dtype=np.uint8)
-    # UNKNOWN is 2 and GOOD is 1, so a plain maximum would pick the wrong one
+    # UNKNOWN is 2 and GOOD is 1. A plain maximum would pick the wrong one
     assert list(qc.worst(good, unknown)) == [qc.GOOD] * 3
 
 
@@ -162,7 +162,7 @@ def test_thresholds_come_from_the_inventory_and_not_from_code():
     """Move a threshold in a copy of the inventory and the flags move with it."""
     import copy as copylib
 
-    # varying, so the flat line test stays out of the comparison
+    # varying, which keeps the flat line test out of the comparison
     rng = np.random.default_rng(1)
     values = 500.0 + rng.normal(0, 3.0, T)
     idx = index()
@@ -181,11 +181,11 @@ def test_thresholds_come_from_the_inventory_and_not_from_code():
 
 def test_a_never_installed_sensor_is_unknown_rather_than_missing():
     """
-    QARTOD 2 means not evaluated, which is what a probe that was never in the
-    creek deserves. Calling it MISSING would report a fault nobody can fix.
+    QARTOD 2 means not evaluated, right for a probe that was never in the
+    creek. Calling it MISSING would report a fault nobody can fix.
     """
-    # south_fork_3 declares a pH probe with a null install date, so the
-    # inventory knows the channel exists and knows nothing was ever fitted
+    # south_fork_3 declares a pH probe with a null install date. The inventory
+    # knows the channel exists and that no probe has been fitted
     pool = SettlingPool()
     flags = pool.flags({"raw": None, "timestamps": index()}, ["south_fork_3"])
     assert set(flags[("south_fork_3", "ph")]) == {qc.UNKNOWN}
@@ -193,7 +193,7 @@ def test_a_never_installed_sensor_is_unknown_rather_than_missing():
 
 
 def test_flags_are_keyed_by_site_and_variable_and_nothing_else():
-    """Item 13. Neither model's tensor layout may reach this module."""
+    """Neither model's tensor layout may reach this module."""
     pool = SettlingPool()
     flags = pool.flags({"raw": None, "timestamps": index()}, SITES)
     for key in flags:
@@ -222,8 +222,8 @@ def test_a_policy_that_excludes_good_is_refused():
 
 def test_enforcing_the_policy_removes_exactly_the_flagged_cells_and_nothing_else():
     """
-    Item 15. Run the same window with and without enforcement and the
-    difference has to be the flagged cells, cell for cell.
+    Run the same window with and without enforcement and the difference has
+    to be the flagged cells, cell for cell.
     """
     flags = {
         ("south_fork_1", "conductivity"): np.full(T, qc.GOOD, dtype=np.uint8),
@@ -241,12 +241,12 @@ def test_enforcing_the_policy_removes_exactly_the_flagged_cells_and_nothing_else
     expected[9, 2] = False
 
     np.testing.assert_array_equal(enforced, expected)
-    # SUSPECT survives on purpose: usable, with the flag recorded
+    # SUSPECT stays: usable, with the flag recorded
     assert enforced[11, 0]
 
 
 def test_flipping_a_flag_moves_the_admitted_grid():
-    """Item 27, on the mask this module hands the model."""
+    """Checked on the mask this module hands the model."""
     clean = {("south_fork_1", "conductivity"): np.full(T, qc.GOOD, dtype=np.uint8)}
     dirty = {("south_fork_1", "conductivity"): np.full(T, qc.GOOD, dtype=np.uint8)}
     dirty[("south_fork_1", "conductivity")][3] = qc.FAIL

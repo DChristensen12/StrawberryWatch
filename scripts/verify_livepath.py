@@ -1,15 +1,12 @@
 """
-Stage 3: does the anomaly_detector.py rewrite actually work, tested against the
-REAL production functions (Rule 1 + Rule 2 from src/anomalies/anomaly_detector.py),
-not a re-derivation of them and not the test-path _is_flagged this repo's other
-battery (deployment_readiness.py) normally borrows.
+Runs the deployment battery against the live rules: Rule 1 and Rule 2 from
+strawberrywatch/anomalies/anomaly_detector.py, not a re-derivation and not the
+test path's _is_flagged.
 
-Reuses deployment_readiness.py's window building, clean-window extraction, and
-injection machinery completely unchanged, only the scoring/flagging step is
-swapped from tad._is_flagged to the actual ad._rule1_forecast_residual /
-ad._rule2_level_shift a live run would call. tad._normalize is still used, that's
-just scaler.transform per node, not a detection decision, same thing
-prepare_sequences_normalized does in production.
+Reuses deployment_readiness.py's windows and injections unchanged and only
+swaps the scoring step for ad._rule1_forecast_residual and
+ad._rule2_level_shift. tad._normalize is still used, since that's just the
+per-node scaler.
 
 Read-only, no retrain, no pytest.
 """

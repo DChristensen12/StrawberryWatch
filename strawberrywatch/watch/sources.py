@@ -1,9 +1,10 @@
 """
-Where readings come from: the Strawberry Creek API with the user's own token, a
-folder of CSV files, or a replay of a labeled event shipped with the package.
+Where readings come from. The website's sensor database, with the Strawberry
+Creek API as the local app's backup. Labeled events can be replayed too, for
+load_test.py and the test dashboard.
 
-Each hands back Night Heron shaped tables, {table: frame indexed by UTC time
-with the raw logger columns}, which is what every serving detector reads.
+Each one returns Night Heron shaped tables, {table: frame indexed by UTC time
+with the raw logger columns}. The serving detectors read these.
 """
 
 from __future__ import annotations
@@ -17,16 +18,17 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 API = "api"
+SITE = "site"
 CSV = "csv"
 REPLAY = "replay"
+# Live sources. Replays are the past and don't show up as today's alerts.
+LIVE = (API, SITE)
 
-KEYRING_SERVICE = "strawberrywatch"
-KEYRING_USER = "strawberry-creek-api"
-TOKEN_HELP = "https://www.strawberrycreek.org/api/"
+UNREACHABLE = "Couldn't reach the database"
 
 EVENTS_DIR = Path(__file__).resolve().parent / "events"
-# A CSV bigger than this is refused rather than read. A year of 15 minute
-# readings at one site is a few MB.
+# We refuse a CSV bigger than this. A year of 15 minute readings at one site
+# is a few MB.
 MAX_CSV_BYTES = 50 * 1024 * 1024
 TIME_COLUMNS = ("DateTimeUTC", "timestamp", "datetime")
 WEATHER_COLUMNS = ("rain_mm", "air_temp_c", "shortwave_radiation")
@@ -35,48 +37,11 @@ FILE_ALIASES = {"scnf010": ("scnf010", "footbridge")}
 
 
 class SourceError(RuntimeError):
-    """Readings can't be had from here, and the message says why in plain words."""
+    """Couldn't get readings. The message says why, in plain words."""
 
 
-# The token lives in the system keychain and nowhere else
-
-
-def save_token(token):
-    keyring = _keyring()
-    try:
-        keyring.set_password(KEYRING_SERVICE, KEYRING_USER, token)
-    except Exception as exc:
-        raise SourceError(
-            f"This computer's keychain wouldn't save the token: {type(exc).__name__}"
-        ) from None
-
-
-def get_token():
-    keyring = _keyring()
-    try:
-        return keyring.get_password(KEYRING_SERVICE, KEYRING_USER)
-    except Exception as exc:
-        raise SourceError(
-            f"This computer's keychain couldn't be read: {type(exc).__name__}"
-        ) from None
-
-
-def delete_token():
-    keyring = _keyring()
-    try:
-        keyring.delete_password(KEYRING_SERVICE, KEYRING_USER)
-    except Exception:
-        pass  # already gone is the same as gone
-
-
-def _keyring():
-    try:
-        import keyring
-    except ImportError:
-        raise SourceError(
-            'Saving a token needs the keyring package, from pip install "strawberrywatch[dashboard]"'
-        ) from None
-    return keyring
+def is_live(kind):
+    return kind in LIVE
 
 
 # Raw logger columns for each inventory variable, the reverse of
@@ -101,12 +66,10 @@ def tidy(table):
 
 def on_grid(frame, step="15min"):
     """
-    Readings snapped to the quarter hour they fall in, averaged where two land
-    together. serving.windows.regrid does the same before the model reads a
-    window, but detect_anomalies checks which sites really reported against the
-    unsnapped frame, so a Mayfly stamped 07:00:31 never counts as reporting and
-    its site is never judged. Snapping here, as readings come in, keeps the two
-    in agreement.
+    Readings snapped to their quarter hour, averaged where two land together.
+    regrid does the same before the model reads a window, but detect_anomalies
+    checks who reported against the unsnapped frame. A Mayfly stamped 07:00:31
+    wouldn't count as reporting. Snapping here keeps the two in step.
     """
     numeric = frame.apply(pd.to_numeric, errors="coerce")
     numeric.index = numeric.index.floor(step)
@@ -126,7 +89,9 @@ def _indexed(frame, where):
 
 class Source:
     kind = ""
-    # A replay's readings never change, so it's checked once rather than every 15 minutes
+    # Which folder, event or database. Live and replay results can be told apart later
+    detail = None
+    # A replay's readings don't change. We check it once, not every 15 minutes
     periodic = True
 
     def describe(self):
@@ -140,7 +105,7 @@ class Source:
         raise NotImplementedError
 
     def weather(self, start, end):
-        """Open-Meteo for the window, the same weather the models trained with. None if it can't be had."""
+        """Open-Meteo weather for the window, same as the models trained on. None if unavailable."""
         try:
             from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 
@@ -156,11 +121,11 @@ class ApiSource(Source):
 
     def __init__(self, token):
         if not token:
-            raise SourceError("There's no API token saved yet.")
+            raise SourceError("There's no API token in .env (SCMG_API_TOKEN).")
         self._token = token
 
     def __repr__(self):
-        # Never the token
+        # Not the token
         return "<ApiSource>"
 
     def describe(self):
@@ -201,9 +166,8 @@ class ApiSource(Source):
 
 class CsvSource(Source):
     """
-    One CSV per site in a folder the user chose, named by the site, with a time
-    column and the raw logger columns. Nothing outside that folder is opened:
-    the file names come from the inventory, never from what was typed.
+    A folder with one CSV per site, the way replays read an event. File names
+    come from the inventory, and only files in the folder get opened.
     """
 
     kind = CSV
@@ -213,6 +177,7 @@ class CsvSource(Source):
         if not str(folder) or not folder.is_dir():
             raise SourceError(f"There's no folder at {folder}.")
         self.folder = folder.resolve()
+        self.detail = str(self.folder)
         self._cache = None
 
     def describe(self):
@@ -246,6 +211,11 @@ class CsvSource(Source):
                 raise SourceError(
                     f"{path.name} couldn't be read as a CSV: {type(exc).__name__}"
                 ) from None
+            if not set(frame.columns) & set(_raw_columns().values()):
+                raise SourceError(
+                    f"{path.name} has none of the sensor columns StrawberryWatch reads, "
+                    f"such as Meter_Hydros21_Cond."
+                )
             self._cache[name] = _indexed(frame, path.name)
         return {name: self._cache[name] for name in names if name in self._cache}
 
@@ -276,7 +246,7 @@ class CsvSource(Source):
 
 
 class ReplaySource(Source):
-    """A labeled event, read whole and checked at once."""
+    """A labeled event, read in full and checked at once."""
 
     kind = REPLAY
     periodic = False
@@ -286,13 +256,14 @@ class ReplaySource(Source):
         if folder not in events:
             raise SourceError(f"There's no event called {folder!r} to replay.")
         self.event = events[folder]
+        self.detail = folder
         self._csv = CsvSource(EVENTS_DIR / folder)
 
     def describe(self):
         return f"a replay of {self.event['title']}"
 
     def window(self, _lookback):
-        # The whole event, however long, so the moment it's known for is in it
+        # All of the event, however long, to include the labeled moment
         frames = [f for f in self._csv._all().values() if len(f)]
         start = min(f.index.min() for f in frames).floor("15min")
         end = max(f.index.max() for f in frames).floor("15min")
@@ -303,6 +274,96 @@ class ReplaySource(Source):
 
     def weather(self, start, end):
         return _carried_weather(self._csv._all(), start, end)
+
+
+class SqlSource(Source):
+    """
+    The website's sensor tables, read the way gnn_alerts.py reads them, with
+    the MYSQL settings in .env that Night Heron already uses.
+    """
+
+    kind = SITE
+
+    def __init__(self):
+        self._credentials = None
+
+    def __repr__(self):
+        return "<SqlSource>"
+
+    def describe(self):
+        return "the website's sensor database"
+
+    def window(self, lookback):
+        end = pd.Timestamp.now(tz="UTC").floor("15min")
+        return end - lookback, end
+
+    def tables(self, names, start, end):
+        from strawberrywatch.ingest import sql_client
+
+        try:
+            sql_client.ping(self._credentials)
+        except Exception:
+            raise SourceError(UNREACHABLE) from None
+        out = {}
+        for name in names:
+            frame = sql_client.fetch_creek_data_sql(
+                name, start.to_pydatetime(), end.to_pydatetime(), credentials=self._credentials
+            )
+            if frame.empty:
+                continue
+            frame = frame.drop(
+                columns=[c for c in ("station_id", "uuid", "site_code") if c in frame.columns]
+            )
+            out[name] = on_grid(_indexed(frame, f"The table for {name}"))
+        return out
+
+
+class WithBackup(Source):
+    """
+    The sensor database, falling back to the API when it can't be reached. It
+    picks one as soon as a check asks for its window. The check is recorded
+    under whichever answered.
+    """
+
+    def __init__(self, primary, backup):
+        self.primary, self.backup = primary, backup
+        self.used = primary
+        self._tables = None
+
+    @property
+    def kind(self):
+        return self.used.kind
+
+    @property
+    def detail(self):
+        return self.used.detail
+
+    def describe(self):
+        return self.used.describe()
+
+    def window(self, lookback):
+        from strawberrywatch import inventory as inv
+
+        start, end = self.primary.window(lookback)
+        try:
+            self._tables = self.primary.tables(list(inv.load().sites), start, end)
+        except Exception as exc:
+            logger.warning("%s, reading the API instead", _plain(exc))
+            self.used = self.backup
+            return self.backup.window(lookback)
+        return start, end
+
+    def tables(self, names, start, end):
+        if self.used is self.primary and self._tables is not None:
+            return {name: frame for name, frame in self._tables.items() if name in names}
+        return self.used.tables(names, start, end)
+
+    def weather(self, start, end):
+        return self.used.weather(start, end)
+
+
+def _plain(exc):
+    return str(exc) if isinstance(exc, SourceError) else type(exc).__name__
 
 
 def _carried_weather(frames, start, end):
@@ -327,13 +388,16 @@ def replay_events():
 
 
 def from_config(config, token=None):
-    """The Source a saved choice describes. The token comes from the keychain, never the store."""
+    """
+    The Source for a store's saved choice. token is the Strawberry Creek API
+    token. It comes from .env, not the store.
+    """
     if not config:
-        raise SourceError("Readings haven't been set up yet.")
+        raise SourceError("The data source hasn't been set up yet.")
     if config["kind"] == API:
-        return ApiSource(token if token is not None else get_token())
-    if config["kind"] == CSV:
-        return CsvSource(config.get("folder"))
+        return ApiSource(token)
+    if config["kind"] == SITE:
+        return WithBackup(SqlSource(), ApiSource(token)) if token else SqlSource()
     if config["kind"] == REPLAY:
         return ReplaySource(config.get("event"))
     raise SourceError(f"Unknown source {config['kind']!r}")

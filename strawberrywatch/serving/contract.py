@@ -2,13 +2,13 @@
 What every serving detector takes and what it hands back.
 
 In: Night Heron's site tables, as they store them. Out: a list of Finding. A
-model can be run from outside this repository once it speaks both, which is
-what tests/test_serving_conformance.py holds each one to.
+model that handles both can be run from outside this repository.
+tests/test_serving_conformance.py holds each one to that.
 
 Optionally a detector also hands out scores(): every recent step it judged,
 with the line that step had to cross. notice() turns those back into what the
-detector's own findings() would say, at any scale of the line, which is what
-lets a dashboard ask "what if the line were higher" without reloading anything.
+detector's own findings() would say, at any scale of the line. A dashboard can
+ask "what if the line were higher" without reloading the model.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import pandas as pd
 
 # What a detector can do about a site somebody doesn't want flagged. Every
 # model can at least not flag it. Leaving it out of the input is only safe for
-# a model built for missing sites, so a model has to say it can.
+# a model built for missing sites, and a model has to declare that.
 DONT_FLAG = "dont_flag"
 LEAVE_OUT = "leave_out"
 SITE_CHOICES = (DONT_FLAG, LEAVE_OUT)
@@ -60,10 +60,9 @@ def utc_indexed(name, table):
     """
     One site table with its index as UTC reading times.
 
-    Naive stamps are taken as UTC, which is how Night Heron's DATETIME columns
-    hold them. Anything that is not a time index is refused rather than parsed,
-    because a RangeIndex read as nanoseconds is 1970 and nothing downstream
-    would notice.
+    Naive stamps are taken as UTC, as Night Heron's DATETIME columns hold them.
+    We refuse an index that isn't a time index. A RangeIndex read as
+    nanoseconds is 1970, and the code downstream wouldn't notice.
     """
     if not isinstance(table.index, pd.DatetimeIndex):
         raise DetectorError(
@@ -85,8 +84,8 @@ class Score:
 
     threshold is the line at that step, rain included, at a scale of 1. base is
     the calibrated line before rain moved it, the same number a Finding calls
-    threshold. A step the rule didn't judge, say a reading that never came, has
-    no Score at all rather than a NaN one.
+    threshold. A step the rule didn't judge, say a reading that didn't arrive,
+    has no Score at all (not a NaN one).
     """
 
     site: str
@@ -121,9 +120,9 @@ def check_leave_out(detector, leave_out):
     """
     Raise unless the detector can leave these sites out.
 
-    Raising is the point, the same as detector_class with a name it doesn't
-    know. A model that quietly ignored leave_out would go on reading a site
-    somebody had asked it not to, and nothing on screen would say so.
+    Same as detector_class with a name it doesn't know. A model that ignored
+    leave_out would go on reading a site somebody had asked it not to, and the
+    screen wouldn't show it.
     """
     leave_out = set(leave_out or ())
     if not leave_out:
@@ -142,9 +141,9 @@ def notice(scores, min_steps=1, scale=1.0):
     Which (site, variable, rule) went over its line, given scores().
 
     A group counts once at least min_steps of its steps are over threshold *
-    scale, anywhere in what was scored. That is Dusk Crayfish's own rule with
-    its min_timesteps_over, and Cobble Shoal's with 1, so at a scale of 1 this
-    says what findings() says. NaN never counts as over, the same as
+    scale, anywhere in what was scored. That's Dusk Crayfish's own rule with
+    its min_timesteps_over, and Cobble Shoal's with 1. At a scale of 1 this
+    says what findings() says. NaN doesn't count as over, the same as
     rain_gate.fired.
     """
     groups = defaultdict(list)

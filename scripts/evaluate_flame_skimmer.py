@@ -31,11 +31,11 @@ from strawberrywatch import inventory as inv  # noqa: E402
 from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 from tests import event_catalog  # noqa: E402
 
-# The rate the group verified as the operating point.
+# The operating point the group verified
 EVAL_Q = 1e-3
 
-# A step counts as rain when more than this fell over the trailing 6 hours.
-# Same 0.1 mm cut train_cobble_shoal_real uses to call an anchor wet.
+# Rain over the trailing 6 hours that makes a step wet. Same 0.1 mm cut as
+# train_cobble_shoal_real.
 RAIN_6H_MM = 0.1
 
 # Median epistemic share on val rain steps must beat train dry steps by this.
@@ -54,11 +54,8 @@ BATCH = 128
 
 def crps_gaussian(y_pred, y_std, y_true):
     """
-    Closed form CRPS of a Gaussian, per point. Smaller is better.
-
-    From crps_gaussian in uncertainty-toolbox, kept per point so it splits by node.
-
-    returns np.ndarray, same shape as the inputs
+    Closed form CRPS of a Gaussian, per point. Smaller is better. From
+    uncertainty-toolbox's crps_gaussian, kept per point so it splits by node.
     """
     z = (y_true - y_pred) / y_std
     pdf = np.exp(-0.5 * z**2) / math.sqrt(2.0 * math.pi)
@@ -83,11 +80,9 @@ def _z_for(level):
 
 def forecasts(model_name, net, win, anchors, graph):
     """
-    Forecast mean, standard deviation and target on every supervised (anchor, node).
-
-    Flame Skimmer reads its predictive total, Cobble Shoal its forecast head.
-
-    returns dict of 1D arrays: pred, std, target, node, anchor, plus epistemic and total for Flame
+    Forecast mean, standard deviation and target for every supervised
+    (anchor, node), as 1D arrays. Flame Skimmer uses its predictive total and
+    also returns epistemic and total. Cobble Shoal uses its forecast head.
     """
     out = {k: [] for k in ("pred", "std", "target", "node", "anchor", "epistemic", "total")}
     with torch.no_grad():
@@ -132,12 +127,9 @@ def forecast_table(f, node_names):
 
 def node_scores(model_name, net, nulls, win, anchors, graph):
     """
-    Combined Fisher score per (anchor, node), finite entries only.
-
-    Cobble Shoal's channels go through predict_all_masked, which wants one
-    window per batch, so it is scored one anchor at a time.
-
-    returns (scores, anchor index per score)
+    Combined Fisher score per (anchor, node), finite ones only, as (scores,
+    anchor index per score). Cobble Shoal's predict_all_masked wants one window
+    per batch, and we score one anchor at a time.
     """
     scores, which = [], []
     step = BATCH if model_name == "flame" else 1
@@ -157,10 +149,9 @@ def threshold_at(calibration, q=EVAL_Q):
 
 def describe(shares, epistemic=None):
     """
-    Quartiles of the epistemic share, and the median epistemic standard deviation when given.
-
-    The share falls whenever aleatoric rises, so a storm that raises both can
-    still lower it. The absolute value is printed beside it to tell those apart.
+    Quartiles of the epistemic share, plus the median epistemic standard
+    deviation when given. A storm that raises both parts can still lower the
+    share. The absolute value is printed next to it.
     """
     if shares.size == 0:
         return "n=0"
@@ -175,9 +166,8 @@ def describe(shares, epistemic=None):
 
 def score_event(model, folder, inventory, site=None):
     """
-    Peak score at the graded node over every anchor in one event window, plus epistemic shares.
-
-    returns dict with peak, peak_any, epistemic (Flame only) and rain flags
+    Peak score at the graded node across one event window, with peak_any,
+    epistemic shares (Flame only) and rain flags.
     """
     tables = event_tables(folder)
     spans = [df.index for df in tables.values() if len(df)]

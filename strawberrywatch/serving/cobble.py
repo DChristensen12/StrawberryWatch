@@ -2,8 +2,8 @@
 Cobble Shoal, loaded and ready to score Night Heron's tables.
 
 Same contract as detector.py, different insides. A live window goes through the
-same steps the REAL calibration was fitted through, so a score here means what
-its z_q says it means.
+same steps the REAL calibration was fitted through. A score here means what its
+z_q says it means.
 """
 
 from __future__ import annotations
@@ -27,20 +27,18 @@ from strawberrywatch.serving.contract import (
 
 logger = logging.getLogger(__name__)
 
-# What every Cobble Shoal artifact so far was trained and calibrated at. The
-# reconstruction head is sized by it, so the wrong one fails at load, loudly.
+# What all Cobble Shoal artifacts so far were trained and calibrated at. The
+# reconstruction head is sized by it, and the wrong one fails loudly at load.
 WINDOW = 24
 
 RULE = "combined_fisher"
 
-# Anchors this close to the newest reading get scored each pass. Covers the
-# scoring interval plus however late a logger uploads. Anything older is history,
-# and the cooldown upstream stops one crossing alerting again every time it is
-# rescored on its way out of here.
+# The scoring interval plus however late a logger uploads. Older anchors are
+# history, and the cooldown upstream stops a crossing re-alerting as it ages out.
 RECENT = pd.Timedelta(hours=2)
 
-# An anchor is judged once half the nodes have a reading at it, the bar every
-# anchor the nulls were fitted on cleared. Below that the score gets compared
+# An anchor is judged once half the nodes have a reading at it, the bar all
+# anchors the nulls were fitted on cleared. Below that the score gets compared
 # against a distribution fitted on a busier network than the one reporting.
 MIN_COVERAGE = 0.5
 
@@ -50,12 +48,9 @@ _cache_lock = threading.Lock()
 
 class CobbleShoalDetector:
     """
-    Cobble Shoal, loaded and ready to score.
-
     One score per (site, variable) node per anchor, the combined Fisher
-    statistic, held to the calibrated z_q once rain_gate has raised it for any
-    rain. That is the whole alerting rule, and rain_gate.fired is the one place
-    it is written down.
+    statistic, held to the calibrated z_q once rain_gate has raised it for rain.
+    That rule is written down in rain_gate.fired and only there.
     """
 
     name = "cobble_shoal"
@@ -89,9 +84,9 @@ class CobbleShoalDetector:
         self.window = window
         self.recent = pd.Timedelta(recent)
         self.min_coverage = min_coverage
-        # Raised here rather than on the first pass. A window scaled by a fresh fit
-        # and scored against nulls fitted in another space looks fine and means
-        # nothing.
+        # Raised here and not on the first pass. A window scaled by a fresh fit
+        # and scored against nulls fitted in another space looks fine and is
+        # meaningless.
         self.scaler = calibration.window_scaler()
         # The gate's own defaults unless told otherwise. Which operating point to
         # run is a call for whoever owns the alerting budget, not for this file.
@@ -100,11 +95,8 @@ class CobbleShoalDetector:
     @classmethod
     def load(cls, checkpoint_dir, device="cpu", window=WINDOW, **kw):
         """
-        Build the model and load its weights and the REAL calibration.
-
-        torch is imported here and not at module scope for the same reason as in
-        detector.py: importing the package should not cost the daemon a torch
-        import before anything is scored.
+        Builds the model and loads its weights and the REAL calibration. torch is
+        imported here so importing the package doesn't cost the daemon a torch import.
         """
         import torch
 
@@ -166,8 +158,8 @@ class CobbleShoalDetector:
         """
         Every recent anchor and node scored, with the gated line it was held to.
 
-        A node at a left-out site never appears. Neither does an anchor the
-        node couldn't be scored at, which comes back NaN from the model.
+        A node at a left-out site doesn't appear. Neither does an anchor the
+        node couldn't be scored at (NaN from the model).
         """
         from strawberrywatch.preprocessing import node_windows as nw
 
@@ -241,22 +233,19 @@ class CobbleShoalDetector:
         """
         Every recent anchor scored and held to its rain-gated bar.
 
-        The grid runs from the earliest reading handed in to the newest, so the
-        caller bounds the history. Give it a couple of days: a node that has gone
-        quiet then looks properly stale rather than a few hours old, which is
-        closer to what training showed it.
+        The grid runs from the earliest reading handed in, and the caller bounds
+        the history. Give it a couple of days. A quiet node then looks properly
+        stale, like it did in training.
 
-        Returns grid, nodes, anchors (grid positions scored), scores and thresholds
-        (anchor by node), fired (the same shape, bool), frames (each site's
-        readings in sensor units as the model saw them) and rain_applied.
-
-        A table named in leave_out is never read, so its nodes are missing to
-        the model and count against MIN_COVERAGE like any other gap.
+        Returns grid, nodes, anchors (grid positions scored), scores and
+        thresholds (anchor by node), fired (same shape, bool), frames (each
+        site's readings as the model saw them) and rain_applied. We don't read
+        left-out tables, and they count against MIN_COVERAGE like any other gap.
         """
         from strawberrywatch.anomalies.rain_gate import fired
 
-        # The one thing taken from ingest. It is how the archive the calibration
-        # was fitted on got shaped, so a live table goes through the same lines.
+        # Our only import from ingest. It shaped the archive the calibration was
+        # fitted on, and a live table goes through the same lines.
         from strawberrywatch.ingest.raw_data_loader import tidy_channels
         from strawberrywatch.preprocessing import node_windows as nw
 
@@ -267,7 +256,7 @@ class CobbleShoalDetector:
                 continue
             raw = tables.get(name)
             if raw is not None and not raw.empty:
-                channels[name] = tidy_channels(utc_indexed(name, raw))
+                channels[name] = self.clean(tidy_channels(utc_indexed(name, raw)))
         stamps = [frame.index for frame in channels.values() if len(frame)]
         if not stamps:
             return {
@@ -283,8 +272,10 @@ class CobbleShoalDetector:
 
         start = min(s.min() for s in stamps).floor(nw.GRID_FREQ)
         end = max(s.max() for s in stamps).floor(nw.GRID_FREQ)
-        win = nw.build_window(
-            channels, start, end, inventory=self.inventory, scaler=self.scaler, as_of=end
+        win = self.prepare(
+            nw.build_window(
+                channels, start, end, inventory=self.inventory, scaler=self.scaler, as_of=end
+            )
         )
         grid, nodes = win["grid"], win["nodes"]
 
@@ -315,6 +306,17 @@ class CobbleShoalDetector:
             "rain_applied": rain_applied,
         }
 
+    def clean(self, frame):
+        """
+        Hook for cleaning one site's readings before the window is built. A
+        no-op here, since the REAL calibration was fitted on raw readings.
+        """
+        return frame
+
+    def prepare(self, win):
+        """Hook for the built window before scoring. Also a no-op here."""
+        return win
+
     def _on_device(self, batch):
         if str(self.device) == "cpu":
             return batch
@@ -327,9 +329,8 @@ def _rain_on(grid, weather):
     """
     Rain in mm per grid step, and whether there was any to go on.
 
-    A gap counts as dry. rain_gate refuses to guess, so the guess is made here,
-    and dry is the trigger happy direction, the same one Dusk Crayfish's rain sum
-    takes when it skips a NaN.
+    A gap counts as dry. rain_gate refuses to guess, and we guess here. Dry errs
+    toward more alerts, as Dusk Crayfish's rain sum does when it skips a NaN.
     """
     if weather is None or weather.empty or "rain_mm" not in weather.columns:
         return np.zeros(len(grid)), False

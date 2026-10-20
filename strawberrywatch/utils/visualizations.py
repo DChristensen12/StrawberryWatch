@@ -1,6 +1,6 @@
 import matplotlib
 
-# MUST be called before importing pyplot to run without a display
+# Has to come before importing pyplot, to run without a display
 matplotlib.use("Agg")
 import os
 from datetime import datetime
@@ -111,8 +111,8 @@ def plot_static_dashboard(
 
     plt.suptitle("SCMG System Results", fontsize=16, fontweight="bold", y=0.995)
 
-    # Created here rather than at import, so bringing in this module never
-    # writes to whatever directory the caller happened to be in.
+    # Created here, not at import. Importing this module doesn't write to
+    # whatever directory the caller happened to be in.
     report_dir = paths.reports_dir()
     os.makedirs(report_dir, exist_ok=True)
 
@@ -142,7 +142,7 @@ def plot_interactive_plotly(
 ):
     """
     Save the interactive Plotly visualization as HTML. plotly.show() won't work
-    in a headless loop, which is why we write to disk instead.
+    in a headless loop, and we write to disk instead.
     """
     fig_plotly = go.Figure()
 

@@ -31,9 +31,9 @@ def support_class(name):
     """
     The class registered under one name, or raise listing the valid ones.
 
-    Raising is the point. A name that silently resolved to nothing would give a
-    run that took --support trail_bed, attached nothing, scored clean and
-    exited zero with nobody the wiser.
+    It has to raise. If a name resolved to nothing, a run with --support
+    trail_bed would attach no module, score clean and exit zero, and nobody
+    would know.
     """
     try:
         return SUPPORT_REGISTRY[name]
@@ -47,9 +47,9 @@ def builtin_support(model):
     """
     What a model says it already handles internally.
 
-    Read off the class, so a model that grows an internal behaviour declares it
-    in one place. A model with no attribute declares nothing, which has to be
-    the default or no module could attach to anything until every model had
+    Read off the class. A model that grows an internal behaviour declares it
+    in one place. A model without the attribute declares an empty set. That
+    has to be the default, or no module could attach until every model had
     one.
     """
     return tuple(getattr(model, "BUILTIN_SUPPORT", ()))
@@ -61,12 +61,12 @@ def check_collision(module, model):
 
     The double-application guard. Dusk Crayfish applies a 2.0 rain multiplier
     inside anomaly_detector.py; a rain modulator on top would multiply the
-    threshold twice, and nothing in the arithmetic would complain because both
-    applications are individually correct. What comes out is a 4x bar during
-    rain and a detector that has stopped alerting.
+    threshold twice. Each step is correct on its own, and no error would show
+    it. The result is a 4x bar during rain and a detector that has stopped
+    alerting.
 
-    In the loader rather than SupportModule.validate, because it applies to
-    every module identically and a subclass overriding validate would drop it.
+    In the loader and not SupportModule.validate. It applies to every module
+    the same way, and a subclass overriding validate would drop it.
     """
     declared = builtin_support(model)
     if module.name in declared:
@@ -83,13 +83,13 @@ def load(names, model):
     """
     Instantiate the named modules and check every one of them against a model.
 
-    names comes in however the operator typed it and goes out sorted, so
-    command line ordering cannot reach anything downstream. Duplicates raise:
+    names comes in however the operator typed it and goes out sorted. Command
+    line ordering doesn't reach the code downstream. Duplicates raise:
     --support trial_bed trial_bed is a typo, and it would spend the module's
     budget twice.
 
-    Everything that can fail fails here, before the model runs. A module that
-    cannot attach must not turn up halfway through a detection.
+    Whatever can fail fails here, before the model runs. A module that can't
+    attach mustn't turn up halfway through a detection.
     """
     seen = []
     for name in names:

@@ -1,8 +1,6 @@
 /*
-  StrawberryWatch, dressed as a page of strawberrycreek.org: its navbar, the Sen
-  font, its colours and its body.dark-mode switch, from the website's
-  static/css/site.css and base.html. Every colour below appears in the site's own
-  CSS or templates; the tokens just give each one a job.
+  Matches strawberrycreek.org. The navbar, Sen font, colours and body.dark-mode
+  switch all come from the site's static/css/site.css and base.html.
 */
 
 @font-face {
@@ -41,7 +39,7 @@ body {
   --input-line: #bdc3c7;
   --error: #dc3545;
 
-  /* The four states, the old dashboard's. Each always means the same thing and sits beside its word. */
+  /* The four status colours. Each one always sits next to its word. */
   --ok: #2e7d32;
   --late: #f39c12;
   --flag: #dc3545;
@@ -121,7 +119,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .sw-skip:focus { top: 0; }
 
-/* The site's navbar, as site.css draws it, carrying this app's tabs */
+/* The site's navbar from site.css, with our tabs in it */
 .navbar { position: fixed; top: 0; width: 100%; background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(10px); z-index: 999; }
 .dark-mode .navbar { background-color: rgba(0, 0, 0, 0.85); }
 .navbar-container { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 2.5rem; }
@@ -174,7 +172,7 @@ p { margin: 0 0 0.8rem; }
 .back-link { display: inline-block; margin-bottom: 1rem; font-size: 0.95rem; }
 .back-link::before { content: "‹ "; }
 
-/* A word with a small solid square beside it, the colour only repeating the word */
+/* Status word with a coloured square. The colour doesn't stand alone. */
 .sw-status { display: inline-flex; align-items: center; gap: 0.5rem; }
 .sw-square { display: inline-block; flex: none; width: 12px; height: 12px; border: 1px solid var(--square-edge); background: var(--mute); }
 .sw-square--reporting { background: var(--ok); }
@@ -182,7 +180,7 @@ p { margin: 0 0 0.8rem; }
 .sw-square--flagged { background: var(--flag); }
 .sw-square--muted { background: var(--mute); }
 
-/* Messages: what just happened, and the reminder about unsaved changes */
+/* Flash messages and the unsaved changes reminder */
 .sw-message { margin: 0 0 1.25rem; padding: 0.75rem 1rem; border-left: 4px solid var(--ok); background: var(--note-bg); color: var(--heading); font-weight: 700; }
 .sw-unsaved {
   position: sticky; top: 84px; z-index: 5;
@@ -254,16 +252,64 @@ table.sw-table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; }
 /* Charts */
 .sw-chart { width: 100%; margin: 0.5rem 0 1rem; }
 .sw-chart--small { max-width: 560px; }
-.sw-strip { width: 288px; height: 18px; }
+/* Links to the other settings pages, one full-width row each */
+.sw-rows { margin: 0 0 2rem; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.sw-rows li { border-bottom: 1px solid var(--line); }
+.sw-rows a { position: relative; display: block; padding: 0.85rem 2.5rem 0.85rem 0; color: var(--text); text-decoration: none; }
+.sw-rows a:hover { background: var(--hover); }
+.sw-rows a::after { content: "›"; position: absolute; top: 50%; right: 0.75rem; transform: translateY(-50%); font-size: 1.5rem; color: var(--muted); }
+.sw-rows__title { display: block; font-weight: 700; color: var(--link); }
+.sw-rows__about { display: block; font-size: 0.95rem; color: var(--muted); }
+
+/* The recipient list's label filter and the small forms beside each person */
+.sw-filter-links { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; margin: 0 0 0.5rem; }
+.sw-filter-links a[aria-current] { font-weight: 700; color: var(--heading); text-decoration: none; }
+.sw-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; }
+.sw-form-row select, .sw-form-row input[type=text] { max-width: 16rem; }
+.sw-label-row input[type=text] { width: 14rem; }
+.sw-row-actions { white-space: nowrap; }
+
+/* An example email's plain text on Alert examples */
+.sw-email { max-width: 46rem; margin: 0 0 0.75rem; padding: 0.75rem 1rem; white-space: pre-wrap; font: inherit; font-size: 0.95rem; background: var(--note-bg); border-left: 4px solid var(--line); }
+
+/* Reporting marks, one per hour. Height says it as well as colour. */
+.sw-ticks { display: flex; gap: 2px; align-items: flex-end; margin: 0; padding: 0; list-style: none; }
+.sw-ticks li { display: flex; align-items: flex-end; height: 22px; }
+.sw-tick { position: relative; display: block; width: 10px; height: 22px; border: 1px solid transparent; cursor: pointer; }
+.sw-tick--full { background: var(--ok); }
+.sw-tick--partial { height: 11px; background: var(--late); }
+.sw-tick--empty { height: 22px; border-color: var(--mute); background: transparent; }
+.sw-tick--pending { height: 22px; border: 1px dotted var(--mute); background: transparent; }
+.sw-tick:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.sw-tick:hover::after, .sw-tick:focus::after, .sw-tick.is-open::after {
+  content: attr(aria-label); position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5;
+  padding: 0.3rem 0.5rem; white-space: nowrap; font-size: 0.85rem; color: var(--bg); background: var(--heading);
+}
+/* The newest marks open their label to the left, to keep it on screen */
+.sw-ticks li:nth-last-child(-n+8) .sw-tick::after { left: auto; right: 0; }
 .sw-spark { width: 180px; height: 34px; }
 .uplot, .uplot * { font-family: inherit; }
-.u-legend { color: var(--text); font-size: 0.85rem; }
-.u-legend .u-marker { border-radius: 0; }
 
-/* Something that looks off */
+/* The score chart's key */
+.sw-key { margin: -0.5rem 0 1.5rem; font-size: 0.95rem; }
+.sw-key__readout { margin: 0 0 0.75rem; min-height: 1.5em; color: var(--heading); font-variant-numeric: tabular-nums; }
+.sw-key__hint { margin: 0 0 0.35rem; color: var(--muted); }
+.sw-key__list { display: grid; gap: 0.45rem; margin: 0; padding: 0; list-style: none; }
+.sw-key__item { display: flex; align-items: flex-start; gap: 0.6rem; }
+label.sw-key__item { cursor: pointer; }
+.sw-key__item input { flex: none; width: 1.1rem; height: 1.1rem; margin: 0.2rem 0 0; }
+.sw-key__item strong { color: var(--heading); }
+.sw-key__swatch { flex: none; width: 1.75rem; height: 0; margin-top: 0.7rem; border-top: 2px solid var(--chart-ink); }
+.sw-key__swatch--line { border-top: 2px solid var(--chart-muted); }
+.sw-key__swatch--dry { border-top: 2px dashed var(--chart-muted); }
+.sw-key__swatch--rain { height: 0.75rem; margin-top: 0.35rem; border-top: 1px solid var(--chart-rain); background: var(--chart-rain-fill); }
+.sw-key__plain { padding-left: 1.7rem; }
+.sw-key__swatch--dot { width: 0.75rem; height: 0.75rem; margin: 0.35rem 0.5rem 0; border: none; border-radius: 50%; background: var(--flag); }
+
+/* Alerts */
 .sw-item { padding: 1.25rem 0; border-bottom: 1px solid var(--line); }
 .sw-item:first-of-type { padding-top: 0.25rem; }
-.sw-item h2 { margin-top: 0; }
+.sw-item h2, .sw-item h3 { margin-top: 0; }
 .sw-extras { margin: 0 0 1rem; padding-left: 1rem; border-left: 2px solid var(--line); }
 
 /* History */
@@ -286,7 +332,7 @@ table.sw-table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; }
 .sw-model h2 { margin-top: 0; }
 .sw-model__state { margin-left: 0.6rem; font-weight: 400; color: var(--text); }
 
-/* Forms: native controls, so they keep working with a keyboard and a screen reader */
+/* Forms. Native controls, which keyboards and screen readers handle */
 fieldset { margin: 0 0 1.5rem; padding: 0; border: none; }
 legend { padding: 0; color: var(--heading); font-weight: 700; }
 legend.as-heading { font-size: 1.35rem; margin-bottom: 0.4rem; }
@@ -328,6 +374,26 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 .sw-button:hover { opacity: 0.9; }
 .sw-button--secondary { background: var(--surface); color: var(--heading); border-color: var(--input-line); }
 .sw-button--warning { background: var(--surface); color: var(--error); border-color: var(--error); }
+.sw-button--small { padding: 0.3rem 0.7rem; font-size: 0.9rem; }
+.sw-button:disabled { opacity: 0.45; cursor: default; }
+.sw-readings { margin: 0 0 1rem; font-size: 0.95rem; color: var(--muted); }
+.sw-readings a { margin-left: 0.5rem; font-weight: 700; }
+.sw-banner { margin: 0 0 1.5rem; padding: 1rem 1.25rem; border: 4px solid var(--accent); border-radius: 4px; background: var(--surface); }
+.sw-banner__title { margin: 0 0 0.5rem; font-size: 1.15rem; }
+.sw-banner__detail { margin: 0 0 0.75rem; }
+.sw-banner form { margin: 0; }
+.sw-versions, .sw-jobs { padding-left: 1.2rem; }
+.sw-versions li, .sw-jobs li { margin: 0.5rem 0; }
+.sw-inline-form { display: inline; margin-left: 0.5rem; }
+.sw-log { max-height: 32rem; overflow: auto; padding: 0.75rem; background: var(--note-bg); border: 1px solid var(--line); font-size: 0.85rem; white-space: pre-wrap; }
+progress { width: 100%; max-width: 28rem; height: 1rem; }
+.sw-slider input[type=range] { width: 100%; max-width: 32rem; }
+.sw-slider__stops { display: flex; justify-content: space-between; max-width: 32rem; font-size: 0.8rem; color: var(--muted); }
+.sw-details { margin: 1rem 0; }
+.sw-details summary { cursor: pointer; font-weight: 700; }
+.sw-link-button--plain { color: var(--link); font-size: inherit; }
+.sw-zoom { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; margin: 0.75rem 0 0.5rem; }
+.sw-zoom__group { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
 /* Where each support module acts */
 .sw-steps { display: flex; flex-wrap: wrap; gap: 0 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
@@ -343,7 +409,7 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 .sw-models h2 .sw-status { font-size: 1rem; }
 .nav-count { display: inline-block; min-width: 1.4em; padding: 0 0.35em; border-radius: 0.7em; background: #dc3545; color: #ffffff; font-size: 0.8rem; text-align: center; line-height: 1.4; }
 
-/* On a phone the map keeps a readable size and scrolls sideways in its own box */
+/* On a phone the map keeps its size and scrolls sideways */
 .sw-map-scroll { overflow-x: auto; }
 @media (max-width: 640px) { .sw-map { min-width: 620px; } }
 .sw-table-scroll, .sw-map-scroll { scrollbar-color: var(--line) transparent; }
@@ -351,7 +417,7 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 /* The last hour of a day doesn't need its own rule above the day's */
 .sw-day .sw-hour:last-child { border-bottom: none; }
 
-/* On a phone the mode button is just its icon, so it covers less */
+/* Icon-only mode button on phones */
 @media (max-width: 640px) {
   .dark-mode-toggle { bottom: 12px; right: 12px; padding: 8px 10px; }
   .dark-mode-toggle #mode-label { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -361,7 +427,7 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 .sw-heading-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.25rem 1.5rem; }
 .sw-heading-row h1 { margin-bottom: 0.6rem; }
 
-/* Notes: under their reading on History, on the reading's page, and on their own page */
+/* Notes */
 .sw-notes { margin: 0 0 0.5rem 1.4rem; padding-left: 0.75rem; border-left: 2px solid var(--line); font-size: 0.95rem; }
 .sw-notes p { margin: 0.15rem 0; }
 .sw-note { padding: 0.6rem 0; border-bottom: 1px solid var(--line-soft); }
@@ -376,7 +442,7 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 .sw-filters .sw-field { margin: 0; }
 .sw-filters .sw-buttons { margin: 0; }
 
-/* Ticking and downloading notes, kept in view while the list scrolls */
+/* Note download bar, stays in view while the list scrolls */
 .sw-exportbar {
   position: sticky; top: 84px; z-index: 5;
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem;
@@ -386,7 +452,7 @@ textarea { width: 100%; max-width: 40rem; min-height: 6rem; }
 .sw-exportbar p { margin: 0; flex: 1 1 14rem; }
 .sw-exportbar .sw-buttons { margin: 0; }
 
-/* The page that becomes a PDF: plain on paper, whichever mode the screen is in */
+/* The print page, always light */
 body[data-sw-print] .dark-mode-toggle { display: none; }
 .sw-print-help { margin: 0 0 2rem; padding: 0.75rem 1rem; border-left: 4px solid var(--accent); background: var(--surface); box-shadow: 0 0 0 1px var(--line); }
 .sw-print-help p { margin: 0 0 0.25rem; }
@@ -404,8 +470,8 @@ body[data-sw-print] .dark-mode-toggle { display: none; }
   body { background: #ffffff; }
   .page-content, .page-content.narrow { max-width: none; padding: 0; }
   a { color: inherit; text-decoration: none; }
-  /* With no pointer on paper, the legend's values would all read "--" */
-  .u-legend .u-value, .u-legend .u-series:first-child { display: none; }
+  /* No pointing or ticking on paper */
+  .sw-key__readout, .sw-key__hint, .sw-key__item input { display: none; }
 }
 .sw-note-row .sw-status { margin: 0 0.3rem; vertical-align: -1px; }
 .sw-buttons + .small { margin-top: 1rem; }

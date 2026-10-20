@@ -1,6 +1,6 @@
-{#- Native form controls, the site's status squares, the creek map and chart data.
-    Every control has a real label or legend, hints and errors are tied to it
-    with aria-describedby, and nothing here marks data safe. -#}
+{#- Form controls, status squares, the creek map and chart data. Every control
+    has a real label, hints and errors hang off aria-describedby, and no macro
+    here uses |safe. -#}
 
 {% macro errors_summary(form) -%}
   {% if form and form.errors %}
@@ -38,6 +38,26 @@
     {% if suffix %}<div class="sw-number">{% endif %}
     <input type="{{ kind }}" id="{{ field.id }}" name="{{ field.name }}" value="{{ value }}" autocomplete="{{ autocomplete }}" spellcheck="false"{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{{ _described(field, hint) }}{% if field.errors %} aria-invalid="true"{% endif %}>
     {% if suffix %}<span>{{ suffix }}</span></div>{% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro file(field, label=None, hint=None, accept=None) -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <div class="sw-field{{ ' sw-field--error' if field.errors }}">
+    <label for="{{ field.id }}">{{ label or field.label.text }}</label>
+    {{ _hint_and_error(field, hint) }}
+    <input type="file" id="{{ field.id }}" name="{{ field.name }}"{% if accept %} accept="{{ accept }}"{% endif %}{{ _described(field, hint) }}{% if field.errors %} aria-invalid="true"{% endif %}>
+  </div>
+{%- endmacro %}
+
+{% macro select(field, label=None, hint=None) -%}
+  {%- set hint = hint if hint is not none else (field.description or none) %}
+  <div class="sw-field{{ ' sw-field--error' if field.errors }}">
+    <label for="{{ field.id }}">{{ label or field.label.text }}</label>
+    {{ _hint_and_error(field, hint) }}
+    <select id="{{ field.id }}" name="{{ field.name }}"{{ _described(field, hint) }}>
+      {% for value, text in field.choices %}<option value="{{ value }}"{% if field.data == value %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
   </div>
 {%- endmacro %}
 
@@ -100,17 +120,105 @@
   </div>
 {%- endmacro %}
 
-{#- A status: the word, with a small square beside it that only repeats it in colour -#}
+{#- One mark per hour, the newest last. Based on Uptime Kuma's
+    src/components/HeartbeatBar.vue (MIT): one tab stop for the whole row, the
+    arrow keys move between marks, and every mark carries its own label. -#}
+{% macro reporting_marks(marks, site) -%}
+  <ul class="sw-ticks" aria-label="Readings at {{ site }}, last 24 hours">
+    {% for m in marks.marks %}
+      <li><span class="sw-tick sw-tick--{{ m.state }}" role="img" aria-label="{{ m.label }}" tabindex="{{ '0' if loop.last else '-1' }}"></span></li>
+    {% endfor %}
+  </ul>
+{%- endmacro %}
+
+{#- The Overview box. Alert examples draws it with made-up numbers. -#}
+{% macro overview_box(waiting, flagged, late, stale, stale_text, alerts_href) -%}
+  {% if stale %}
+    <div class="sw-headline sw-headline--late">
+      <p class="lead">{{ stale_text }}</p>
+      <p>Checks normally run every 15 minutes, so this page may be out of date. No new alerts will appear until checks resume.</p>
+    </div>
+  {% endif %}
+  {% if waiting %}
+    <div class="sw-headline">
+      <p class="lead">Waiting for the first check</p>
+      <p>This usually takes about a minute.</p>
+    </div>
+  {% elif flagged %}
+    <div class="sw-headline sw-headline--flagged">
+      <p class="lead">{{ 'Alerts' if flagged | length > 1 else 'Alert' }} at {{ flagged | map('site_name') | join(', ') }}</p>
+      {% if late %}<p>No recent data from {{ late | length }} other site{{ 's' if late | length != 1 }}.</p>{% endif %}
+      <p><a href="{{ alerts_href }}">View alerts</a></p>
+    </div>
+  {% elif late %}
+    <div class="sw-headline sw-headline--late">
+      <p class="lead">No recent data from {{ late | length }} site{{ 's' if late | length != 1 }}: {{ late | map('site_name') | join(', ') }}</p>
+      <p>No alerts at the other sites.</p>
+    </div>
+  {% elif not stale %}
+    <div class="sw-headline">
+      <p class="lead">No alerts in the last 24 hours</p>
+      <p>All sites are sending data.</p>
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{#- What the Alerts tab says when there are no current alerts -#}
+{% macro no_alerts(history_href) -%}
+  <div class="sw-headline">
+    <p class="lead">No alerts in the last 24 hours.</p>
+    <p>Older alerts are in <a href="{{ history_href }}">History</a>.</p>
+  </div>
+{%- endmacro %}
+
+{% macro alert_extras(item) -%}
+  {% if item.extras %}
+    <div class="sw-extras">
+      {% for line in item.extras %}<p>{{ line }}</p>{% endfor %}
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{#- One alert on the Alerts tab -#}
+{% macro alert_card(item, href, chart=None, chart_id='', heading='h3') -%}
+  <section class="sw-item" aria-labelledby="item-{{ item.id }}">
+    <p class="caption">{{ item.when_words }}</p>
+    <{{ heading }} id="item-{{ item.id }}">{{ status('flagged', item.label | capitalize ~ ' alert at ' ~ item.site_name) }}</{{ heading }}>
+    <p>{{ item.happened }} Flagged by {{ item.title }}.</p>
+    {{ alert_extras(item) }}
+    {% if chart %}
+      {{ chart_data(chart_id, chart) }}
+      <div class="sw-chart" data-sw-chart="reading" data-sw-source="{{ chart_id }}" role="img" aria-label="{{ item.label | capitalize }} at {{ item.site_name }}, with the readings that set off the alert in red"></div>
+    {% endif %}
+    <p><a href="{{ href }}">View details<span class="visually-hidden"> of the {{ item.label }} alert at {{ item.site_name }}</span></a></p>
+  </section>
+{%- endmacro %}
+
+{#- The top of an alert's own page, down to its score chart -#}
+{% macro alert_header(item, chart=None, chart_id='chart-item', heading='h1', subheading='h2') -%}
+  <p class="caption">{{ item.day }}</p>
+  <{{ heading }}>{{ item.label | capitalize }} alert at {{ item.site_name }}</{{ heading }}>
+  <p>{{ item.happened }} Flagged by {{ item.title }}.</p>
+  {{ alert_extras(item) }}
+  {% if chart %}
+    <{{ subheading }}>Model score</{{ subheading }}>
+    <p>{{ item.title }}'s score for {{ item.label }}, from 36 hours before the alert to 12 hours after. An alert starts when the score goes above the alert line.</p>
+    {{ chart_data(chart_id, chart) }}
+    <div class="sw-chart" data-sw-chart="score" data-sw-zoom="time" data-sw-source="{{ chart_id }}" role="img" aria-label="{{ item.title }}'s score for {{ item.label }} against the alert line"></div>
+  {% endif %}
+{%- endmacro %}
+
+{#- A status word with its coloured square -#}
 {% macro status(key, text) -%}
   <span class="sw-status"><span class="sw-square sw-square--{{ key }}" aria-hidden="true"></span>{{ text }}</span>
 {%- endmacro %}
 
-{#- One line of History: an unusual reading with its square, or a settings change -#}
+{#- One History line, an alert or a settings change -#}
 {% macro entry_text(item) -%}
   {% if item.kind == 'unusual' %}{{ status('flagged', '') }}{% endif %}{% if item.href %}<a href="{{ item.href }}">{{ item.text }}</a>{% else %}{{ item.text }}{% endif %}
 {%- endmacro %}
 
-{#- The notes written about a reading, under it on the History timeline -#}
+{#- A reading's notes, shown under it on History -#}
 {% macro entry_notes(item) -%}
   {% if item.notes %}
     <div class="sw-notes">
@@ -122,12 +230,12 @@
 {%- endmacro %}
 
 {% macro checks_ran(n, problems=0) -%}
-  {% if n == 0 %}No checks ran.{% elif n == 1 %}1 check ran.{% else %}{{ n }} checks ran.{% endif %}
-  {%- if problems %} {{ problems }} had a problem.{% endif %}
+  {% if n == 0 %}No checks.{% elif n == 1 %}1 check.{% else %}{{ n }} checks.{% endif %}
+  {%- if problems %} {{ problems }} failed.{% endif %}
 {%- endmacro %}
 
-{#- One hour of a day, or a run of quiet hours folded into one row. Check
-    counts are left off when History only shows settings changes. -#}
+{#- One hour, or a run of quiet hours folded into one row. No check counts
+    when History only shows settings changes. -#}
 {% macro hour_row(h, show='everything') -%}
   <div class="sw-hour{{ ' sw-hour--quiet' if h.quiet or h.future }}">
     <span class="sw-hour__when">{{ h.label }}</span>
@@ -135,22 +243,21 @@
       {% if h.future %}
         <p class="muted small">Not yet.</p>
       {% elif h.quiet or not h.entries %}
-        <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'Nothing unusual.' }}{% if show != 'changes' %} <span class="small">{{ checks_ran(h.checks, h.problems or 0) }}</span>{% endif %}</p>
+        <p class="muted">{{ 'No settings changes.' if show == 'changes' else 'No alerts.' }}{% if show != 'changes' %} <span class="small">{{ checks_ran(h.checks, h.problems or 0) }}</span>{% endif %}</p>
       {% else %}
         {% for item in h.entries %}
           <p>{{ entry_text(item) }} <span class="muted">{{ item.clock }}</span></p>
           {{ entry_notes(item) }}
         {% endfor %}
-        {#- A reading and the check that noticed it can fall in different hours, so no "No checks ran" here -#}
+        {#- A reading and the check that flagged it can fall in different hours. No "No checks" here -#}
         {% if show != 'changes' and h.checks %}<p class="muted small">{{ checks_ran(h.checks, h.problems) }}</p>{% endif %}
       {% endif %}
     </div>
   </div>
 {%- endmacro %}
 
-{#- The creek map as inline SVG, drawn from the inventory's downstream links.
-    Every edge carries a small arrowhead for the way water flows; the edges a
-    problem travelled along turn the flagged colour. -#}
+{#- The creek map as inline SVG. Arrowheads point downstream, and edges a
+    problem travelled along turn the alert colour. -#}
 {% macro creek_map(map, label) -%}
   <svg class="sw-map" viewBox="0 0 {{ map.width }} {{ map.height }}" role="img" aria-label="{{ label }}">
     <defs>
@@ -169,7 +276,7 @@
     {% endfor %}
     {% for n in map.nodes %}
       <g>
-        <title>{{ n.site }}: {{ n.text }}</title>
+        <title>{{ n.site | site_name }}: {{ n.text }}</title>
         <text class="sw-map__label" x="{{ n.x }}" y="{{ n.y - 14 }}" text-anchor="middle">{{ n.short }}</text>
         {% if n.watched is none %}
           <rect class="sw-map__node sw-square--{{ n.key }}" x="{{ n.x - 8 }}" y="{{ n.y - 8 }}" width="16" height="16"></rect>
@@ -181,14 +288,14 @@
   </svg>
 {%- endmacro %}
 
-{#- The reminder at the top of Settings and Advanced settings while there are unsaved changes -#}
+{#- Unsaved changes reminder for the top of the settings pages -#}
 {% macro unsaved_note(count, text) -%}
   <div class="sw-unsaved" id="sw-unsaved" role="status"{% if not count %} hidden{% endif %}>
     <p id="sw-unsaved-text">{{ text }}</p>
   </div>
 {%- endmacro %}
 
-{#- Save changes and, once there are any, Discard changes, together at the bottom -#}
+{#- Save, plus Discard once there's something to discard -#}
 {% macro save_buttons(count) -%}
   <div class="sw-buttons">
     <button type="submit" class="sw-button" name="save" value="y">Save changes</button>
@@ -203,7 +310,7 @@
   </form>
 {%- endmacro %}
 
-{#- Chart data for app.js, as JSON in a block the browser never runs -#}
+{#- Chart data for app.js, as JSON the browser won't run -#}
 {% macro chart_data(id, data) -%}
   <script type="application/json" id="{{ id }}">{{ data | tojson }}</script>
 {%- endmacro %}
