@@ -18,6 +18,9 @@ __pycache__/
 env/
 venv/
 .env
+# The dashboard's .env.bak and half-saved .env.*.tmp files hold the same secrets
+.env.*
+!.env.example
 
 # Packaging artifacts (really should not be committed)
 *.egg-info/
@@ -27,6 +30,9 @@ dist/
 
 # Model Weights/Logs
 *.pt
+!checkpoints/dusk_crayfish_weights.pt
+!checkpoints/cobble_shoal_weights.pt
+!checkpoints/flame_skimmer_temp_clock.pt
 *.pth
 *.pkl
 logs/
