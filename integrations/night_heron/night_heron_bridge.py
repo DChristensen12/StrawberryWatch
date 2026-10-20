@@ -1,5 +1,5 @@
 # Reference code to paste into Night Heron's email_alerts.py.
-# NOT runnable inside StrawberryWatch. Assumes the Night Heron environment:
+# Not runnable inside StrawberryWatch. Assumes the Night Heron environment:
 # Django, base.models.AlertEvent, EMAIL_USER/EMAIL_PASS/FROM_EMAIL credentials,
 # the _send_sms function, and the standard email_alerts.py imports are all in scope.
 # Paste everything below into the alert delivery section.
@@ -9,7 +9,7 @@ def _diagnosis_line(classification):
     """
     Turns a classify_event result into the spill-type sentence for an alert email.
     Takes a plain dict to avoid importing StrawberryWatch code (keeps the repos decoupled).
-    Handles all three verdicts so the email never overstates what the classifier knows.
+    Handles all three verdicts. The email shouldn't overstate what the classifier knows.
     """
     if classification is None:
         return "Spill type was not classified for this anomaly."
@@ -123,8 +123,8 @@ def fire_anomaly_alert_task(
         detailed_email_status = "failure_exception_calling"
     db_email_status = "success" if detailed_email_status == "success" else "failure"
 
-    # _send_sms expects a numeric Series, so wrap the score in one under the
-    # conductivity label since that's what the detector scores on.
+    # _send_sms expects a numeric Series. Wrap the score in one under the
+    # conductivity label, since the detector scores conductivity.
     detailed_sms_status = "pending"
     try:
         if phones:
@@ -176,10 +176,10 @@ def fire_anomaly_alert_task(
         )
 
 
-# How a StrawberryWatch anomaly actually reaches this daemon.
-# Nothing above gets called until something invokes fire_anomaly_alert_task.
-# The daemon's main loop only iterates Django rule objects, so it never touches
-# the GNN. Two options for wiring this up when the systems actually merge:
+# How a StrawberryWatch anomaly reaches this daemon.
+# The code above only runs once something invokes fire_anomaly_alert_task.
+# The daemon's main loop only iterates Django rule objects and doesn't touch
+# the GNN. Two options for wiring this up when the systems merge:
 #
 # Option A (recommended, fits the daemon's table-polling pattern):
 #   StrawberryWatch writes each flagged anomaly as a row into a shared MySQL table
@@ -199,9 +199,9 @@ def fire_anomaly_alert_task(
 #         mark_row_sent(row["id"])
 #
 #   Keeps the daemon as the single owner of delivery and the AlertEvent log.
-#   StrawberryWatch never needs Night Heron's credentials.
+#   StrawberryWatch doesn't need Night Heron's credentials.
 #
 # Option B (simpler, probably not worth it):
 #   StrawberryWatch imports and calls _send_anomaly_email directly with Night
-#   Heron's credentials. Couples the repos and splits alert ownership, so A
-#   is likely the better call.
+#   Heron's credentials. Couples the repos and splits alert ownership. A is
+#   likely the better call.
