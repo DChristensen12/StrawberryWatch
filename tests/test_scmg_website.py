@@ -145,19 +145,14 @@ def exercise(store):
     store.add_note(item, "went to look", author="ana")
     assert store.notes(site="oxford")[0]["author"] == "ana"
     assert store.add_recipient("ana@example.org") and not store.add_recipient("ana@example.org")
-    public = store.label_named(st.PUBLIC)
+    other = store.label_named("Other")
     assert {lb["name"] for lb in store.labels()} == set(st.STARTING_LABELS)
     assert store.add_label("Volunteers") and not store.add_label("volunteers")
-    store.set_label(store.recipients()[0]["id"], public["id"])
+    store.set_label(store.recipients()[0]["id"], other["id"])
     assert (
         store.recipient_by_token(store.recipients()[0]["unsubscribe_token"])["label_id"]
-        == public["id"]
+        == other["id"]
     )
-    token = store.add_signup("ben@example.org")
-    assert (
-        token and store.signup(token)["email"] == "ben@example.org" and store.signups_since(0) == 1
-    )
-    store.remove_signups("ben@example.org")
     store.record_email_result("ana@example.org", "alert", True, "Sent")
     store.log_email("alert", 1, True, "subject", check)
     store.set_pref("email_on", "yes")

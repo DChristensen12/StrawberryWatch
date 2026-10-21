@@ -119,3 +119,30 @@ def test_import_creates_nothing(module, tmp_path):
     result = _run_isolated(f"import {module}", work)
     assert result.returncode == 0, result.stderr
     assert list(work.iterdir()) == [], f"{module} created {list(work.iterdir())}"
+
+
+def test_each_model_has_its_own_folder(tmp_path):
+    (tmp_path / "water_strider").mkdir()
+    assert paths.model_dir("water_strider", tmp_path) == tmp_path / "water_strider"
+    # Nothing there yet, which is where a training script writes its first files
+    assert paths.model_dir("cobble_shoal", tmp_path) == tmp_path / "cobble_shoal"
+
+
+def test_files_loose_in_the_folder_from_an_older_install_still_load(tmp_path):
+    """The website's checkpoints folder held every file loose before the per-model folders."""
+    (tmp_path / "dusk_crayfish_weights.pt").write_bytes(b"")
+    assert paths.model_dir("dusk_crayfish", tmp_path) == tmp_path
+    # Once the model has a folder, that wins
+    (tmp_path / "dusk_crayfish").mkdir()
+    assert paths.model_dir("dusk_crayfish", tmp_path) == tmp_path / "dusk_crayfish"
+
+
+def test_the_checkpoints_folder_has_one_folder_per_served_model():
+    from strawberrywatch.serving import available, detector_class
+
+    base = paths.checkpoints_dir()
+    for model in available():
+        for name in detector_class(model).FILES:
+            assert (base / model / name).is_file(), f"{name} isn't in checkpoints/{model}/"
+    loose = [p.name for p in base.iterdir() if p.is_file()]
+    assert loose == [], f"loose in checkpoints/: {loose}"

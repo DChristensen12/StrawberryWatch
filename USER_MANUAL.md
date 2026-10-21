@@ -336,8 +336,8 @@ python main.py --mode inference
 ```
 
 **`--mode update`** pulls 30 days, continues training from the existing weights,
-and saves them. It overwrites `checkpoints/*_weights.pt` and
-`checkpoints/*_metadata.pkl`.
+and saves them. It overwrites `checkpoints/<model>/<model>_weights.pt` and
+`checkpoints/<model>/<model>_metadata.pkl`.
 
 ```
 python main.py --mode update
@@ -648,9 +648,9 @@ python main.py --model cobble_shoal --mode inference
 ```
 
 ```
-ERROR: weights exist at .../checkpoints/cobble_shoal_weights.pt but metadata is
-missing at .../checkpoints/cobble_shoal_metadata.pkl. Cannot determine the
-trained feature set. Retrain with --mode train.
+ERROR: weights exist at .../checkpoints/cobble_shoal/cobble_shoal_weights.pt but
+metadata is missing at .../checkpoints/cobble_shoal/cobble_shoal_metadata.pkl.
+Cannot determine the trained feature set. Retrain with --mode train.
 ```
 
   Its weights exist but its metadata file doesn't, and `main.py` won't guess
@@ -1157,7 +1157,7 @@ StrawberryWatch/
     raw_data/                the sensor archive, committed
     anomalies/               labelled historical events, committed
     processed_data/          generated caches, NOT committed
-  checkpoints/               trained weights, NOT committed
+  checkpoints/               trained weights, one folder per model
   documents/                 written reports and audits
   assets/                    images used by the README
   notebooks/                 exploratory notebooks
@@ -1206,8 +1206,8 @@ checkpoint or a tensor. Nothing here imports anything of theirs, which is why
 every command in this manual works with Night Heron absent.
 
 For that import to resolve, their server needs `strawberrywatch` installed and a
-checkpoint folder holding each listed model's files, pointed at by
-`GNN_CHECKPOINT_DIR` in their environment. For Dusk Crayfish that is
+checkpoint folder with a folder per listed model holding its files, pointed at
+by `GNN_CHECKPOINT_DIR` in their environment. For Dusk Crayfish that is
 `dusk_crayfish_serving.json` and the weights, for Cobble Shoal
 `cobble_shoal_calibration_real.json` and its weights. `GNN_ENABLED=0` turns the
 models off without touching their code, and their daemon imports us inside a

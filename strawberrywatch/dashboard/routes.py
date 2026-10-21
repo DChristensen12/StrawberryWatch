@@ -327,7 +327,6 @@ def alert_examples():
         reading=examples.reading_chart(samples[0]["view"]),
         score=examples.score_chart(samples[0]["view"]),
         several={"subject": subject, "email": mail.as_text(opener, blocks, _example_footer())},
-        confirmation=mail.confirmation_email(mail.confirm_link(_address(), "a-made-up-token"))[:2],
         website=not ctx().profile.email_in_env,
     )
 
@@ -344,19 +343,14 @@ def alert_example_email(kind):
     samples = examples.items(ref)
     images = {name: url_for("static", filename=path) for name, path in mail.LOGOS.items()}
     unsubscribe = mail.unsubscribe_link(_address(), "a-made-up-token")
-    if kind == "confirmation":
-        _subject, _text, html = mail.confirmation_email(
-            mail.confirm_link(_address(), "a-made-up-token"), images
-        )
+    if kind == "several":
+        chosen = [s["view"] for s in samples[:3]]
+    elif kind.isdigit() and 1 <= int(kind) <= len(samples):
+        chosen = [samples[int(kind) - 1]["view"]]
     else:
-        if kind == "several":
-            chosen = [s["view"] for s in samples[:3]]
-        elif kind.isdigit() and 1 <= int(kind) <= len(samples):
-            chosen = [samples[int(kind) - 1]["view"]]
-        else:
-            abort(404)
-        subject, opener, blocks = mail.alert_parts(chosen, ctx().inventory)
-        _text, html = mail.alert_email(subject, opener, blocks, unsubscribe, images)
+        abort(404)
+    subject, opener, blocks = mail.alert_parts(chosen, ctx().inventory)
+    _text, html = mail.alert_email(subject, opener, blocks, unsubscribe, images)
     # Emails carry their styles inline. This one page allows inline styles
     g.csp = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'"
     return html
@@ -1197,7 +1191,7 @@ def _calibrated_with():
 
     from strawberrywatch import paths
 
-    path = paths.checkpoints_dir() / "water_strider_calibration.json"
+    path = paths.model_dir("water_strider") / "water_strider_calibration.json"
     if not path.exists():
         return None
     calibration = json.loads(path.read_text())
@@ -1366,10 +1360,8 @@ def email():
         labels=labels,
         shown=shown,
         order=order,
-        public=st.PUBLIC,
         can_copy=ctx().copy_list is not None and not copied and not in_env,
         copied=_copied_line(copied),
-        signup_address=f"{_address()}/signup",
     )
 
 
@@ -1431,11 +1423,29 @@ def remove_recipient():
 
 @bp.route("/settings/email/test", methods=["POST"])
 def email_test():
+    """The test email, to the people ticked in the list. No one ticked means everyone shown."""
+    people = _mailing_list().people()
+    shown = request.form.get("label", "")
+    if shown and not ctx().profile.email_in_env:
+        names = {lb["id"]: lb["name"] for lb in ctx().store.labels()}
+        people = [p for p in people if names.get(p.get("label_id")) == shown]
+    ticked = request.form.getlist("to")
+    # Only addresses already on the list, whatever the form sent
+    to = mail.chosen(people, ticked) if ticked else people
+    if not to:
+        flash(
+            "The people ticked aren't on the list any more."
+            if ticked
+            else "There's no one on the list to send a test email to.",
+            "error",
+        )
+        return _back_to_list()
+    only = {p["email"] for p in to}
     try:
         if ctx().profile.email_in_env:
-            sent, count = mail.test(ctx().store)
+            sent, count = mail.test(ctx().store, only)
         else:
-            sent, count = mail.website_test(ctx().store, _address())
+            sent, count = mail.website_test(ctx().store, _address(), only)
     except mail.MailError as exc:
         flash(f"Test email not sent. {exc}", "error")
     else:
@@ -1450,7 +1460,7 @@ def email_test():
                 "below.",
                 "error",
             )
-    return redirect(url_for("main.email"))
+    return _back_to_list()
 
 
 # Labels, website only. They tell people apart and don't grant access.
@@ -1493,9 +1503,7 @@ def save_label():
         old = next((lb["name"] for lb in store.labels() if lb["id"] == label_id), None)
         if old is None:
             abort(404)
-        if old == st.PUBLIC:
-            flash(f"{st.PUBLIC} can't be renamed, since sign-ups are filed under it.", "error")
-        elif name.lower() == st.PUBLIC.lower() or not store.rename_label(label_id, name):
+        if not store.rename_label(label_id, name):
             flash(f"There's already a label called {name}", "error")
         else:
             flash(f"Renamed {old} to {name}.")
@@ -1541,56 +1549,8 @@ def copy_list():
     return redirect(url_for("main.email"))
 
 
-# Public pages, website only. Anyone can reach these without signing in, and
-# none of them show anyone else's address.
-
-# Confirmation emails the sign-up form will send in an hour, across everyone
-SIGNUPS_PER_HOUR = 30
-
-
-@bp.route("/signup", methods=["GET", "POST"])
-def signup():
-    _website_only()
-    store = ctx().store
-    form = forms.SignupForm()
-    if form.validate_on_submit():
-        address = form.email.data
-        if store.signups_since(time.time() - 3600) >= SIGNUPS_PER_HOUR:
-            flash("Too many sign-ups right now. Try again in an hour.", "error")
-            return redirect(url_for("main.signup"))
-        on_list = any(p["email"].lower() == address.lower() for p in store.recipients())
-        token = None if on_list else store.add_signup(address)
-        if token:
-            try:
-                mail.send_confirmation(address, mail.confirm_link(_address(), token))
-            except mail.MailError as exc:
-                logger.warning("confirmation email didn't go: %s", exc)
-                store.remove_signups(address)
-                flash("The confirmation email couldn't be sent. Try again later.", "error")
-                return redirect(url_for("main.signup"))
-        # The same answer whether or not they're already on the list. The form
-        # can't be used to find out who is
-        return render_template("signup.html", sent=address)
-    return render_template("signup.html", form=form, sent=None)
-
-
-@bp.route("/signup/confirm/<token>", methods=["GET", "POST"])
-def confirm_signup(token):
-    """
-    Confirms with a button, not on opening the link, since some mail filters
-    open every link in an email before the person does.
-    """
-    _website_only()
-    store = ctx().store
-    pending = store.signup(token)
-    if pending is None:
-        return render_template("signup_confirm.html", state="expired"), 404
-    if request.method == "POST":
-        public = store.label_named(st.PUBLIC)
-        store.add_recipient(pending["email"], None, public["id"] if public else None, "Sign-up")
-        store.remove_signups(pending["email"])
-        return render_template("signup_confirm.html", state="done")
-    return render_template("signup_confirm.html", state="ask", address=pending["email"])
+# Unsubscribe, the one public page, website only: every alert email links here,
+# and it never shows anyone else's address
 
 
 @bp.route("/unsubscribe/<token>", methods=["GET", "POST"])

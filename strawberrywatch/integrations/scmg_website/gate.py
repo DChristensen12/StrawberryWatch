@@ -1,7 +1,7 @@
 """
 Asks Django whether each visitor is signed in, with get_user, the same way
 login_required does. Anyone who isn't gets sent to the site's login page and
-back again, except on the public sign-up and unsubscribe pages. The dashboard
+back again, except on the unsubscribe page. The dashboard
 only ever sees a username and whether they may edit.
 """
 
@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from strawberrywatch.dashboard.security import SiteLogin
 
-# Open to anyone: signing up for alerts, confirming, unsubscribing, and the
-# stylesheet and logo those pages load. The dashboard checks again by page.
-PUBLIC_PATHS = ("/signup/", "/unsubscribe/", "/static/")
+# Open to anyone: the unsubscribe link in every alert email, and the stylesheet
+# and logo that page loads. The dashboard checks again by page.
+PUBLIC_PATHS = ("/unsubscribe/", "/static/")
 
 
 class Gate:
@@ -22,7 +22,7 @@ class Gate:
 
     def __call__(self, environ, start_response):
         path = environ.get("PATH_INFO", "")
-        if path == "/signup" or path.startswith(PUBLIC_PATHS):
+        if path.startswith(PUBLIC_PATHS):
             return self.app(environ, start_response)
         user = visitor(environ)
         if user is None or user.is_anonymous:

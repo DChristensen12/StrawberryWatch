@@ -268,6 +268,10 @@ table.sw-table { width: 100%; border-collapse: collapse; margin: 0 0 1.5rem; }
 .sw-form-row select, .sw-form-row input[type=text] { max-width: 16rem; }
 .sw-label-row input[type=text] { width: 14rem; }
 .sw-row-actions { white-space: nowrap; }
+/* The Test email tick boxes in the recipients table */
+.sw-table .sw-pick { width: 1%; }
+.sw-pick input { width: 1.15rem; height: 1.15rem; margin: 0; vertical-align: middle; accent-color: var(--heading); }
+.dark-mode .sw-pick input { accent-color: #9ecbff; }
 
 /* An example email's plain text on Alert examples */
 .sw-email { max-width: 46rem; margin: 0 0 0.75rem; padding: 0.75rem 1rem; white-space: pre-wrap; font: inherit; font-size: 0.95rem; background: var(--note-bg); border-left: 4px solid var(--line); }

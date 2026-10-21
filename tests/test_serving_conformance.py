@@ -69,9 +69,9 @@ def detector(request, tmp_path_factory):
     cls = SERVING_REGISTRY[request.param]
     bare = tmp_path_factory.mktemp(request.param)
     for name in cls.FILES:
-        source = paths.checkpoints_dir() / name
+        source = paths.model_dir(request.param) / name
         if not source.exists():
-            pytest.skip(f"no {name} in checkpoints/")
+            pytest.skip(f"no {name} in checkpoints/{request.param}/")
         shutil.copy(source, bare / name)
     # The fallback points at an empty folder. A detector that reached for the
     # repo's checkpoints instead of the one it was handed fails here

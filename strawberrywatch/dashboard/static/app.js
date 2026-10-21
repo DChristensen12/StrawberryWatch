@@ -500,6 +500,31 @@ if (exportForm) {
   update();
 }
 
+// The test email. The tick boxes sit in the recipients table, tied to the form with form=
+
+const testForm = document.getElementById('sw-test-email');
+const testBoxes = [...document.querySelectorAll('input[name=to][form=sw-test-email]')];
+if (testForm && testBoxes.length) {
+  const all = document.getElementById('sw-test-all');
+  const count = document.getElementById('sw-test-count');
+  const none = count.textContent;
+  const update = () => {
+    const ticked = testBoxes.filter((b) => b.checked).length;
+    count.textContent = ticked
+      ? `${ticked} of ${testBoxes.length} ${testBoxes.length === 1 ? 'person' : 'people'} ticked.`
+      : none;
+    all.checked = ticked === testBoxes.length;
+    all.indeterminate = ticked > 0 && ticked < testBoxes.length;
+  };
+  all.hidden = false;
+  all.addEventListener('change', () => {
+    for (const b of testBoxes) b.checked = all.checked;
+    update();
+  });
+  for (const b of testBoxes) b.addEventListener('change', update);
+  update();
+}
+
 // Confirm actions that can't be undone, like deleting a note
 
 document.addEventListener('submit', (event) => {

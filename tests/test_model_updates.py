@@ -32,17 +32,28 @@ def models():
     return wm.registered()
 
 
+def _served():
+    """(model, file name) for every file a served model loads."""
+    from strawberrywatch.serving import available, detector_class
+
+    return [(model, name) for model in available() for name in detector_class(model).FILES]
+
+
+def _copy_installed(folder):
+    for model, name in _served():
+        (folder / model).mkdir(parents=True, exist_ok=True)
+        shutil.copy(ROOT / "checkpoints" / model / name, folder / model / name)
+
+
 def _github(folder, change=None):
     """A main branch in a folder: the installed files and fingerprints, with change(files) made."""
     files = folder / mu.FILES_IN_REPO
-    files.mkdir(parents=True)
-    hashes = mu.installed_hashes()
-    for name in hashes:
-        shutil.copy(ROOT / "checkpoints" / name, files / name)
+    _copy_installed(files)
     if change:
         change(files)
-    for name in hashes:
-        hashes[name] = hashlib.sha256((files / name).read_bytes()).hexdigest()
+    hashes = mu.installed_hashes()
+    for model, name in _served():
+        hashes[name] = hashlib.sha256((files / model / name).read_bytes()).hexdigest()
     listed = folder / mu.HASHES_IN_REPO
     listed.parent.mkdir(parents=True)
     listed.write_text(json.dumps(hashes))
@@ -50,22 +61,21 @@ def _github(folder, change=None):
 
 
 def _recalibrated(files):
-    calibration = json.loads((files / CALIBRATION).read_text())
+    path = files / "water_strider" / CALIBRATION
+    calibration = json.loads(path.read_text())
     calibration["made"] = "2026-10-20"
-    (files / CALIBRATION).write_text(json.dumps(calibration))
+    path.write_text(json.dumps(calibration))
 
 
 def _broken_cobble(files):
-    weights = files / "cobble_shoal_weights.pt"
+    weights = files / "cobble_shoal" / "cobble_shoal_weights.pt"
     weights.write_bytes(weights.read_bytes()[:4096])
 
 
 def _base(tmp_path):
     """The site's checkpoints folder, as installed."""
     base = tmp_path / "checkpoints"
-    base.mkdir()
-    for name in mu.installed_hashes():
-        shutil.copy(ROOT / "checkpoints" / name, base / name)
+    _copy_installed(base)
     return base
 
 
@@ -91,9 +101,9 @@ def test_a_recalibration_on_main_is_checked_test_run_and_used(tmp_path, models):
     result = mu.update_all(store, models, base, github, by="ana")
     assert result["headline"] == "Updated Water Strider. The other models were already up to date."
     folder = mu.model_folder(store, "water_strider", base)
-    assert folder == base / mu.UPDATES / github.latest()
+    assert folder == base / mu.UPDATES / github.latest() / "water_strider"
     assert json.loads((folder / CALIBRATION).read_text())["made"] == "2026-10-20"
-    assert mu.model_folder(store, "dusk_crayfish", base) == base
+    assert mu.model_folder(store, "dusk_crayfish", base) == base / "dusk_crayfish"
     # A check loads it from there, held to GitHub's fingerprints, not the installed ones
     assert runner.load_detector("water_strider", folder) is not None
     assert mu.history(store)[-1][1] == (
@@ -108,7 +118,7 @@ def test_a_file_that_doesnt_match_its_fingerprint_is_refused(tmp_path, models):
     store, base = _store(tmp_path, models), _base(tmp_path)
     github = _github(tmp_path / "gh", _recalibrated)
     # Changed after its fingerprint was listed
-    (tmp_path / "gh" / mu.FILES_IN_REPO / CALIBRATION).write_text("{}")
+    (tmp_path / "gh" / mu.FILES_IN_REPO / "water_strider" / CALIBRATION).write_text("{}")
     result = mu.update_all(store, models, base, github)
     assert result["headline"] == "No models were updated."
     assert result["lines"] == [
@@ -125,14 +135,14 @@ def test_a_model_that_fails_its_test_run_keeps_the_files_it_had(tmp_path, models
     assert len(result["lines"]) == 1
     assert result["lines"][0].startswith("Cobble Shoal wasn't updated: it failed its test run")
     assert mu.current(store, "cobble_shoal") is None
-    assert mu.model_folder(store, "cobble_shoal", base) == base
+    assert mu.model_folder(store, "cobble_shoal", base) == base / "cobble_shoal"
 
 
 def test_undo_goes_back_to_the_files_before_the_last_update(tmp_path, models):
     store, base = _store(tmp_path, models), _base(tmp_path)
     mu.update_all(store, models, base, _github(tmp_path / "gh", _recalibrated), by="ana")
     assert mu.undo(store, "water_strider", by="ben")
-    assert mu.model_folder(store, "water_strider", base) == base
+    assert mu.model_folder(store, "water_strider", base) == base / "water_strider"
     assert not mu.undo(store, "water_strider")
     assert mu.history(store)[-1][1] == "Water Strider went back to its previous files by ben."
 
@@ -142,7 +152,7 @@ def test_installing_newer_files_wins_over_an_older_update(tmp_path, models, monk
     mu.update_all(store, models, base, _github(tmp_path / "gh", _recalibrated))
     reinstalled = {**mu.installed_hashes(), CALIBRATION: "0" * 64}
     monkeypatch.setattr(mu, "installed_hashes", lambda: reinstalled)
-    assert mu.model_folder(store, "water_strider", base) == base
+    assert mu.model_folder(store, "water_strider", base) == base / "water_strider"
 
 
 def test_github_out_of_reach_changes_nothing(tmp_path, models):

@@ -49,14 +49,17 @@ behind the site's own login. Visitors sign in on the same page Night Heron uses.
    `address` in the `website:` block of `settings.yaml`, so change it if the
    site moves.
 
-7. `/strawberrywatch/signup` is open to everyone, along with the confirm and
-   unsubscribe links it sends. It never shows anyone else's address. Link to it
-   from the site's Alerts tab.
+7. The unsubscribe links in the alert emails are open to everyone. They never
+   show anyone else's address. There's no public sign-up: EH&S asked that only
+   people added on Settings > Email alerts get the alerts.
 
 8. The models load from the folder `GNN_CHECKPOINT_DIR` in `.env` names, the
-   same one Night Heron's hook uses. Settings > Model updates downloads newer
-   model files from StrawberryWatch's main branch on GitHub into an `updates`
-   folder inside it, so the site's user has to be able to write there.
+   same one Night Heron's hook uses. Inside it each model has a folder of its
+   own, named after it, the way `checkpoints/` is laid out in the repository.
+   Files left loose in it by an older install still load, so move them into
+   their model's folder when convenient. Settings > Model updates downloads
+   newer model files from StrawberryWatch's main branch on GitHub into an
+   `updates` folder inside it, so the site's user has to be able to write there.
 
 9. Restart both `notifications_frontend` and `email_alerts`, then check the
    journal for a full model pass and Night Heron's own cycle lines:

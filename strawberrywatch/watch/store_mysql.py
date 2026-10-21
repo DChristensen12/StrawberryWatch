@@ -25,7 +25,6 @@ TABLES = (
     "notes",
     "recipients",
     "labels",
-    "signups",
     "emails",
     "email_results",
     "prefs",
@@ -79,9 +78,6 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS labels (
         id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50) NOT NULL UNIQUE,
         added_at DOUBLE NOT NULL)""",
-    """CREATE TABLE IF NOT EXISTS signups (
-        id INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(254) NOT NULL,
-        token VARCHAR(64) NOT NULL UNIQUE, asked_at DOUBLE NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS emails (
         id INT AUTO_INCREMENT PRIMARY KEY, sent_at DOUBLE NOT NULL, kind VARCHAR(16) NOT NULL,
         check_id INT, people INT NOT NULL, ok TINYINT NOT NULL, message TEXT)""",

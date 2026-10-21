@@ -65,7 +65,7 @@ from strawberrywatch.config import Config  # noqa: E402
 from strawberrywatch.ingest import weather_archive  # noqa: E402
 from strawberrywatch.ingest.raw_data_loader import load_archive_by_table  # noqa: E402
 from strawberrywatch.models import model_calls  # noqa: E402
-from strawberrywatch.paths import checkpoints_dir, reports_dir  # noqa: E402
+from strawberrywatch.paths import model_dir, reports_dir  # noqa: E402
 from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 from tests import event_catalog  # noqa: E402
 
@@ -90,7 +90,7 @@ WEATHER_FEATURES = ("rain_mm", "air_temp_c", "shortwave_radiation")
 def dusk_metadata():
     import pickle
 
-    path = checkpoints_dir() / "dusk_crayfish_metadata.pkl"
+    path = model_dir("dusk_crayfish") / "dusk_crayfish_metadata.pkl"
     if not path.exists():
         raise FileNotFoundError(f"no {path.name} in {path.parent}")
     # Our own checkpoint metadata
@@ -101,7 +101,7 @@ def dusk_metadata():
 def load_dusk(metadata):
     from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 
-    weights = checkpoints_dir() / "dusk_crayfish_weights.pt"
+    weights = model_dir("dusk_crayfish") / "dusk_crayfish_weights.pt"
     model = model_calls.build_from_metadata(DuskCrayfish, metadata, device=Config.DEVICE)
     model.load_state_dict(torch.load(weights, map_location=Config.DEVICE, weights_only=True))
     model.eval()

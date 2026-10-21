@@ -44,7 +44,7 @@ from strawberrywatch.models.Cobble_Shoal import (  # noqa: E402
     build_node_registry,
 )
 from strawberrywatch.models.Flame_Skimmer import build_flame_skimmer  # noqa: E402
-from strawberrywatch.paths import checkpoints_dir  # noqa: E402
+from strawberrywatch.paths import model_dir  # noqa: E402
 from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 
 # Share of the optimiser steps spent warming beta from 0 to 1
@@ -246,7 +246,7 @@ def train(net, win, train_anchors, val_anchors, graph, args):
 
 
 def temp_paths(tag, checkpoint_dir=None):
-    root = Path(checkpoint_dir or checkpoints_dir())
+    root = Path(checkpoint_dir or model_dir("flame_skimmer"))
     return (
         root / f"flame_skimmer_temp_{tag}.pt",
         root / f"flame_skimmer_temp_{tag}_calibration.json",
@@ -363,6 +363,7 @@ def main(argv=None):
     z_q = float(pot[f"combined_fisher@{args.operating_q:g}"]["threshold"])
 
     weights, cal_path = temp_paths(args.tag)
+    weights.parent.mkdir(parents=True, exist_ok=True)
     meta = {
         "seed": args.seed,
         "window": WINDOW,

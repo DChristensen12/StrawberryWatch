@@ -1,9 +1,9 @@
 """
 Reading a trained checkpoint without needing this repository around it.
 
-Training writes {name}_weights.pt and {name}_metadata.pkl. paths.checkpoints_dir()
-only works in a checkout, and the functions here take the directory as an
-argument.
+Training writes {name}_weights.pt and {name}_metadata.pkl into the model's own
+folder, paths.model_dir(name). That only works in a checkout, and the functions
+here take the directory as an argument.
 
 The metadata pickle holds a live sklearn StandardScaler. Unpickling it needs
 sklearn, and the same version that wrote it. Normalizing is just a mean and a

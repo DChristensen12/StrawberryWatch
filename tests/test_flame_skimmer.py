@@ -179,7 +179,7 @@ def served():
     from strawberrywatch import paths
     from strawberrywatch.serving.flame import FlameSkimmerDetector
 
-    folder = paths.checkpoints_dir()
+    folder = paths.model_dir("flame_skimmer")
     for name in FlameSkimmerDetector.FILES:
         if not (folder / name).exists():
             pytest.skip(f"no {name} in checkpoints/")

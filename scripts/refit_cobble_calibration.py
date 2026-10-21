@@ -25,7 +25,6 @@ from strawberrywatch import inventory as inv
 from strawberrywatch.anomalies import channel_scoring as scoring
 from strawberrywatch.anomalies import cobble_calibration
 from strawberrywatch.ingest.raw_data_loader import load_archive_by_table
-from strawberrywatch.paths import checkpoints_dir
 from strawberrywatch.preprocessing import node_windows as nw
 
 WINDOW = 24
@@ -112,7 +111,7 @@ def main(argv=None):
             "artifact only describes the fault-free distribution of their scores."
         ),
     }
-    path = checkpoints_dir() / cobble_calibration.REAL
+    path = cobble_calibration.calibration_path(filename=cobble_calibration.REAL)
     path.write_text(json.dumps(blob, indent=1))
 
     print(f"\nsynthetic z_q = {shipped.z_q:.4f}")

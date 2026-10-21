@@ -672,6 +672,29 @@ def test_one_rejected_address_doesnt_stop_the_others(signed_in, mail_account):
     assert "The mail server turned this address down." in page
 
 
+def test_a_test_email_goes_only_to_the_people_ticked(signed_in, mail_account):
+    client, store, _ = signed_in
+    book = mail.mailing_list(store)
+    for address in ("ana@example.org", "ben@example.org", "cy@example.org"):
+        book.add(address)
+    raw = client.get("/settings/email").data
+    page = raw.decode()
+    assert "No one ticked, so it goes to everyone on the list." in page
+    assert 'name="to" value="ben@example.org" form="sw-test-email"' in page
+    client.post(
+        "/settings/email/test",
+        data={"csrf_token": _csrf(raw), "to": ["ana@example.org", "CY@example.org"]},
+    )
+    assert [to for _, to in FakeSMTP.sent] == [["ana@example.org"], ["cy@example.org"]]
+    assert "Test email sent to 2 people." in client.get("/settings/email").data.decode()
+    # Removed in another tab after the page loaded
+    client.post("/settings/email/test", data={"csrf_token": _csrf(raw), "to": "gone@example.org"})
+    assert "The people ticked aren&#39;t on the list any more." in (
+        client.get("/settings/email").data.decode()
+    )
+    assert len(FakeSMTP.sent) == 2
+
+
 def test_a_failed_email_is_recorded_and_never_stops_the_checks(signed_in, mail_account):
     client, store, _ = signed_in
     item = store.noticed(flagged=True)[0]

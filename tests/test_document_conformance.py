@@ -90,7 +90,7 @@ def test_feature_count_matches_the_trained_metadata(doc, flat):
     """F is stated in the table and again in the prose. Both must agree."""
     import pickle
 
-    meta_path = CHECKPOINTS / "dusk_crayfish_metadata.pkl"
+    meta_path = CHECKPOINTS / "dusk_crayfish" / "dusk_crayfish_metadata.pkl"
     if not meta_path.exists():
         pytest.skip("no trained metadata")
     with open(meta_path, "rb") as fh:
@@ -208,8 +208,8 @@ def test_node_prediction_spread_is_not_zero(flat):
     from strawberrywatch.models import model_calls
     from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 
-    weights = CHECKPOINTS / "dusk_crayfish_weights.pt"
-    meta_path = CHECKPOINTS / "dusk_crayfish_metadata.pkl"
+    weights = CHECKPOINTS / "dusk_crayfish" / "dusk_crayfish_weights.pt"
+    meta_path = CHECKPOINTS / "dusk_crayfish" / "dusk_crayfish_metadata.pkl"
     if not (weights.exists() and meta_path.exists()):
         pytest.skip("no trained Dusk Crayfish checkpoint")
     with open(meta_path, "rb") as fh:

@@ -152,12 +152,14 @@ def _detectors():
     model that won't load is logged and left out of the pass, and the rest
     still run.
     """
+    from strawberrywatch import paths
     from strawberrywatch.serving import detector_class
 
     loaded = []
     for name in MODELS:
         try:
-            loaded.append(detector_class(name).cached(_checkpoint_dir(), device="cpu"))
+            folder = paths.model_dir(name, _checkpoint_dir())
+            loaded.append(detector_class(name).cached(folder, device="cpu"))
         except Exception:
             logger.exception("gnn: %s would not load, running the others without it", name)
     return loaded

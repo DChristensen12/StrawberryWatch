@@ -29,8 +29,8 @@ CSP = (
 
 # Reachable without signing in
 OPEN_ENDPOINTS = {"main.login", "main.sign_out", "static"}
-# The website's public pages: signing up for alerts and leaving the list
-PUBLIC_ENDPOINTS = {"main.signup", "main.confirm_signup", "main.unsubscribe"}
+# The website's one public page: leaving the email list, linked from every alert
+PUBLIC_ENDPOINTS = {"main.unsubscribe"}
 
 
 def host_ok(header):

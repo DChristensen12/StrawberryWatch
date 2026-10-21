@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from strawberrywatch.anomalies import channel_scoring
-from strawberrywatch.paths import checkpoints_dir
+from strawberrywatch.paths import model_dir
 
 # Fitted on tests/synthetic windows, shipped with the weights.
 SYNTHETIC = "cobble_shoal_calibration.json"
@@ -99,11 +99,11 @@ class CobbleCalibration:
 
 
 def calibration_path(checkpoint_dir=None, filename=SYNTHETIC):
-    return Path(checkpoint_dir or checkpoints_dir()) / filename
+    return Path(checkpoint_dir or model_dir("cobble_shoal")) / filename
 
 
 def weights_path(checkpoint_dir=None):
-    return Path(checkpoint_dir or checkpoints_dir()) / WEIGHTS_FILENAME
+    return Path(checkpoint_dir or model_dir("cobble_shoal")) / WEIGHTS_FILENAME
 
 
 def load_calibration(filename=SYNTHETIC, checkpoint_dir=None):

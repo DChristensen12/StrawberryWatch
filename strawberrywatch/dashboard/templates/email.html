@@ -52,6 +52,13 @@
       <caption class="visually-hidden">Recipients{% if shown %} labelled {{ shown }}{% endif %}</caption>
       <thead>
         <tr>
+          {#- The tick boxes belong to the Test email form below, through form= -#}
+          {% if can_edit %}
+            <th scope="col" class="sw-pick">
+              <span class="visually-hidden">Test email</span>
+              <input type="checkbox" id="sw-test-all" aria-label="Tick everyone shown" data-sw-js-only hidden>
+            </th>
+          {% endif %}
           <th scope="col">Name</th>
           <th scope="col">Email address</th>
           {% if labels %}<th scope="col">Label</th>{% endif %}
@@ -62,6 +69,12 @@
       <tbody>
         {% for p in people %}
           <tr>
+            {% if can_edit %}
+              <td class="sw-pick">
+                <input type="checkbox" id="test-{{ loop.index }}" name="to" value="{{ p.email }}" form="sw-test-email">
+                <label class="visually-hidden" for="test-{{ loop.index }}">Send the test email to {{ p.email }}</label>
+              </td>
+            {% endif %}
             <td>{{ p.name or '' }}</td>
             <td>{{ p.email }}</td>
             {% if labels %}<td>{% if p.label %}{{ p.label }}{% else %}<span class="muted">No label</span>{% endif %}</td>{% endif %}
@@ -101,10 +114,6 @@
   <p class="muted">No recipients yet.</p>
 {% endif %}
 
-{% if not in_env %}
-  <p>Anyone can sign up at <a href="{{ signup_address }}">{{ signup_address }}</a>. They're added with the {{ public }} label once they confirm by email.</p>
-{% endif %}
-
 {% if can_edit %}
   <h2>Add a recipient</h2>
   <form method="post" novalidate>
@@ -118,9 +127,9 @@
 
 {% if labels %}
   <h2>Labels</h2>
-  <p>Each person has one label. Labels are only for telling people apart and don't give any access. {{ public }} is for sign-ups and can't be renamed.</p>
+  <p>Each person has one label. Labels are only for telling people apart and don't give any access.</p>
   {% if can_edit %}
-    {% for lb in labels if lb.name != public %}
+    {% for lb in labels %}
       <form method="post" action="{{ url_for('main.save_label') }}" class="sw-form-row sw-label-row">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="label_id" value="{{ lb.id }}">
@@ -156,11 +165,14 @@
 {% endif %}
 
 <h2>Test email</h2>
-<p>Sends a test email to everyone on the list, even when email alerts are off.</p>
+<p>Sends a test email to the people ticked in the list, even when email alerts are off.</p>
 {% if last %}<p class="small muted">{{ last }}</p>{% endif %}
 {% if can_edit %}
-  <form method="post" action="{{ url_for('main.email_test') }}">
+  <form method="post" action="{{ url_for('main.email_test') }}" id="sw-test-email">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if shown %}<input type="hidden" name="label" value="{{ shown }}">{% endif %}
+    {% if order %}<input type="hidden" name="sort" value="{{ order }}">{% endif %}
+    <p id="sw-test-count" aria-live="polite">No one ticked, so it goes to everyone {% if shown %}labelled {{ shown }}{% else %}on the list{% endif %}.</p>
     <div class="sw-buttons"><button type="submit" class="sw-button sw-button--secondary"{% if gaps or not total %} disabled{% endif %}>Send a test email</button></div>
   </form>
 {% endif %}

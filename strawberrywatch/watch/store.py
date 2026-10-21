@@ -61,9 +61,6 @@ CREATE TABLE IF NOT EXISTS recipients (
     added_at REAL NOT NULL, label_id INTEGER, unsubscribe_token TEXT, added_by TEXT);
 CREATE TABLE IF NOT EXISTS labels (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, added_at REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS signups (
-    id INTEGER PRIMARY KEY, email TEXT NOT NULL COLLATE NOCASE, token TEXT NOT NULL UNIQUE,
-    asked_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS emails (
     id INTEGER PRIMARY KEY, sent_at REAL NOT NULL, kind TEXT NOT NULL, check_id INTEGER,
     people INTEGER NOT NULL, ok INTEGER NOT NULL, message TEXT);
@@ -89,12 +86,9 @@ ADDED_COLUMNS = (
 )
 
 # Recipient labels, website only. They're for telling people apart and don't grant access.
-PUBLIC = "Public"
-STARTING_LABELS = ("SCMG", "EH&S", "Admin", PUBLIC)
-# How long a sign-up's confirmation link works
-SIGNUP_DAYS = 7
-# One confirmation email per address in this long. The form can't flood anyone
-SIGNUP_RESEND_SECONDS = 600
+STARTING_LABELS = ("Admin", "EH&S", "SCMG", "Other")
+# The public sign-up's label, from before EH&S asked for alerts to stay off the public
+OLD_PUBLIC = "Public"
 
 READING_COLUMNS = (
     "conductivity",
@@ -650,6 +644,11 @@ class Store:
         with self.db() as db:
             rows = db.execute("SELECT id, name FROM labels ORDER BY id").fetchall()
         if rows:
+            names = {r["name"].lower(): r["id"] for r in rows}
+            if OLD_PUBLIC.lower() in names:
+                self._retire_public(names)
+                with self.db() as db:
+                    rows = db.execute("SELECT id, name FROM labels ORDER BY id").fetchall()
             return [dict(r) for r in rows]
         try:
             with self.db() as db:
@@ -675,13 +674,23 @@ class Store:
             return False
         return True
 
+    def _retire_public(self, names):
+        """Public becomes Other, or its people join Other when there already is one."""
+        public = names[OLD_PUBLIC.lower()]
+        with self.db() as db:
+            if "other" in names:
+                db.execute(
+                    "UPDATE recipients SET label_id = ? WHERE label_id = ?",
+                    (names["other"], public),
+                )
+                db.execute("DELETE FROM labels WHERE id = ?", (public,))
+            else:
+                db.execute("UPDATE labels SET name = ? WHERE id = ?", ("Other", public))
+
     def rename_label(self, label_id, name):
-        """
-        Returns False if refused. Public keeps its name, since sign-ups are filed
-        under it, and no other label can take it.
-        """
+        """Returns False if there's no such label, or another one already has that name."""
         names = {lb["id"]: lb["name"] for lb in self.labels()}
-        if names.get(label_id) in (None, PUBLIC) or name.lower() == PUBLIC.lower():
+        if label_id not in names:
             return False
         try:
             with self.db() as db:
@@ -689,45 +698,6 @@ class Store:
         except self.IntegrityError:
             return False
         return True
-
-    def add_signup(self, email, now=None):
-        """A token for a new sign-up, or None if this address was sent one in the last 10 minutes."""
-        now = now or time.time()
-        with self.db() as db:
-            db.execute("DELETE FROM signups WHERE asked_at < ?", (now - SIGNUP_DAYS * 86400,))
-            recent = db.execute(
-                "SELECT id FROM signups WHERE email = ? AND asked_at >= ?",
-                (email, now - SIGNUP_RESEND_SECONDS),
-            ).fetchone()
-            if recent:
-                return None
-            token = secrets.token_urlsafe(24)
-            db.execute(
-                "INSERT INTO signups (email, token, asked_at) VALUES (?, ?, ?)",
-                (email, token, now),
-            )
-        return token
-
-    def signups_since(self, since):
-        with self.db() as db:
-            row = db.execute(
-                "SELECT COUNT(*) AS n FROM signups WHERE asked_at >= ?", (since,)
-            ).fetchone()
-        return int(row["n"])
-
-    def signup(self, token, now=None):
-        """A sign-up still waiting for its confirmation, or None once it's used or expired."""
-        now = now or time.time()
-        with self.db() as db:
-            row = db.execute(
-                "SELECT * FROM signups WHERE token = ? AND asked_at >= ?",
-                (token, now - SIGNUP_DAYS * 86400),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def remove_signups(self, email):
-        with self.db() as db:
-            db.execute("DELETE FROM signups WHERE email = ?", (email,))
 
     def recipient(self, recipient_id):
         with self.db() as db:

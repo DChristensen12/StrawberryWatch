@@ -71,9 +71,10 @@ Stand-ins:
   minutes. Here none comes, so to see a model's findings, start with `--models`.
 - **GitHub.** Model updates reads `test_live_dashboard/data/github`, a folder
   laid out like StrawberryWatch's main branch, never the real GitHub. Updates
-  are written beside a copy of the model files in `test_live_dashboard/data/checkpoints`,
-  never into the repository's `checkpoints` folder. On the website each update
-  runs in a process of its own; here it runs on a thread.
+  are written beside a copy of the model files in
+  `test_live_dashboard/data/checkpoints`, one folder per model like the
+  website's, never into the repository's `checkpoints` folder. On the website
+  each update runs in a process of its own; here it runs on a thread.
 - **The rest of the site.** `/` goes to the dashboard and Sign out goes to a
   one-line placeholder page.
 - **http, not https.** So the cookie isn't marked Secure here.

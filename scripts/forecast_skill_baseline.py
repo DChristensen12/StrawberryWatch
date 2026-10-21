@@ -36,8 +36,8 @@ LAG_24H = pd.Timedelta(hours=24)
 
 
 def load_model_and_metadata():
-    meta_path = paths.checkpoints_dir() / f"{MODEL_NAME}_metadata.pkl"
-    weights_path = paths.checkpoints_dir() / f"{MODEL_NAME}_weights.pt"
+    meta_path = paths.model_dir(MODEL_NAME) / f"{MODEL_NAME}_metadata.pkl"
+    weights_path = paths.model_dir(MODEL_NAME) / f"{MODEL_NAME}_weights.pt"
     # Our own checkpoint metadata
     with open(meta_path, "rb") as f:
         metadata = pickle.load(f)  # nosec B301
@@ -77,7 +77,7 @@ def step1_split_and_correspondence(metadata):
 
     mean_match = np.allclose(scaler.mean_, metadata["scaler"].mean_)
     scale_match = np.allclose(scaler.scale_, metadata["scaler"].scale_)
-    print(f"checking whether models/{MODEL_NAME}_weights.pt corresponds to this exact split:")
+    print(f"checking whether {MODEL_NAME}_weights.pt corresponds to this exact split:")
     print(
         f"  recomputed scaler vs saved metadata scaler, mean match: {mean_match}, scale match: {scale_match}"
     )
@@ -85,7 +85,7 @@ def step1_split_and_correspondence(metadata):
         print(f"  MATCH. This checkpoint was fit on {CORPUS_PATH} as it exists right now,")
         print("  so its held-out split is exactly the one computed below.")
     else:
-        print(f"  MISMATCH. models/{MODEL_NAME}_weights.pt does NOT correspond to the current")
+        print(f"  MISMATCH. {MODEL_NAME}_weights.pt does NOT correspond to the current")
         print("  corpus/pipeline. Everything below is being computed on a split that does not")
         print("  match what this checkpoint actually held out during its own training, retrain")
         print("  first (see command at the end) before trusting these numbers.")

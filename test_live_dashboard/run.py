@@ -155,7 +155,7 @@ def seed(folder, event, calm=False, on=None):
     store.set_pref("email_on", "yes")
     labels = {lb["name"]: lb["id"] for lb in store.labels()}
     store.add_recipient("first.person@example.org", "First Person", labels["SCMG"])
-    store.add_recipient("second.person@example.org", None, labels["Public"], "Sign-up")
+    store.add_recipient("second.person@example.org", None, labels["EH&S"])
     return store
 
 
@@ -194,8 +194,8 @@ class StandInGate:
 
         keep_current(self.store)
         path = environ.get("PATH_INFO", "")
-        # The sign-up pages see a visitor, the way the real gate lets them through
-        if path != "/signup" and not path.startswith(PUBLIC_PATHS):
+        # The unsubscribe page sees a visitor, the way the real gate lets them through
+        if not path.startswith(PUBLIC_PATHS):
             environ[SiteLogin.USER] = self.username
             environ[SiteLogin.CAN_EDIT] = self.can_edit
         return self.app(environ, start_response)
@@ -218,14 +218,19 @@ def rest_of_site(request):
     return Response("Not part of the test dashboard.", status=404)
 
 
+def served_files():
+    """(model, file name) for every file a served model loads."""
+    from strawberrywatch.serving import available, detector_class
+
+    return [(model, name) for model in available() for name in detector_class(model).FILES]
+
+
 def copy_model_files():
     """The files the models were installed with, the way the website's checkpoints folder holds them."""
-    from strawberrywatch.watch.runner import HASHES_PATH
-
     shutil.rmtree(MODEL_FILES, ignore_errors=True)
-    MODEL_FILES.mkdir(parents=True)
-    for name in json.loads(HASHES_PATH.read_text()):
-        shutil.copy(HERE.parent / "checkpoints" / name, MODEL_FILES / name)
+    for model, name in served_files():
+        (MODEL_FILES / model).mkdir(parents=True, exist_ok=True)
+        shutil.copy(HERE.parent / "checkpoints" / model / name, MODEL_FILES / model / name)
 
 
 def stand_in_github(state):
@@ -239,19 +244,20 @@ def stand_in_github(state):
 
     shutil.rmtree(GITHUB, ignore_errors=True)
     files = GITHUB / mu.FILES_IN_REPO
-    files.mkdir(parents=True)
     hashes = json.loads(HASHES_PATH.read_text())
-    for name in hashes:
-        shutil.copy(HERE.parent / "checkpoints" / name, files / name)
+    for model, name in served_files():
+        (files / model).mkdir(parents=True, exist_ok=True)
+        shutil.copy(HERE.parent / "checkpoints" / model / name, files / model / name)
     if state in ("newer", "broken"):
-        calibration = json.loads((files / "water_strider_calibration.json").read_text())
+        calibration_path = files / "water_strider" / "water_strider_calibration.json"
+        calibration = json.loads(calibration_path.read_text())
         calibration["made"] = time.strftime("%Y-%m-%d")
-        (files / "water_strider_calibration.json").write_text(json.dumps(calibration, indent=2))
+        calibration_path.write_text(json.dumps(calibration, indent=2))
     if state == "broken":
-        weights = files / "cobble_shoal_weights.pt"
+        weights = files / "cobble_shoal" / "cobble_shoal_weights.pt"
         weights.write_bytes(weights.read_bytes()[:4096])
-    for name in hashes:
-        hashes[name] = hashlib.sha256((files / name).read_bytes()).hexdigest()
+    for model, name in served_files():
+        hashes[name] = hashlib.sha256((files / model / name).read_bytes()).hexdigest()
     listed = GITHUB / mu.HASHES_IN_REPO
     listed.parent.mkdir(parents=True)
     listed.write_text(json.dumps(hashes, indent=2, sort_keys=True) + "\n")

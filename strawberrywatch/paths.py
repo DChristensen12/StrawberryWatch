@@ -81,6 +81,19 @@ def checkpoints_dir(root=None):
     return (root or _require_root("the checkpoints directory", "model_dir")) / "checkpoints"
 
 
+def model_dir(name, base=None):
+    """
+    One model's files, in a folder named after the model inside base, which is
+    checkpoints_dir() unless given. An install from before the per-model folders
+    keeps them loose in base, and then base is where they're read from.
+    """
+    base = Path(base) if base is not None else checkpoints_dir()
+    folder = base / name
+    if not folder.is_dir() and any(base.glob(f"{name}_*")):
+        return base
+    return folder
+
+
 def reports_dir(root=None):
     return (root or _require_root("the reports directory", "an output path")) / "reports"
 

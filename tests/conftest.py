@@ -11,7 +11,7 @@ MODEL_DIR = paths.checkpoints_dir()
 
 
 def _load_metadata(model_name):
-    path = MODEL_DIR / f"{model_name}_metadata.pkl"
+    path = paths.model_dir(model_name, MODEL_DIR) / f"{model_name}_metadata.pkl"
     if not path.exists():
         pytest.skip(
             f"No {model_name}_metadata.pkl found. Run "
@@ -24,7 +24,7 @@ def _load_metadata(model_name):
 def _build_model(model_name, metadata):
     from strawberrywatch.config import Config
 
-    weights_path = MODEL_DIR / f"{model_name}_weights.pt"
+    weights_path = paths.model_dir(model_name, MODEL_DIR) / f"{model_name}_weights.pt"
     if not weights_path.exists():
         pytest.skip(f"No {model_name}_weights.pt found.")
 

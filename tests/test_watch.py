@@ -329,7 +329,7 @@ def test_model_files_are_checked_against_their_hashes(tmp_path):
 
     cls = detector_class("dusk_crayfish")
     for name in cls.FILES:
-        shutil.copy(paths.checkpoints_dir() / name, tmp_path / name)
+        shutil.copy(paths.model_dir("dusk_crayfish") / name, tmp_path / name)
     runner.verify_files(cls, tmp_path)
     with open(tmp_path / cls.FILES[0], "ab") as f:
         f.write(b"tampered")

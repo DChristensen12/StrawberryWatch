@@ -13,7 +13,7 @@ Each test gets a peaks-over-threshold tail, solved for its third of the false
 alarm budget. Sensors with too few clusters share a pooled tail with others of
 their kind. It passes if the held-back months stay within twice the budget.
 
-Writes to checkpoints/ by default. If you replace the shipped file, update its
+Writes to checkpoints/water_strider/ by default. If you replace the shipped file, update its
 line in strawberrywatch/watch/model_files.sha256.json too.
 """
 
@@ -123,7 +123,9 @@ def main(argv=None):
     parser.add_argument("--split", choices=("blocked", "chronological"), default="blocked")
     parser.add_argument("--fit-end", default=FIT_END, help="only with --split chronological")
     parser.add_argument("--q-total", type=float, default=wsm.Q_TOTAL)
-    parser.add_argument("--out", default=None, help="folder to write into, checkpoints/ by default")
+    parser.add_argument(
+        "--out", default=None, help="folder to write into, checkpoints/water_strider/ by default"
+    )
     parser.add_argument(
         "--pool",
         choices=("thin", "all"),
@@ -285,7 +287,8 @@ def main(argv=None):
         "skipped": skipped,
         "sensors": sensors,
     }
-    out = Path(args.out) if args.out else paths.checkpoints_dir()
+    out = Path(args.out) if args.out else paths.model_dir("water_strider")
+    out.mkdir(parents=True, exist_ok=True)
     path = out / "water_strider_calibration.json"
     path.write_text(json.dumps(calibration, indent=1, sort_keys=True))
 

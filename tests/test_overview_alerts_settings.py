@@ -175,7 +175,7 @@ def test_alert_examples_needs_sign_in_on_the_website(models, tmp_path):
         == 403
     )
     page = _website(store, models).get("/strawberrywatch/alerts/examples").data.decode()
-    assert "Sign-up confirmation" in page and "Confirm your StrawberryWatch alerts" in page
+    assert "Sign-up confirmation" not in page and "Confirm your StrawberryWatch alerts" not in page
 
 
 # Settings: the rows
@@ -200,24 +200,46 @@ def test_settings_links_are_full_rows_without_badges(models, tmp_path):
 # Settings: recipient labels, website only
 
 
-def test_labels_start_with_four_and_public_keeps_its_name(models, tmp_path):
+def test_labels_start_with_admin_ehs_scmg_and_other(models, tmp_path):
     store = _site_store(tmp_path / "s", models)
-    assert [lb["name"] for lb in store.labels()] == ["SCMG", "EH&S", "Admin", "Public"]
-    public, scmg = store.label_named("Public"), store.label_named("SCMG")
-    assert not store.rename_label(public["id"], "Everyone")
-    assert not store.rename_label(scmg["id"], "public")
+    assert [lb["name"] for lb in store.labels()] == ["Admin", "EH&S", "SCMG", "Other"]
+    scmg = store.label_named("SCMG")
+    assert not store.rename_label(scmg["id"], "other")
     assert store.rename_label(scmg["id"], "SCMG staff")
     assert not store.add_label("eh&s")
+
+
+def test_an_old_public_label_becomes_other(models, tmp_path):
+    """From before EH&S asked for no public sign-up."""
+    store = _site_store(tmp_path / "s", models)
+    with store.db() as db:
+        for name in ("SCMG", "EH&S", "Admin", "Public"):
+            db.execute("INSERT INTO labels (name, added_at) VALUES (?, 0)", (name,))
+        public = db.execute("SELECT id FROM labels WHERE name = 'Public'").fetchone()[0]
+    store.add_recipient("cy@example.org", None, public, "Sign-up")
+    assert [lb["name"] for lb in store.labels()] == ["SCMG", "EH&S", "Admin", "Other"]
+    assert store.recipients()[0]["label_id"] == store.label_named("Other")["id"]
+
+
+def test_an_old_public_label_joins_an_existing_other(models, tmp_path):
+    store = _site_store(tmp_path / "s", models)
+    with store.db() as db:
+        for name in ("Other", "Public"):
+            db.execute("INSERT INTO labels (name, added_at) VALUES (?, 0)", (name,))
+        public = db.execute("SELECT id FROM labels WHERE name = 'Public'").fetchone()[0]
+    store.add_recipient("cy@example.org", None, public)
+    assert [lb["name"] for lb in store.labels()] == ["Other"]
+    assert store.recipients()[0]["label_id"] == store.label_named("Other")["id"]
 
 
 def test_recipients_filter_and_sort_by_label(models, tmp_path):
     store = _site_store(tmp_path / "s", models)
     ids = {lb["name"]: lb["id"] for lb in store.labels()}
     store.add_recipient("zed@example.org", None, ids["Admin"])
-    store.add_recipient("amy@example.org", None, ids["Public"])
+    store.add_recipient("amy@example.org", None, ids["Other"])
     store.add_recipient("bo@example.org", None, ids["EH&S"])
     client = _website(store, models)
-    page = client.get("/strawberrywatch/settings/email?label=Public").data.decode()
+    page = client.get("/strawberrywatch/settings/email?label=Other").data.decode()
     assert "amy@example.org" in page and "zed@" not in page and "bo@" not in page
     page = client.get("/strawberrywatch/settings/email?sort=label").data.decode()
     order = [m for m in re.findall(r"<td>(\w+@example\.org)</td>", page)]
@@ -245,61 +267,71 @@ def test_editors_add_and_rename_labels(models, tmp_path):
         "/strawberrywatch/settings/email/labels", data={"csrf_token": token, "name": "Volunteers"}
     )
     assert store.label_named("Volunteers")
-    public = store.label_named("Public")
+    other = store.label_named("Other")
     client.post(
         "/strawberrywatch/settings/email/labels",
-        data={"csrf_token": token, "name": "Everyone", "label_id": str(public["id"])},
+        data={"csrf_token": token, "name": "Contractors", "label_id": str(other["id"])},
     )
-    assert store.label_named("Public") and not store.label_named("Everyone")
+    assert store.label_named("Contractors") and not store.label_named("Other")
     page = client.get("/strawberrywatch/settings/email").data.decode()
-    assert "Public can&#39;t be renamed" in page
+    assert "Renamed Other to Contractors." in page
     viewer = _website(store, models, user="ben", can_edit=False).get(
         "/strawberrywatch/settings/email"
     )
     assert "Volunteers" in viewer.data.decode() and "Add label" not in viewer.data.decode()
 
 
-def test_a_signup_confirms_by_email_and_lands_as_public(models, tmp_path, monkeypatch):
-    import email_validator
+# Settings: a test email to chosen people
 
-    class Checked:
-        def __init__(self, address):
-            self.normalized, self.mx = address, [(10, "mx")]
 
-    monkeypatch.setattr(email_validator, "validate_email", lambda a, **k: Checked(a))
+def _three_recipients(store):
+    scmg, admin = store.label_named("SCMG")["id"], store.label_named("Admin")["id"]
+    for address, label in (
+        ("ana@example.org", scmg),
+        ("ben@example.org", scmg),
+        ("cy@example.org", admin),
+    ):
+        store.add_recipient(address, None, label)
+
+
+def test_a_test_email_goes_to_the_people_ticked(models, tmp_path, monkeypatch):
     sent = _fake_mail(monkeypatch)
     store = _site_store(tmp_path / "s", models)
-    store.add_recipient("ana@example.org", "Ana", store.label_named("SCMG")["id"])
-    public = _website(store, models, user=None)
-    page = public.get("/strawberrywatch/signup").data.decode()
-    # Signed out, nobody else's address or label is anywhere on the page
-    assert "ana@example.org" not in page and "SCMG" not in page and "<select" not in page
-    response = public.post(
-        "/strawberrywatch/signup", data={"csrf_token": _csrf(page), "email": "cy@example.org"}
+    _three_recipients(store)
+    client = _website(store, models)
+    page = client.get("/strawberrywatch/settings/email").data.decode()
+    assert 'name="to" value="ben@example.org" form="sw-test-email"' in page
+    # An address that isn't on the list is left out, whatever the form sends
+    client.post(
+        "/strawberrywatch/settings/email/test",
+        data={"csrf_token": _csrf(page), "to": ["ben@example.org", "eve@example.org"]},
     )
-    assert "Check your email" in response.data.decode()
-    assert [p["email"] for p in store.recipients()] == ["ana@example.org"]
-    (message, (to,)) = sent[0]
-    assert to == "cy@example.org" and message["Subject"] == "Confirm your StrawberryWatch alerts"
-    link = re.search(
-        r"https://localhost/strawberrywatch(/signup/confirm/[\w-]+)",
-        message.get_body(("plain",)).get_content(),
+    assert [list(to) for _, to in sent] == [["ben@example.org"]]
+    assert (
+        "Test email sent to 1 person."
+        in client.get("/strawberrywatch/settings/email").data.decode()
     )
-    confirm = public.get("/strawberrywatch" + link.group(1)).data.decode()
-    assert "Send StrawberryWatch's alerts" in confirm and "cy@example.org" in confirm
-    # Opening the link alone doesn't sign anyone up
-    assert len(store.recipients()) == 1
-    done = public.post("/strawberrywatch" + link.group(1), data={"csrf_token": _csrf(confirm)})
-    assert "You're on the list" in done.data.decode()
-    cy = store.recipients()[-1]
-    assert cy["email"] == "cy@example.org" and cy["label_id"] == store.label_named("Public")["id"]
-    assert public.get("/strawberrywatch" + link.group(1)).status_code == 404
-    # Asking for someone already on the list says the same thing and sends no email
-    page = public.get("/strawberrywatch/signup").data.decode()
-    again = public.post(
-        "/strawberrywatch/signup", data={"csrf_token": _csrf(page), "email": "ana@example.org"}
+
+
+def test_with_no_one_ticked_everyone_shown_gets_it(models, tmp_path, monkeypatch):
+    sent = _fake_mail(monkeypatch)
+    store = _site_store(tmp_path / "s", models)
+    _three_recipients(store)
+    client = _website(store, models)
+    page = client.get("/strawberrywatch/settings/email?label=SCMG").data.decode()
+    assert "No one ticked, so it goes to everyone labelled SCMG." in page
+    response = client.post(
+        "/strawberrywatch/settings/email/test", data={"csrf_token": _csrf(page), "label": "SCMG"}
     )
-    assert "Check your email" in again.data.decode() and len(sent) == 1
+    assert response.headers["Location"].endswith("/settings/email?label=SCMG")
+    assert sorted(to[0] for _, to in sent) == ["ana@example.org", "ben@example.org"]
+
+
+def test_view_only_sees_no_test_email_tick_boxes(models, tmp_path):
+    store = _site_store(tmp_path / "s", models)
+    _three_recipients(store)
+    page = _website(store, models, can_edit=False).get("/strawberrywatch/settings/email")
+    assert 'name="to"' not in page.data.decode() and "sw-test-email" not in page.data.decode()
 
 
 def test_signed_out_sees_no_list_and_unsubscribe_needs_the_token(models, tmp_path):
@@ -315,7 +347,16 @@ def test_signed_out_sees_no_list_and_unsubscribe_needs_the_token(models, tmp_pat
     assert store.recipients() == []
 
 
-def test_the_local_dashboard_has_no_labels_or_signup(models, tmp_path):
+def test_there_is_no_public_sign_up(models, tmp_path):
+    """EH&S asked that only people added on Email alerts get the alerts."""
+    store = _site_store(tmp_path / "s", models)
+    public = _website(store, models, user=None)
+    assert public.get("/strawberrywatch/signup").status_code != 200
+    page = _website(store, models).get("/strawberrywatch/settings/email").data.decode()
+    assert "/signup" not in page and "Public" not in page
+
+
+def test_the_local_dashboard_has_no_labels(models, tmp_path):
     store = _store(tmp_path / "s", models)
     client = _client(store, models)
     assert client.get("/signup").status_code == 404

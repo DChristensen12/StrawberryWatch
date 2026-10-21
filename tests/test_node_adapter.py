@@ -268,9 +268,9 @@ def test_dusk_crayfish_weights_and_metadata_are_untouched():
     """
     import pickle
 
-    from strawberrywatch.paths import checkpoints_dir
+    from strawberrywatch.paths import model_dir
 
-    path = checkpoints_dir() / "dusk_crayfish_metadata.pkl"
+    path = model_dir("dusk_crayfish") / "dusk_crayfish_metadata.pkl"
     if not path.exists():
         pytest.skip("no Dusk Crayfish metadata")
     meta = pickle.loads(path.read_bytes())
@@ -301,10 +301,10 @@ def test_dusk_crayfish_scores_deterministically():
     import pickle
 
     from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
-    from strawberrywatch.paths import checkpoints_dir
+    from strawberrywatch.paths import model_dir
 
-    weights = checkpoints_dir() / "dusk_crayfish_weights.pt"
-    meta_path = checkpoints_dir() / "dusk_crayfish_metadata.pkl"
+    weights = model_dir("dusk_crayfish") / "dusk_crayfish_weights.pt"
+    meta_path = model_dir("dusk_crayfish") / "dusk_crayfish_metadata.pkl"
     if not (weights.exists() and meta_path.exists()):
         pytest.skip("no Dusk Crayfish checkpoint")
     meta = pickle.loads(meta_path.read_bytes())

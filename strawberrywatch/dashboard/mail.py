@@ -386,9 +386,17 @@ def after_check(store, inventory, check_id):
         logger.exception("emailing after check %s failed", check_id)
 
 
-def test(store):
-    """Sends a test email to everyone on the list. Raises MailError."""
-    people = mailing_list(store).people()
+def chosen(people, only):
+    """The people whose address is in only, ignoring case. None means everyone."""
+    if only is None:
+        return people
+    wanted = {address.lower() for address in only}
+    return [p for p in people if p["email"].lower() in wanted]
+
+
+def test(store, only=None):
+    """Sends a test email to everyone on the list, or the addresses in only. Raises MailError."""
+    people = chosen(mailing_list(store).people(), only)
     body = (
         "This is a test from StrawberryWatch. If you got it, you're on its email "
         "list, and alerts about unusual readings in Strawberry Creek will reach you.\n\n" + FOOTER
@@ -425,10 +433,6 @@ def render(name, **context):
 
 def unsubscribe_link(address, token):
     return f"{address}/unsubscribe/{token}"
-
-
-def confirm_link(address, token):
-    return f"{address}/signup/confirm/{token}"
 
 
 def html_message(address, to, subject, text, html, unsubscribe=None):
@@ -500,9 +504,9 @@ def website_alert(store, inventory, check_id, address):
         logger.exception("emailing after check %s failed", check_id)
 
 
-def website_test(store, address):
-    """A test email to everyone on the website's list. Raises MailError."""
-    people = store.recipients()
+def website_test(store, address, only=None):
+    """A test email to everyone on the website's list, or the addresses in only. Raises MailError."""
+    people = chosen(store.recipients(), only)
     subject = "StrawberryWatch test email"
     opener = (
         "This is a test from StrawberryWatch. If you got it, alerts about Strawberry Creek "
@@ -522,39 +526,3 @@ def website_test(store, address):
         store.log_email("test", 0, False, str(exc))
         raise
     return _record(store, "test", people, results, subject), len(people)
-
-
-def confirmation_email(link, images=INLINE):
-    """(subject, text, html) asking someone to confirm they want the alerts."""
-    subject = "Confirm your StrawberryWatch alerts"
-    lines = [
-        "Someone, hopefully you, asked for StrawberryWatch's alerts about Strawberry Creek "
-        "at this address.",
-        "Nothing is sent until you confirm. If it wasn't you, ignore this email.",
-    ]
-    text = "\n\n".join([*lines, f"Confirm: {link}"])
-    html = render(
-        "email_message.html",
-        subject=subject,
-        opener=lines[0],
-        blocks=[],
-        after=lines[1:],
-        action={"text": "Confirm", "href": link},
-        footer="StrawberryWatch, from the Strawberry Creek Monitoring Group.",
-        unsubscribe=None,
-        images=images,
-    )
-    return subject, text, html
-
-
-def send_confirmation(email, link):
-    """Sends one confirmation email. Raises MailError when it doesn't go."""
-    subject, text, html = confirmation_email(link)
-    results = deliver(
-        [{"email": email}],
-        lambda sender_address, person: html_message(
-            sender_address, person["email"], subject, text, html
-        ),
-    )
-    if not results or not results[0][1]:
-        raise MailError(results[0][2] if results else "The email didn't go.")

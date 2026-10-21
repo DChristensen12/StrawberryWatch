@@ -110,22 +110,6 @@ class LabelForm(FlaskForm):
     )
 
 
-class SignupForm(FlaskForm):
-    email = StringField(
-        "Email address",
-        filters=[_strip],
-        validators=[DataRequired(message="Enter an email address"), Length(max=254)],
-    )
-
-    def validate_email(self, field):
-        from strawberrywatch.dashboard import mail
-
-        try:
-            field.data, _note = mail.check_address(field.data)
-        except mail.MailError as exc:
-            raise ValidationError(str(exc)) from None
-
-
 def settings_form(sites, labels, models):
     """Settings for everyone: which sites, how many alerts, rain, and which models are on."""
 

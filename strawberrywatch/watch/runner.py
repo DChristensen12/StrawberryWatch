@@ -71,7 +71,7 @@ def load_detector(name, folder=None):
     from strawberrywatch import paths
     from strawberrywatch.serving import detector_class
 
-    folder = Path(folder or paths.checkpoints_dir())
+    folder = Path(folder) if folder else paths.model_dir(name)
     cls = detector_class(name)
     listed = folder / HASHES
     verify_files(cls, folder, json.loads(listed.read_text()) if listed.exists() else None)

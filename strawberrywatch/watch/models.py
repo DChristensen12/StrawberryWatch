@@ -58,7 +58,7 @@ def _dusk_crayfish(cls, _inventory):
     from strawberrywatch.anomalies.anomaly_detector import MIN_TIMESTEPS_OVER_THRESHOLD
     from strawberrywatch.config import Config
 
-    blob = json.loads((paths.checkpoints_dir() / "dusk_crayfish_serving.json").read_text())
+    blob = json.loads((paths.model_dir(cls.name) / "dusk_crayfish_serving.json").read_text())
     sites = sorted(blob["location_to_idx"], key=blob["location_to_idx"].get)
     return ModelInfo(
         name=cls.name,
@@ -109,7 +109,7 @@ def _water_strider(cls, inventory):
     from strawberrywatch import paths
     from strawberrywatch.anomalies.rain_gate import RainGate
 
-    path = paths.checkpoints_dir() / "water_strider_calibration.json"
+    path = paths.model_dir(cls.name) / "water_strider_calibration.json"
     calibration = json.loads(path.read_text()) if path.exists() else {"sensors": {}}
     sensors = {
         key: entry
@@ -139,7 +139,7 @@ def _flame_skimmer(cls, inventory):
     from strawberrywatch.serving.flame import CALIBRATION
 
     info = _cobble_shoal(cls, inventory)
-    path = paths.checkpoints_dir() / CALIBRATION
+    path = paths.model_dir(cls.name) / CALIBRATION
     corpus = json.loads(path.read_text()).get("corpus", {}) if path.exists() else {}
     names = {canonical: name for name, canonical in nw.VARIABLE_MAP.items()}
     offline = set()

@@ -18,7 +18,7 @@ from strawberrywatch.models import Water_Strider as wsm
 from strawberrywatch.serving.contract import notice
 
 ROOT = Path(__file__).resolve().parent.parent
-CALIBRATION = paths.checkpoints_dir() / "water_strider_calibration.json"
+CALIBRATION = paths.model_dir("water_strider") / "water_strider_calibration.json"
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +30,7 @@ def calibration():
 def detector():
     from strawberrywatch.serving.water_strider import WaterStriderDetector
 
-    return WaterStriderDetector.load(paths.checkpoints_dir())
+    return WaterStriderDetector.load(paths.model_dir("water_strider"))
 
 
 def _tail(gamma):
@@ -197,7 +197,7 @@ def test_it_never_imports_torch():
         "import sys, numpy as np, pandas as pd\n"
         "from strawberrywatch import paths\n"
         "from strawberrywatch.serving.water_strider import WaterStriderDetector\n"
-        "d = WaterStriderDetector.load(paths.checkpoints_dir())\n"
+        "d = WaterStriderDetector.load(paths.model_dir('water_strider'))\n"
         "i = pd.date_range('2026-01-05', periods=192, freq='15min', tz='UTC')\n"
         "d.findings({'oxford': pd.DataFrame({'Meter_Hydros21_Cond': 400 + np.zeros(192)}, index=i)})\n"
         "print('torch' in sys.modules)\n"

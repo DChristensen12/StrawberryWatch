@@ -44,11 +44,15 @@ Install this package into the environment their daemon runs in.
 
     pip install -e /path/to/SCMG_AnDeSys
 
-Copy a checkpoint folder somewhere that environment can read, holding the files
-each model in `GNN_MODELS` lists in its `FILES`, and nothing else:
+Copy a checkpoint folder somewhere that environment can read. It holds one
+folder per model in `GNN_MODELS`, named after the model, with the files that
+model lists in its `FILES` and nothing else:
 
-    dusk_crayfish   dusk_crayfish_weights.pt, dusk_crayfish_serving.json
-    cobble_shoal    cobble_shoal_weights.pt, cobble_shoal_calibration_real.json
+    dusk_crayfish/   dusk_crayfish_weights.pt, dusk_crayfish_serving.json
+    cobble_shoal/    cobble_shoal_weights.pt, cobble_shoal_calibration_real.json
+
+A folder from an older install, with every file loose in it, still loads. Move
+the files into their model's folder when it's convenient.
 
 Dusk Crayfish's JSON is produced by `strawberrywatch.serving.export_sidecar` and
 holds the feature list, the node order, the normalization statistics, and the
@@ -66,7 +70,8 @@ carries no scaler for live data.
                               names in strawberrywatch/serving/registry.py.
                               GNN_MODEL_NAME, the old single model setting, still
                               counts when this is unset.
-    GNN_CHECKPOINT_DIR        where the weights live. Required off a checkout.
+    GNN_CHECKPOINT_DIR        the folder holding a folder per model. Required
+                              off a checkout.
     GNN_ALERT_EMAILS          comma separated, who hears about anomalies
     GNN_ALERT_PHONES          comma separated, optional
     GNN_SCORE_INTERVAL_MINUTES   default 15, how often to actually run the models

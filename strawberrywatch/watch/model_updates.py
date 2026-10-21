@@ -1,11 +1,11 @@
 """
 Model updates for the website, straight from the newest files on GitHub main.
 
-main keeps every served model file under checkpoints/, with fingerprints in
-strawberrywatch/watch/model_files.sha256.json. An update downloads the files
-whose fingerprints changed, checks each one, and test-runs the model on a past
-event before switching to it. Each update gets its own folder, and the last one
-can be undone. Only model files are downloaded, not code.
+main keeps every served model file under checkpoints/, one folder per model,
+with fingerprints in strawberrywatch/watch/model_files.sha256.json. An update
+downloads the files whose fingerprints changed, checks each one, and test-runs
+the model on a past event before switching to it. Each update gets its own
+folder, and the last one can be undone. Only model files are downloaded, not code.
 
     python -m strawberrywatch.watch.model_updates --by ana
 """
@@ -30,7 +30,8 @@ REPO = os.getenv("STRAWBERRYWATCH_MODELS_REPO", "DChristensen12/StrawberryWatch"
 BRANCH = os.getenv("STRAWBERRYWATCH_MODELS_BRANCH", "main")
 HASHES_IN_REPO = "strawberrywatch/watch/model_files.sha256.json"
 FILES_IN_REPO = "checkpoints"
-# Under the checkpoints folder, one folder per GitHub commit an update came from
+# Under the checkpoints folder, one folder per GitHub commit an update came from,
+# with a folder per model inside
 UPDATES = "updates"
 # Far bigger than any model file, but stops a wrong file from filling the disk
 MAX_BYTES = 200 * 1024 * 1024
@@ -211,12 +212,12 @@ def current(store, name):
 
 
 def model_folder(store, name, base=None):
-    """Where a model loads its files from: its update's folder, or the checkpoints folder itself."""
+    """Where a model loads its files from: its folder in its update, or its installed folder."""
     from strawberrywatch import paths
 
     base = Path(base or paths.checkpoints_dir())
     update = current(store, name)
-    return base / UPDATES / update["commit"] if update else base
+    return paths.model_dir(name, base / UPDATES / update["commit"] if update else base)
 
 
 def running_hashes(store, name):
@@ -258,10 +259,10 @@ def test_run(name, folder):
         raise UpdateError("its test run gave no scores")
 
 
-def _download(source, commit, files, wanted, folder):
+def _download(source, commit, model, files, wanted, folder):
     folder.mkdir(parents=True, exist_ok=True)
     for name in files:
-        data = source.read(commit, f"{FILES_IN_REPO}/{name}")
+        data = source.read(commit, f"{FILES_IN_REPO}/{model}/{name}")
         if sha256(data) != wanted[name]:
             raise UpdateError(f"{name} on GitHub doesn't match its listed fingerprint")
         part = folder / f".{name}.part"
@@ -285,9 +286,9 @@ def update_all(store, models, base, source, by=None, test=test_run, clock=time.t
 
     from strawberrywatch.watch import runner
 
-    folder = Path(base) / UPDATES / commit
     updated, problems = [], []
     for model in models:
+        folder = Path(base) / UPDATES / commit / model.name
         files = _files(model.name)
         wanted = {f: remote.get(f) for f in files}
         if wanted == running_hashes(store, model.name):
@@ -299,7 +300,7 @@ def update_all(store, models, base, source, by=None, test=test_run, clock=time.t
             if not (folder / runner.HASHES).exists():
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / runner.HASHES).write_text(json.dumps(remote, indent=2, sort_keys=True))
-            _download(source, commit, files, wanted, folder)
+            _download(source, commit, model.name, files, wanted, folder)
             test(model.name, folder)
         except UpdateError as exc:
             problems.append(f"{model.title} wasn't updated: {exc}. It keeps the files it had.")

@@ -30,9 +30,9 @@ dist/
 
 # Model Weights/Logs
 *.pt
-!checkpoints/dusk_crayfish_weights.pt
-!checkpoints/cobble_shoal_weights.pt
-!checkpoints/flame_skimmer_temp_clock.pt
+!checkpoints/dusk_crayfish/dusk_crayfish_weights.pt
+!checkpoints/cobble_shoal/cobble_shoal_weights.pt
+!checkpoints/flame_skimmer/flame_skimmer_temp_clock.pt
 *.pth
 *.pkl
 logs/

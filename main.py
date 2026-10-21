@@ -321,7 +321,7 @@ def main(
     them, and results_json writes what the run found to that path.
     """
     requested_mode = mode
-    model_dir = paths.checkpoints_dir()
+    model_dir = paths.model_dir(model_name)
     model_path = os.path.join(model_dir, f"{model_name}_weights.pt")
     metadata_path = os.path.join(model_dir, f"{model_name}_metadata.pkl")
 

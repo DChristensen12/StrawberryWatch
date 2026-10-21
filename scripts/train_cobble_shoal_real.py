@@ -20,7 +20,7 @@ suits a detector deployed forward in time. On this archive it also puts the dry
 season in training and most of the rain in validation. When the question is
 about the weather channels, use --split blocked, which alternates whole months.
 
-Writes checkpoints/cobble_shoal_temp_{tag}.pt and its calibration beside it,
+Writes checkpoints/cobble_shoal/cobble_shoal_temp_{tag}.pt and its calibration beside it,
 where tag defaults to the context name. Use --tag to keep several around.
 Shipped files aren't overwritten. Grade the result with:
 
@@ -61,7 +61,7 @@ from strawberrywatch.models.Cobble_Shoal import (  # noqa: E402
     build_variable_adjacency,
     inventory_matrix,
 )
-from strawberrywatch.paths import checkpoints_dir  # noqa: E402
+from strawberrywatch.paths import model_dir  # noqa: E402
 from strawberrywatch.preprocessing import node_windows as nw  # noqa: E402
 
 # loss() calls float() on tensors that still carry grad, just to build its
@@ -435,7 +435,7 @@ class TempModel:
 
 
 def temp_paths(tag, checkpoint_dir=None):
-    root = Path(checkpoint_dir or checkpoints_dir())
+    root = Path(checkpoint_dir or model_dir("cobble_shoal"))
     return root / f"cobble_shoal_temp_{tag}.pt", root / f"cobble_shoal_temp_{tag}_calibration.json"
 
 
@@ -584,8 +584,8 @@ def main(argv=None):
     )
     z_q = float(pot[f"combined_fisher@{args.operating_q:g}"]["threshold"])
 
-    weights = checkpoints_dir() / f"cobble_shoal_temp_{tag}.pt"
-    cal_path = checkpoints_dir() / f"cobble_shoal_temp_{tag}_calibration.json"
+    weights, cal_path = temp_paths(tag)
+    weights.parent.mkdir(parents=True, exist_ok=True)
     meta = {
         "seed": args.seed,
         "window": WINDOW,

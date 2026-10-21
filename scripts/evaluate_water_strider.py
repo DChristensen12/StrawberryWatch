@@ -129,13 +129,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     warnings.simplefilter("ignore")
 
-    folder = paths.checkpoints_dir()
-    mine = Path(args.calibration) if args.calibration else folder
+    mine = Path(args.calibration) if args.calibration else paths.model_dir("water_strider")
     calibration = json.loads((mine / "water_strider_calibration.json").read_text())
     detectors = {"water_strider": detector_class("water_strider").load(mine)}
     if not args.no_graph_models:
         for name in GRAPH_MODELS:
-            detectors[name] = detector_class(name).load(folder)
+            detectors[name] = detector_class(name).load(paths.model_dir(name))
 
     print("False flags per week on the held-back months' clean data, network wide")
     # Wide enough that X84 can come down to Water Strider's rate, however strict it is

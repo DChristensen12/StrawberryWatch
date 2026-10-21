@@ -67,10 +67,4 @@
     <p><a href="{{ url_for('main.alert_example_email', kind=s.view.id) }}">Open the HTML version</a></p>
   </details>
 {% endfor %}
-{% if website %}
-  <h3 class="as-small">Sign-up confirmation</h3>
-  <p><strong>Subject:</strong> {{ confirmation[0] }}</p>
-  <pre class="sw-email">{{ confirmation[1] }}</pre>
-  <p><a href="{{ url_for('main.alert_example_email', kind='confirmation') }}">Open the HTML version</a></p>
-{% endif %}
 {% endblock %}
