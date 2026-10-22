@@ -980,12 +980,13 @@ def advanced():
     store, models = ctx().store, ctx().models
     draft = working_copy()
     options = _support_options()
-    Form = forms.advanced_form(models, options)
+    Form = forms.advanced_form(models, options, ctx().profile.alert_gaps)
     initial = {"repeat_hours": f"{draft['repeat_hours']:g}"}
     for m in models:
         spec = draft["models"][m.name]
         initial[f"model_{m.name}"] = "on" if spec["on"] else "off"
         initial[f"rain_{m.name}"] = f"{spec['rain_multiplier']:g}"
+        initial[f"gap_{m.name}"] = f"{spec.get('alert_gap_minutes', ws.ALERT_GAP_DEFAULT):g}"
         initial[f"support_{m.name}"] = list(spec["support"])
         if "leave_out" in m.site_choice:
             initial[f"leave_{m.name}"] = list(spec["leave_out"])
@@ -1009,6 +1010,8 @@ def advanced():
                 if m.sensitivity == "rate":
                     _read_rates(spec, m, form)
                 spec["rain_multiplier"] = float(form[f"rain_{m.name}"].data)
+                if ctx().profile.alert_gaps:
+                    spec["alert_gap_minutes"] = float(form[f"gap_{m.name}"].data)
                 spec["support"] = sorted(form[f"support_{m.name}"].data or [])
                 if "leave_out" in m.site_choice:
                     spec["leave_out"] = [

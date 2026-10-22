@@ -1,6 +1,6 @@
 """
 The models line, hourly reporting marks, Alert examples, the settings rows, and
-recipient labels with public sign-up on the website.
+recipient labels on the website.
 """
 
 import re

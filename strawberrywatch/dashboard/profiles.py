@@ -19,8 +19,12 @@ class Profile:
     # Checks run in a thread here. On the website Night Heron runs each one in
     # its own process, with a time limit.
     checks_here: bool
+    # Each model's minutes between alerts, in Advanced settings
+    alert_gaps: bool = False
 
 
 LOCAL = Profile(name="local", email_in_env=True, token_login=True, checks_here=True)
 
-WEBSITE = Profile(name="website", email_in_env=False, token_login=False, checks_here=False)
+WEBSITE = Profile(
+    name="website", email_in_env=False, token_login=False, checks_here=False, alert_gaps=True
+)

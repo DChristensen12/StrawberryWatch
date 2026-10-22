@@ -57,6 +57,9 @@
       {% endif %}
       <p id="sw-preview-{{ m.name }}" aria-live="polite">{{ previews[m.name] }}</p>
 
+      {% if profile.alert_gaps %}
+        {{ sw.text(form['gap_' ~ m.name], suffix='minutes', inputmode='decimal') }}
+      {% endif %}
       {{ sw.text(form['rain_' ~ m.name], suffix='times', inputmode='decimal') }}
       <p>How the alert line changes during and after 6 hours of rain, as a multiple of its dry level. The shaded area is the rain.</p>
       {{ sw.chart_data("curve-" ~ m.name, b.curve) }}

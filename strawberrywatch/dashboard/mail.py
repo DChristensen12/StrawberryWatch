@@ -471,15 +471,17 @@ def alert_email(subject, opener, blocks, unsubscribe, images=INLINE):
     return text, html
 
 
-def website_alert(store, inventory, check_id, address):
+def website_alert(store, inventory, check_id, address, items=None):
     """
-    Emails the website's list about new alerts from this check, one email per
-    person with their own unsubscribe link. Doesn't raise, same as after_check.
+    Emails the website's list about new alerts from this check, or just the
+    items given, one email per person with their own unsubscribe link. Doesn't
+    raise, same as after_check.
     """
     try:
         if check_id is None or not is_on(store):
             return
-        items = [n for n in store.noticed(flagged=True) if n["check_id"] == check_id]
+        if items is None:
+            items = [n for n in store.noticed(flagged=True) if n["check_id"] == check_id]
         people = store.recipients()
         if not items or not people:
             return

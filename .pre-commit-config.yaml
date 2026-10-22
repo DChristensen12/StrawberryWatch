@@ -8,12 +8,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Never on checkpoints/: an added newline changes a model file's fingerprint
       - id: trailing-whitespace
-        exclude: ^(data|assets)/
+        exclude: ^(data|assets|checkpoints)/
       - id: end-of-file-fixer
-        exclude: ^(data|assets)/
+        exclude: ^(data|assets|checkpoints)/
       - id: mixed-line-ending
-        exclude: ^(data|assets)/
+        exclude: ^(data|assets|checkpoints)/
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files

@@ -10,6 +10,7 @@ Settings are one plain dict, stored as JSON:
      "models": {name: {"on": bool,
                        "scales": {rule: multiple of the tested line},
                        "rain_multiplier": float,
+                       "alert_gap_minutes": float,  website: quiet time after an alert
                        "leave_out": [site, ...],
                        "support": [module, ...]}}}
 """
@@ -31,7 +32,13 @@ RANGES = {
     "scale": (0.75, 1.5),
     "rain_multiplier": (1.0, 3.0),
     "repeat_hours": (0.25, 72.0),
+    "alert_gap_minutes": (15.0, 1440.0),
 }
+# After a model alerts on the website it sends nothing more for this long, the way
+# Night Heron switches a rule off until its reactivate_at. An hour is Night
+# Heron's own default for its model-based (advanced) alert rules.
+ALERT_GAP_DEFAULT = 60.0
+GAP_RANGE = RANGES["alert_gap_minutes"]
 SCALE_RANGE = RANGES["scale"]
 RAIN_RANGE = RANGES["rain_multiplier"]
 REPEAT_RANGE = RANGES["repeat_hours"]
@@ -189,6 +196,7 @@ def model_defaults(model, explainers=("newtwork_run", "trial_bed")):
         "on": model.name == "dusk_crayfish",
         "scales": {rule: 1.0 for rule in model.rules},
         "rain_multiplier": model.rain_default,
+        "alert_gap_minutes": ALERT_GAP_DEFAULT,
         "leave_out": [],
         "support": list(explainers) if model.name == "dusk_crayfish" else [],
     }
@@ -333,6 +341,10 @@ def out_of_range(settings):
                 problems.append(f"{_title(name)}'s {rule} line is outside its range.")
         if "rain_multiplier" in spec and not _number_in(spec["rain_multiplier"], "rain_multiplier"):
             problems.append(f"{_title(name)}'s rain multiplier is outside its range.")
+        if "alert_gap_minutes" in spec and not _number_in(
+            spec["alert_gap_minutes"], "alert_gap_minutes"
+        ):
+            problems.append(f"{_title(name)}'s minutes between alerts is outside its range.")
         for key in ("leave_out", "support"):
             if not isinstance(spec.get(key, []), list):
                 problems.append(f"{_title(name)}'s {key.replace('_', ' ')} isn't a list.")
@@ -457,6 +469,18 @@ def check(raw, models, sites, applied=None, last_check_seconds=None, limits=None
             problems.append(f"{model.title} rain multiplier {exc}")
             multiplier = model.rain_default
         out["rain_multiplier"] = multiplier
+
+        try:
+            gap = float(spec.get("alert_gap_minutes", ALERT_GAP_DEFAULT))
+            if not GAP_RANGE[0] <= gap <= GAP_RANGE[1]:
+                raise ValueError
+        except (TypeError, ValueError):
+            problems.append(
+                f"{model.title} minutes between alerts must be between {GAP_RANGE[0]:g} "
+                f"and {GAP_RANGE[1]:g}"
+            )
+            gap = ALERT_GAP_DEFAULT
+        out["alert_gap_minutes"] = gap
 
         out["leave_out"] = site_list(spec.get("leave_out"), f"{model.title}, leave a site out")
         if out["leave_out"]:
@@ -714,6 +738,15 @@ def describe(before, after, models):
                 f"{b.get('rain_multiplier', model.rain_default):g}",
                 f"{a.get('rain_multiplier'):g}",
                 f"{title} rain multiplier set to {a.get('rain_multiplier'):g}.",
+            )
+        gap_b = b.get("alert_gap_minutes", ALERT_GAP_DEFAULT)
+        gap_a = a.get("alert_gap_minutes", ALERT_GAP_DEFAULT)
+        if gap_b != gap_a:
+            row(
+                f"{title}, minutes between alerts",
+                f"{gap_b:g}",
+                f"{gap_a:g}",
+                f"{title} minutes between alerts set to {gap_a:g}.",
             )
         if b.get("leave_out", []) != a.get("leave_out", []):
             row(

@@ -144,8 +144,11 @@ def settings_form(sites, labels, models):
     return Form
 
 
-def advanced_form(models, support_options):
-    """Advanced settings: each model's own values, the repeat window."""
+def advanced_form(models, support_options, alert_gaps=False):
+    """
+    Advanced settings: each model's own values and the repeat window, plus each
+    model's minutes between alerts when alert_gaps is on.
+    """
 
     class Form(FlaskForm):
         repeat_hours = StringField(
@@ -189,6 +192,20 @@ def advanced_form(models, support_options):
                 validators=[number_between(*ws.RAIN_RANGE, f"{model.title} rain multiplier")],
             ),
         )
+        if alert_gaps:
+            setattr(
+                Form,
+                f"gap_{model.name}",
+                StringField(
+                    "Minutes between alerts",
+                    description=f"After {model.title} sends an alert, it sends no more until "
+                    "this much time has passed. Alerts it holds back still show on the "
+                    "dashboard. " + ws.range_hint("alert_gap_minutes", "minutes"),
+                    validators=[
+                        number_between(*ws.GAP_RANGE, f"{model.title} minutes between alerts")
+                    ],
+                ),
+            )
         if "leave_out" in model.site_choice:
             setattr(
                 Form,
