@@ -9,10 +9,15 @@ behind the site's own login. Visitors sign in on the same page Night Heron uses.
        pip install --no-deps <the StrawberryWatch commit>
 
    Any library StrawberryWatch adds goes in with `--only-binary=:all:`, since
-   the server can't build newer packages from source.
+   the server can't build newer packages from source. The dashboard needs these,
+   the `dashboard` extra in `pyproject.toml`:
 
-2. Make StrawberryWatch's tables, with the database login in the site's `.env`:
+       pip install --only-binary=:all: flask flask-wtf wtforms email-validator platformdirs
 
+2. Make StrawberryWatch's tables, with the database login in the site's `.env`.
+   Run it from the site's folder, since it reads the `.env` there:
+
+       cd ~/notifications_frontend
        python -m strawberrywatch.integrations.scmg_website.setup_tables
 
    Run it again after every update. It adds any new tables and columns and
@@ -45,7 +50,9 @@ behind the site's own login. Visitors sign in on the same page Night Heron uses.
 
 6. Add StrawberryWatch's email account to the site's `.env`: the `ALERT_EMAIL_*`
    and `SMTP_*` lines from StrawberryWatch's `.env.example`. For now they hold
-   the same account Night Heron sends from. The links in the emails start at
+   the same account Night Heron sends from. `ALERT_EMAIL_SENDER` is the name
+   the account logs in with. When the From address is a different one, as with
+   Night Heron's `EMAIL_HOST_USER` and `FROM_EMAIL`, put it in `ALERT_EMAIL_FROM`. The links in the emails start at
    `address` in the `website:` block of `settings.yaml`, so change it if the
    site moves.
 

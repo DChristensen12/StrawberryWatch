@@ -29,6 +29,7 @@ dev = ["ruff", "pre-commit", "pytest"]
 dashboard = [
     "flask>=3.1",
     "flask-wtf>=1.2",
+    "wtforms>=3.1",
     "platformdirs>=4",
     # Checks a recipient's address and that its domain takes mail, before it's saved
     "email-validator>=2.2",

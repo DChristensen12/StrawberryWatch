@@ -29,4 +29,9 @@ def main(store=None):
 
 
 if __name__ == "__main__":
+    from dotenv import find_dotenv, load_dotenv
+
+    # The site's .env, from the folder this is run in. Config reads it once, on
+    # import, and main() imports the store
+    load_dotenv(find_dotenv(usecwd=True))
     raise SystemExit(main())

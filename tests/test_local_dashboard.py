@@ -506,6 +506,7 @@ class FakeSMTP:
 
     sent = []
     refuse = set()
+    logins = []
 
     def __init__(self, host, port, timeout=None, context=None):
         self.host = host
@@ -514,6 +515,7 @@ class FakeSMTP:
         pass
 
     def login(self, user, password):
+        FakeSMTP.logins.append(user)
         if password == "wrong":
             raise smtplib.SMTPAuthenticationError(535, b"no")
 
@@ -571,9 +573,11 @@ def mail_account(monkeypatch, tmp_path):
         "SMTP_PORT": "587",
     }.items():
         monkeypatch.setenv(name, value)
+    monkeypatch.delenv("ALERT_EMAIL_FROM", raising=False)
     monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
     FakeSMTP.sent = []
     FakeSMTP.refuse = set()
+    FakeSMTP.logins = []
     monkeypatch.env = env
     return monkeypatch
 
@@ -652,6 +656,17 @@ def test_a_check_emails_each_person_separately_and_only_from_live_readings(
     assert "Flagged by Dusk Crayfish." in body and "take you off it" in body
     assert store.emails()[0]["ok"] == 1 and store.emails()[0]["people"] == 2
     assert "Alert sent" in client.get("/settings/email").data.decode()
+
+
+def test_from_address_can_differ_from_the_login(mail_account):
+    mail.send("Test", "hello", [{"email": "ana@example.org"}])
+    assert FakeSMTP.sent[-1][0]["From"] == "watch@example.org"
+    # Elastic Email logs in with one name and sends from another
+    mail_account.setenv("ALERT_EMAIL_FROM", "alerts@example.org")
+    mail.send("Test", "hello", [{"email": "ana@example.org"}])
+    assert FakeSMTP.logins == ["watch@example.org", "watch@example.org"]
+    assert FakeSMTP.sent[-1][0]["From"] == "alerts@example.org"
+    assert mail.sender() == "alerts@example.org"
 
 
 def test_one_rejected_address_doesnt_stop_the_others(signed_in, mail_account):

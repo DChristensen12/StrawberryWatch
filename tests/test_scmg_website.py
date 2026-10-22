@@ -255,6 +255,45 @@ def test_signed_out_goes_to_the_sites_login_and_comes_back(django_site, tmp_path
     assert _get(client, "/").data == b"the rest of the site"
 
 
+def test_signed_out_next_always_starts_at_the_mount(django_site, tmp_path):
+    # The site's login page sends people back through its StrawberryWatch card when it does
+    from urllib.parse import parse_qs, urlsplit
+
+    from strawberrywatch.integrations.scmg_website import MOUNT
+
+    client, _ = _site(tmp_path)
+    for url in ("/strawberrywatch", "/strawberrywatch/", "/strawberrywatch/settings/email"):
+        location = _get(client, url).headers["Location"]
+        back = parse_qs(urlsplit(location).query)["next"][0]
+        assert back == MOUNT or back.startswith(MOUNT + "/"), location
+
+
+def test_setup_tables_reads_the_env_in_the_folder_its_run_from(tmp_path):
+    import subprocess
+    import sys
+
+    (tmp_path / ".env").write_text(
+        "MYSQL_HOST=setup-tables-test.invalid\n"
+        "MYSQL_DATABASE_USER=sw\n"
+        "MYSQL_DATABASE_PASSWORD=sw\n"
+        "MYSQL_DATABASE_NAME=sw\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("MYSQL_")}
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    run = subprocess.run(
+        [sys.executable, "-m", "strawberrywatch.integrations.scmg_website.setup_tables"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    # No MySQL here, so it fails, but on the host from that .env
+    assert run.returncode != 0
+    assert "missing MySQL env vars" not in run.stderr
+    assert "setup-tables-test.invalid" in run.stderr
+
+
 def test_signed_in_sees_the_website_dashboard(django_site, tmp_path):
     from django.contrib.auth.models import User
 

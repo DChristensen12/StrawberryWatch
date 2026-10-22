@@ -232,8 +232,9 @@ def missing():
 
 
 def sender():
+    """The From address. ALERT_EMAIL_FROM when the account logs in under a different name."""
     missing()
-    return os.getenv("ALERT_EMAIL_SENDER") or ""
+    return os.getenv("ALERT_EMAIL_FROM") or os.getenv("ALERT_EMAIL_SENDER") or ""
 
 
 def is_on(store):
@@ -267,7 +268,8 @@ def deliver(people, build):
         raise MailError(f"Email isn't set up on this computer. .env needs {', '.join(gaps)}.")
     if not people:
         raise MailError("There's nobody on the list.")
-    address = os.getenv("ALERT_EMAIL_SENDER")
+    account = os.getenv("ALERT_EMAIL_SENDER")
+    address = sender()
     try:
         port = int(os.getenv("SMTP_PORT"))
     except ValueError:
@@ -282,7 +284,7 @@ def deliver(people, build):
             smtp = smtplib.SMTP(os.getenv("SMTP_SERVER"), port, timeout=30)
             smtp.starttls(context=context)
         with smtp:
-            smtp.login(address, os.getenv("ALERT_EMAIL_PASSWORD"))
+            smtp.login(account, os.getenv("ALERT_EMAIL_PASSWORD"))
             for person in people:
                 message = build(address, person)
                 try:
