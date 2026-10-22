@@ -58,6 +58,7 @@ TAB_OF = {
     "main.undo_model_update": "main.settings",
     "main.email_test": "main.settings",
     "main.relabel": "main.settings",
+    "main.person": "main.settings",
     "main.save_label": "main.settings",
     "main.copy_list": "main.settings",
     "main.resume_checks": "main.overview",
@@ -333,7 +334,7 @@ def alert_examples():
 
 def _example_footer():
     link = mail.unsubscribe_link(_address(), "a-made-up-token")
-    return f"{mail.WEBSITE_FOOTER} To stop getting them, unsubscribe: {link}"
+    return mail.footer_text(link)
 
 
 @bp.route("/alerts/examples/email/<kind>")
@@ -1333,11 +1334,13 @@ def email():
     last = store.emails(limit=1)
     results = store.email_results()
     names = {lb["id"]: lb["name"] for lb in labels}
+    when = now()
     people = [
         {
             **p,
             "result": _result_line(results.get(p["email"].lower())),
             "label": names.get(p.get("label_id"), ""),
+            "alerts": "" if in_env else _alerts_line(p, ctx().models, when),
         }
         for p in book.people()
     ]
@@ -1466,6 +1469,92 @@ def email_test():
     return _back_to_list()
 
 
+# One person's alerts, website only: which models, and pausing them. Each
+# person picks models the way Healthchecks lets each check pick its
+# integrations (templates/front/details.html, BSD-3-Clause). "Every model" is
+# its own choice, like Uptime Kuma's "Default enabled" notifications
+# (src/components/NotificationDialog.vue, MIT), and models added later reach
+# those people too.
+
+
+def _paused_until(person, when):
+    if person.get("paused_until") is None:
+        return "until turned back on"
+    return f"until {view.moment(person['paused_until'], when)}"
+
+
+def _alerts_line(person, models, when):
+    """Paused, All models or 2 of 5 models, for the list."""
+    if mail.paused(person, when):
+        if person.get("paused_until") is None:
+            return "Paused"
+        return f"Paused {_paused_until(person, when)}"
+    wanted = mail.models_for(person)
+    names = [m.name for m in models]
+    if wanted is None or set(names) <= set(wanted):
+        return "All models"
+    return f"{sum(1 for n in names if n in wanted)} of {len(names)} models"
+
+
+@bp.route("/settings/email/people/<int:recipient_id>", methods=["GET", "POST"])
+def person(recipient_id):
+    _website_only()
+    store = ctx().store
+    person = store.recipient(recipient_id)
+    if person is None:
+        abort(404)
+    when = now()
+    models = ctx().models
+    names = [m.name for m in models]
+    wanted = mail.models_for(person)
+    pausing = mail.paused(person, when)
+    Form = forms.person_form(
+        models,
+        view._local(when).date(),
+        f"Keep paused {_paused_until(person, when)}" if pausing else "",
+    )
+    form = Form(
+        data={
+            "models": names if wanted is None else [n for n in names if n in wanted],
+            "pause": "keep" if pausing else "off",
+        }
+    )
+    who = person.get("name") or person["email"]
+    if form.validate_on_submit():
+        ticked = form.models.data
+        store.set_models(
+            recipient_id, None if set(names) <= set(ticked) else [n for n in names if n in ticked]
+        )
+        choice = form.pause.data
+        if choice == "off":
+            store.pause(recipient_id)
+        elif choice == "always":
+            store.pause(recipient_id, when)
+        elif choice == "date":
+            store.pause(recipient_id, when, view.midnight(form.pause_date.day))
+        elif choice != "keep":
+            store.pause(recipient_id, when, when + int(choice) * 86400)
+        flash(f"Saved alert settings for {who}.")
+        return redirect(url_for("main.email"))
+    current = applied() or {"models": {}}
+    off = {
+        m.name: {"hint": "Off in Settings"}
+        for m in models
+        if not current["models"].get(m.name, {}).get("on")
+    }
+    label = next((lb["name"] for lb in store.labels() if lb["id"] == person.get("label_id")), "")
+    return render_template(
+        "person.html",
+        form=form,
+        person=person,
+        who=who,
+        label=label,
+        off=off,
+        pause_line=f"Paused {_paused_until(person, when)}" if pausing else "On",
+        chosen=[m.title for m in models if wanted is None or m.name in wanted],
+    )
+
+
 # Labels, website only. They tell people apart and don't grant access.
 
 
@@ -1553,7 +1642,9 @@ def copy_list():
 
 
 # Unsubscribe, the one public page, website only: every alert email links here,
-# and it never shows anyone else's address
+# and it never shows anyone else's address. A week's pause is offered there
+# too, for someone who's away and still wants the alerts after.
+SELF_PAUSE_DAYS = 7
 
 
 @bp.route("/unsubscribe/<token>", methods=["GET", "POST"])
@@ -1563,10 +1654,24 @@ def unsubscribe(token):
     person = store.recipient_by_token(token)
     if person is None:
         return render_template("unsubscribe.html", state="gone"), 404
+    when = now()
+    if request.method == "POST" and request.form.get("action") == "pause":
+        # A pause someone already has, maybe set longer by an admin, stays as it is
+        if not mail.paused(person, when):
+            store.pause(person["id"], when, when + SELF_PAUSE_DAYS * 86400)
+        person = store.recipient(person["id"])
+        return render_template(
+            "unsubscribe.html", state="paused", until=_paused_until(person, when)
+        )
     if request.method == "POST":
         store.remove_recipient(person["id"])
         return render_template("unsubscribe.html", state="done")
-    return render_template("unsubscribe.html", state="ask", address=person["email"])
+    return render_template(
+        "unsubscribe.html",
+        state="ask",
+        address=person["email"],
+        until=_paused_until(person, when) if mail.paused(person, when) else "",
+    )
 
 
 # Model updates, website only

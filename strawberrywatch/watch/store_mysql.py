@@ -74,7 +74,8 @@ SCHEMA = (
     """CREATE TABLE IF NOT EXISTS recipients (
         id INT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(254) NOT NULL UNIQUE,
         name VARCHAR(100), added_at DOUBLE NOT NULL, label_id INT,
-        unsubscribe_token VARCHAR(64), added_by VARCHAR(150))""",
+        unsubscribe_token VARCHAR(64), added_by VARCHAR(150), models TEXT,
+        paused_at DOUBLE, paused_until DOUBLE)""",
     """CREATE TABLE IF NOT EXISTS labels (
         id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(50) NOT NULL UNIQUE,
         added_at DOUBLE NOT NULL)""",
@@ -93,6 +94,9 @@ ADDED_COLUMNS = (
     ("recipients", "label_id", "INT"),
     ("recipients", "unsubscribe_token", "VARCHAR(64)"),
     ("recipients", "added_by", "VARCHAR(150)"),
+    ("recipients", "models", "TEXT"),
+    ("recipients", "paused_at", "DOUBLE"),
+    ("recipients", "paused_until", "DOUBLE"),
 )
 
 

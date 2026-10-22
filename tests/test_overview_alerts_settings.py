@@ -160,7 +160,7 @@ def test_the_example_emails_open_on_their_own(models, tmp_path):
     response = client.get("/alerts/examples/email/1")
     html = response.data.decode()
     assert response.status_code == 200 and "/static/email/emblem.png" in html
-    assert "/static/email/sponsors.png" in html and "Unsubscribe" in html
+    assert "/static/email/sponsors.png" in html and "Pause for a week or unsubscribe" in html
     assert "style-src 'unsafe-inline'" in response.headers["Content-Security-Policy"]
     assert client.get("/alerts/examples/email/several").status_code == 200
     assert client.get("/alerts/examples/email/99").status_code == 404
@@ -242,7 +242,8 @@ def test_recipients_filter_and_sort_by_label(models, tmp_path):
     page = client.get("/strawberrywatch/settings/email?label=Other").data.decode()
     assert "amy@example.org" in page and "zed@" not in page and "bo@" not in page
     page = client.get("/strawberrywatch/settings/email?sort=label").data.decode()
-    order = [m for m in re.findall(r"<td>(\w+@example\.org)</td>", page)]
+    # With no name, the address is the link to the person's alert settings
+    order = re.findall(r'<td><a href="[^"]+">(\w+@example\.org)</a></td>', page)
     assert order == ["zed@example.org", "bo@example.org", "amy@example.org"]
     # Plain text in its own column, no badge
     assert "<td>EH&amp;S</td>" in page

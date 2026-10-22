@@ -7,6 +7,7 @@ instead of getting stored.
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 
 from flask_wtf import FlaskForm
 from wtforms import (
@@ -95,6 +96,72 @@ def labelled_recipient_form(labels):
             choices=[(str(lb["id"]), lb["name"]) for lb in labels],
             validators=[DataRequired(message="Choose a label")],
         )
+
+    return Form
+
+
+# Days to pause someone's alerts for. Mastodon's mute offers about the same
+# spread (app/javascript/mastodon/features/ui/components/mute_modal.jsx, AGPL-3.0)
+PAUSES = (
+    ("1", "For 1 day"),
+    ("7", "For 1 week"),
+    ("30", "For 30 days"),
+    ("date", "Until a date"),
+    ("always", "Until turned back on"),
+)
+# Further off than this is what "Until turned back on" is for. Also catches a
+# mistyped year.
+LONGEST_PAUSE_DAYS = 365
+
+
+def person_form(models, today, pause_now=""):
+    """
+    One person's alerts on the website: their models, and pausing them.
+    today is the date in Pacific time. pause_now names a pause that's still
+    running, and keeping it comes first.
+    """
+    if pause_now:
+        current = [("keep", pause_now), ("off", "Turn alerts back on")]
+    else:
+        current = [("off", "Don't pause")]
+    # Outside the class, where the field's own name would hide the argument
+    titles = [(m.name, m.title) for m in models]
+
+    class Form(FlaskForm):
+        models = SelectMultipleField(
+            "Models",
+            choices=titles,
+            description="Emails only include alerts from the ticked models. With all of them "
+            "ticked, models added later are included too.",
+            validators=[DataRequired(message="Tick at least one model, or pause alerts instead")],
+        )
+        pause = RadioField(
+            "Pause alerts",
+            choices=[*current, *PAUSES],
+            validators=[DataRequired(message="Choose whether to pause alerts")],
+        )
+        pause_date = StringField(
+            "Alerts start again on",
+            description="At 12 am Pacific time that day.",
+            filters=[_strip],
+        )
+
+        def validate_pause_date(self, field):
+            """Only checked for Until a date. Leaves the date on the field as day."""
+            if self.pause.data != "date":
+                return
+            if not field.data:
+                raise ValidationError("Enter the date alerts start again")
+            try:
+                field.day = date.fromisoformat(field.data)
+            except ValueError:
+                raise ValidationError("Enter a date like 2026-11-03") from None
+            if field.day <= today:
+                raise ValidationError("Date must be after today")
+            if field.day > today + timedelta(days=LONGEST_PAUSE_DAYS):
+                raise ValidationError(
+                    "Date must be within a year. For longer, choose Until turned back on"
+                )
 
     return Form
 

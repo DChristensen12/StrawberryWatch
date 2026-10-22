@@ -7,7 +7,7 @@
 {% if in_env %}
   <p>StrawberryWatch emails everyone on this list when there's a new alert, each person separately. Changes on this page apply immediately.</p>
 {% else %}
-  <p>StrawberryWatch emails everyone on this list when there's a new alert, each person separately, with a link to unsubscribe. Changes on this page apply immediately.</p>
+  <p>StrawberryWatch emails everyone on this list when there's a new alert, each person separately, with a link to unsubscribe. Select a name to choose which models' alerts that person gets, or to pause them. Changes on this page apply immediately.</p>
 {% endif %}
 
 <div class="sw-headline{{ ' sw-headline--late' if gaps and not on else ('' if on else ' sw-headline--muted') }}">
@@ -62,6 +62,7 @@
           <th scope="col">Name</th>
           <th scope="col">Email address</th>
           {% if labels %}<th scope="col">Label</th>{% endif %}
+          {% if not in_env %}<th scope="col">Alerts</th>{% endif %}
           <th scope="col">Last email</th>
           {% if can_edit %}<th scope="col"><span class="visually-hidden">Change</span></th>{% endif %}
         </tr>
@@ -75,9 +76,12 @@
                 <label class="visually-hidden" for="test-{{ loop.index }}">Send the test email to {{ p.email }}</label>
               </td>
             {% endif %}
-            <td>{{ p.name or '' }}</td>
-            <td>{{ p.email }}</td>
+            {#- The name opens the person's alert settings, or the address when there's no name -#}
+            {% set link = url_for('main.person', recipient_id=p.id) if not in_env else '' %}
+            <td>{% if link and p.name %}<a href="{{ link }}">{{ p.name }}</a>{% else %}{{ p.name or '' }}{% endif %}</td>
+            <td>{% if link and not p.name %}<a href="{{ link }}">{{ p.email }}</a>{% else %}{{ p.email }}{% endif %}</td>
             {% if labels %}<td>{% if p.label %}{{ p.label }}{% else %}<span class="muted">No label</span>{% endif %}</td>{% endif %}
+            {% if not in_env %}<td>{{ p.alerts }}</td>{% endif %}
             <td class="small">{{ p.result or 'None yet' }}</td>
             {% if can_edit %}
               <td class="sw-row-actions">
@@ -165,7 +169,7 @@
 {% endif %}
 
 <h2>Test email</h2>
-<p>Sends a test email to the people ticked in the list, even when email alerts are off.</p>
+<p>Sends a test email to the people ticked in the list, even when email alerts are off{% if not in_env %} or someone's alerts are paused{% endif %}.</p>
 {% if last %}<p class="small muted">{{ last }}</p>{% endif %}
 {% if can_edit %}
   <form method="post" action="{{ url_for('main.email_test') }}" id="sw-test-email">

@@ -9,6 +9,7 @@ an HTML email to each person with an unsubscribe link. Replays don't send.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -16,6 +17,7 @@ import shutil
 import smtplib
 import ssl
 import tempfile
+import time
 from email.message import EmailMessage
 from email.utils import formataddr, getaddresses
 from pathlib import Path
@@ -435,6 +437,31 @@ def unsubscribe_link(address, token):
     return f"{address}/unsubscribe/{token}"
 
 
+def footer_text(link):
+    """The plain-text footer. The page it links to also offers a week's pause."""
+    return f"{WEBSITE_FOOTER} To pause them for a week or unsubscribe: {link}"
+
+
+def models_for(person):
+    """The models one person gets alerts from, or None for every model, new ones too."""
+    return None if person.get("models") is None else json.loads(person["models"])
+
+
+def paused(person, now):
+    """A pause with no end lasts until someone turns it off. Past ones just lapse."""
+    if person.get("paused_at") is None:
+        return False
+    return person.get("paused_until") is None or now < person["paused_until"]
+
+
+def picked(person, items, now):
+    """The positions in items of the alerts this person gets, none while they're paused."""
+    if paused(person, now):
+        return []
+    wanted = models_for(person)
+    return [i for i, item in enumerate(items) if wanted is None or item["model"] in wanted]
+
+
 def html_message(address, to, subject, text, html, unsubscribe=None):
     """One email to one person: plain text, an HTML version, and the logos inside it."""
     message = EmailMessage()
@@ -457,8 +484,7 @@ def html_message(address, to, subject, text, html, unsubscribe=None):
 
 def alert_email(subject, opener, blocks, unsubscribe, images=INLINE):
     """(text, html) for one person's alert email."""
-    footer = f"{WEBSITE_FOOTER} To stop getting them, unsubscribe: {unsubscribe}"
-    text = as_text(opener, blocks, footer)
+    text = as_text(opener, blocks, footer_text(unsubscribe))
     html = render(
         "email_message.html",
         subject=subject,
@@ -474,24 +500,29 @@ def alert_email(subject, opener, blocks, unsubscribe, images=INLINE):
 def website_alert(store, inventory, check_id, address, items=None):
     """
     Emails the website's list about new alerts from this check, or just the
-    items given, one email per person with their own unsubscribe link. Doesn't
-    raise, same as after_check.
+    items given, one email per person with their own unsubscribe link. Each
+    person only hears about the models they picked, and nothing while paused.
+    Doesn't raise, same as after_check.
     """
     try:
         if check_id is None or not is_on(store):
             return
         if items is None:
             items = [n for n in store.noticed(flagged=True) if n["check_id"] == check_id]
-        people = store.recipients()
+        everyone = store.recipients()
+        chosen = {p["id"]: picked(p, items, time.time()) for p in everyone}
+        people = [p for p in everyone if chosen[p["id"]]]
         if not items or not people:
             return
         views = [view.item_view(store, item, None) for item in items]
-        subject, opener, blocks = alert_parts(views, inventory)
+        # The log keeps one subject per check, the one for every alert in it
+        subject, _, _ = alert_parts(views, inventory)
 
         def build(sender_address, person):
+            mine, opener, blocks = alert_parts([views[i] for i in chosen[person["id"]]], inventory)
             link = unsubscribe_link(address, person["unsubscribe_token"])
-            text, html = alert_email(subject, opener, blocks, link)
-            return html_message(sender_address, person["email"], subject, text, html, link)
+            text, html = alert_email(mine, opener, blocks, link)
+            return html_message(sender_address, person["email"], mine, text, html, link)
 
         try:
             results = deliver(people, build)

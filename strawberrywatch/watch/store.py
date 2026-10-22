@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS notes_noticed ON notes (noticed_id);
 CREATE TABLE IF NOT EXISTS recipients (
     id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE, name TEXT,
-    added_at REAL NOT NULL, label_id INTEGER, unsubscribe_token TEXT, added_by TEXT);
+    added_at REAL NOT NULL, label_id INTEGER, unsubscribe_token TEXT, added_by TEXT,
+    models TEXT, paused_at REAL, paused_until REAL);
 CREATE TABLE IF NOT EXISTS labels (
     id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, added_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS emails (
@@ -83,6 +84,9 @@ ADDED_COLUMNS = (
     ("recipients", "label_id", "INTEGER"),
     ("recipients", "unsubscribe_token", "TEXT"),
     ("recipients", "added_by", "TEXT"),
+    ("recipients", "models", "TEXT"),
+    ("recipients", "paused_at", "REAL"),
+    ("recipients", "paused_until", "REAL"),
 )
 
 # Recipient labels, website only. They're for telling people apart and don't grant access.
@@ -638,6 +642,26 @@ class Store:
     def set_label(self, recipient_id, label_id):
         with self.db() as db:
             db.execute("UPDATE recipients SET label_id = ? WHERE id = ?", (label_id, recipient_id))
+
+    def set_models(self, recipient_id, models):
+        """Which models one person gets alerts from. None is every model, new ones too."""
+        with self.db() as db:
+            db.execute(
+                "UPDATE recipients SET models = ? WHERE id = ?",
+                (None if models is None else json.dumps(list(models)), recipient_id),
+            )
+
+    def pause(self, recipient_id, paused_at=None, paused_until=None):
+        """
+        Pauses one person's alerts, or turns them back on with no paused_at. A
+        pause with no end lasts until someone turns it off, the way Mastodon
+        keeps a mute with no expires_at (app/models/mute.rb, AGPL-3.0).
+        """
+        with self.db() as db:
+            db.execute(
+                "UPDATE recipients SET paused_at = ?, paused_until = ? WHERE id = ?",
+                (paused_at, paused_until, recipient_id),
+            )
 
     def labels(self):
         """Every label, oldest first. The starting four are made the first time anyone asks."""

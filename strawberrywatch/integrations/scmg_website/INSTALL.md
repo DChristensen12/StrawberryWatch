@@ -51,7 +51,10 @@ behind the site's own login. Visitors sign in on the same page Night Heron uses.
 
 7. The unsubscribe links in the alert emails are open to everyone. They never
    show anyone else's address. There's no public sign-up: EH&S asked that only
-   people added on Settings > Email alerts get the alerts.
+   people added on Settings > Email alerts get the alerts. Each person's name
+   there opens their alert settings: which models they get alerts from, and a
+   pause for 1 day, 1 week, 30 days, until a date or until turned back on. The
+   unsubscribe page also lets people pause their own alerts for a week.
 
 8. The models load from the folder `GNN_CHECKPOINT_DIR` in `.env` names, the
    same one Night Heron's hook uses. Inside it each model has a folder of its

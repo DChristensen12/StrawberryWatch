@@ -7,8 +7,23 @@
   <p>Stop sending StrawberryWatch alerts to {{ address }}?</p>
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="sw-buttons"><button type="submit" class="sw-button">Unsubscribe</button></div>
+    <div class="sw-buttons"><button type="submit" name="action" value="unsubscribe" class="sw-button">Unsubscribe</button></div>
   </form>
+  <h2>Pause instead</h2>
+  {% if until %}
+    <p>Alerts to this address are paused {{ until }}.</p>
+  {% else %}
+    <p>Stops the alerts for a week. They start again after that, and this address stays on the list.</p>
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="sw-buttons"><button type="submit" name="action" value="pause" class="sw-button sw-button--secondary">Pause alerts for 1 week</button></div>
+    </form>
+  {% endif %}
+{% elif state == 'paused' %}
+  <div class="sw-headline">
+    <p class="lead">Alerts paused</p>
+    <p>No StrawberryWatch alerts will go to this address {{ until }}.</p>
+  </div>
 {% elif state == 'done' %}
   <div class="sw-headline">
     <p class="lead">You're off the list</p>
