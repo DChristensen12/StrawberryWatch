@@ -14,7 +14,7 @@
 
 This repository is the research and development counterpart to the production monitoring platform. It is where anomaly detection models are built, tested against historical events, and validated!
 
-New here? Start with the [User Manual](USER_MANUAL.md). Currently deployed: Dusk Crayfish (as of 2026-08-20).
+New here? Start with the [User Manual](USER_MANUAL.md). StrawberryWatch is deployed on the SCMG Website (as of 2026-10-22).
 
 
 ## The Creek
