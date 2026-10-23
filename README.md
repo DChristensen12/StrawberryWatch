@@ -2,7 +2,7 @@
 
 <h1>StrawberryWatch</h1>
 
-<p>A modular anomaly detection system for the Strawberry Creek urban watershed</p>
+<p>A modular anomaly detection & alerting system for monitoring the Strawberry Creek urban watershed</p>
 
 <p align="center">
   <img src="assets/logos/SCMGlogo.jpg" width="575">
@@ -107,6 +107,8 @@ drop, and also why they occasionally go quiet when the sun does.
     <td align="center"><img src="assets/biota/squirrel.jpeg" width="351"></td>
   </tr>
 </table>
+
+<p align="center"><sub>Each model is named after a plant or animal found along Strawberry Creek.</sub></p>
 
 ## Support Modules
 
