@@ -38,7 +38,13 @@ def _page(client, person):
 def _save(client, person, models, pause, pause_date=""):
     url = f"/strawberrywatch/settings/email/people/{person['id']}"
     page = client.get(url).data.decode()
-    data = {"csrf_token": _csrf(page), "models": models, "pause": pause, "pause_date": pause_date}
+    data = {
+        "csrf_token": _csrf(page),
+        "name": person.get("name") or "",
+        "models": models,
+        "pause": pause,
+        "pause_date": pause_date,
+    }
     return client.post(url, data=data)
 
 
@@ -251,6 +257,18 @@ def test_an_unknown_model_or_pause_isnt_saved(models, tmp_path):
     _save(client, ana, ["water_strider"], "365")
     saved = store.recipient(ana["id"])
     assert saved["models"] is None and saved["paused_at"] is None
+
+
+def test_a_person_copied_without_a_name_can_be_given_one(models, tmp_path):
+    store = _site_store(tmp_path / "s", models)
+    ana = _person(store)
+    client = _website(store, models)
+    response = _save(client, {**ana, "name": "Ana Flores"}, [m.name for m in models], "off")
+    assert response.status_code == 302
+    assert store.recipient(ana["id"])["name"] == "Ana Flores"
+    assert "Saved alert settings for Ana Flores." in client.get(response.location).data.decode()
+    _save(client, {**ana, "name": ""}, [m.name for m in models], "off")
+    assert store.recipient(ana["id"])["name"] is None
 
 
 def test_view_only_sees_the_choices_and_cant_change_them(models, tmp_path):

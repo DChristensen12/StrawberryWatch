@@ -1515,12 +1515,15 @@ def person(recipient_id):
     )
     form = Form(
         data={
+            "name": person.get("name") or "",
             "models": names if wanted is None else [n for n in names if n in wanted],
             "pause": "keep" if pausing else "off",
         }
     )
     who = person.get("name") or person["email"]
     if form.validate_on_submit():
+        store.set_name(recipient_id, form.name.data)
+        who = form.name.data or person["email"]
         ticked = form.models.data
         store.set_models(
             recipient_id, None if set(names) <= set(ticked) else [n for n in names if n in ticked]

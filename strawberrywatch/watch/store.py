@@ -643,6 +643,10 @@ class Store:
         with self.db() as db:
             db.execute("UPDATE recipients SET label_id = ? WHERE id = ?", (label_id, recipient_id))
 
+    def set_name(self, recipient_id, name):
+        with self.db() as db:
+            db.execute("UPDATE recipients SET name = ? WHERE id = ?", (name or None, recipient_id))
+
     def set_models(self, recipient_id, models):
         """Which models one person gets alerts from. None is every model, new ones too."""
         with self.db() as db:

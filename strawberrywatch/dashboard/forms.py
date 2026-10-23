@@ -116,7 +116,7 @@ LONGEST_PAUSE_DAYS = 365
 
 def person_form(models, today, pause_now=""):
     """
-    One person's alerts on the website: their models, and pausing them.
+    One person's alerts on the website: their name, their models, and pausing them.
     today is the date in Pacific time. pause_now names a pause that's still
     running, and keeping it comes first.
     """
@@ -128,6 +128,12 @@ def person_form(models, today, pause_now=""):
     titles = [(m.name, m.title) for m in models]
 
     class Form(FlaskForm):
+        name = StringField(
+            "Name",
+            description="Optional.",
+            filters=[_strip],
+            validators=[Optional(), Length(max=100, message="Name must be 100 characters or less")],
+        )
         models = SelectMultipleField(
             "Models",
             choices=titles,

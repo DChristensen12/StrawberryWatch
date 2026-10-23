@@ -12,6 +12,7 @@
 {% if can_edit %}
   <form method="post" novalidate>
     {{ form.csrf_token }}
+    {{ sw.text(form.name, autocomplete='off') }}
     {{ sw.checkboxes(form.models, legend_class='as-heading', items=off) }}
     {% set date_html %}{{ sw.text(form.pause_date, kind='date') }}{% endset %}
     {{ sw.radios(form.pause, hint="Only the emails stop. Alerts still show on the dashboard, and test emails still go out.", items={'date': {'reveal': date_html}}) }}
