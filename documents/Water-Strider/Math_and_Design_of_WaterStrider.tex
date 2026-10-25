@@ -1,0 +1,777 @@
+\documentclass{article}
+\usepackage{arxiv}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{bm}
+\usepackage{natbib}
+\usepackage{graphicx}
+
+% The emblem lives in the repository-wide assets directory, two levels up.
+\graphicspath{{../../assets/}{../../assets/logos/}{../../assets/biota/}{../../assets/diagrams/}}
+
+\title{The Mathematics and Design of WaterStrider}
+
+% arxiv.sty labels every paper "A Preprint" in the running head and under the
+% title. This is an internal technical report, not a preprint of a submission.
+\renewcommand{\headeright}{Technical Report}
+\renewcommand{\undertitle}{Technical Report}
+
+% arxiv.sty's title block sets a 24pt strut above the author names and 0.4in
+% below them, which leaves the byline stranded between "Technical Report" and
+% the date. This is the same layout with those two gaps halved. Overridden here
+% rather than edited in arxiv.sty, which is a vendored file.
+\makeatletter
+\renewcommand{\@maketitle}{%
+  \vbox{%
+    \hsize\textwidth
+    \linewidth\hsize
+    \vskip 0.1in
+    \@toptitlebar
+    \centering
+    {\LARGE\sc \@title\par}
+    \@bottomtitlebar
+    \textsc{\undertitle}\\
+    \vskip 0.1in
+    \def\And{%
+      \end{tabular}\hfil\linebreak[0]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \def\AND{%
+      \end{tabular}\hfil\linebreak[4]\hfil%
+      \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\ignorespaces%
+    }
+    \begin{tabular}[t]{c}\bf\rule{\z@}{12\p@}\@author\end{tabular}%
+  \vskip 0.2in \@minus 0.1in \center{\@date}   \vskip 0.2in
+  }
+}
+\makeatother
+
+\author{
+  Daniel Boupha Christensen \\
+  Environmental, Health, and Safety, University of California, Berkeley \\
+  The Green Initiative Fund \\
+}
+
+\begin{document}
+
+% Masthead. Licence at the left, group emblem at the right. This is an internal
+% report, so the block carries the licence and the project mark only, and
+% deliberately no journal, volume, page range or DOI furniture.
+\noindent
+\begin{minipage}[c]{0.74\textwidth}
+  \footnotesize
+  Copyright 2024--2026 Strawberry Creek Monitoring Group contributors.\\
+  Licensed under the Apache License, Version 2.0.\\
+  \url{https://www.apache.org/licenses/LICENSE-2.0}
+\end{minipage}%
+\hfill
+\begin{minipage}[c]{0.16\textwidth}
+  \raggedleft
+  \includegraphics[width=\linewidth]{SCMGemblem.png}
+\end{minipage}
+
+\maketitle
+
+\begin{abstract}
+WaterStrider is a per-sensor statistical detector for Strawberry Creek. It
+removes each sensor's normal daily rhythm, runs three complementary tests on
+what remains (a rolling Hampel test for spikes, a two-sided cumulative sum
+test for shifts that hold, and an exponentially weighted moving average test
+for slow drift), and sets every threshold from a tail fitted to clean data at
+a false alarm rate chosen in advance. Nothing in the model is trained by
+gradient descent. Every number in it is a median, a deviation or a fitted
+tail, so each alert can be explained in one sentence. WaterStrider meets the
+same detector contract as DuskCrayfish and CobbleShoal, and it also serves as
+the simple baseline that the graph models have to beat on the same labelled
+events. Here, we set out the mathematics of the residuals, the three tests and
+the calibration, the departures from the original plan that the data required,
+and what the shipped calibration measured. In brief, the calibration holds its
+false alarm budget on held-out months, but at that budget WaterStrider caught
+none of the four labelled anomalies.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+The starting point for WaterStrider was Hampel's X84 rule, which flags a value
+more than $k$ median absolute deviations (MAD) from the median, with $k = 5.2$
+in Hampel's original suggestion~\citep{hampel1985breakdown}. The median and
+the MAD are not pulled around by the outliers they are looking for, the rule
+needs no training, and its alerts explain themselves. On this creek, however,
+the rule alone is a poor detector, for five reasons. (1) A shift that lasts
+becomes the new median after half a window, so only its start is flagged,
+while a discharge can hold a new level for hours. (2) A slow drift, such as
+probe fouling, never stands out from its own window. (3) Storms and daily
+cycles look unusual, since rain dilutes conductivity and water temperature
+swings every day. (4) A flat signal, such as depth at base flow, has a MAD near
+zero, so every small change looks extreme. (5) A fixed $k$ ignores how many
+tests run. The plan counted 17 sensors reporting 96 times a day, about
+1{,}632 tests a day per rule. Work on automated anomaly detection in river
+turbidity, conductivity and level points the same way, and recommends
+combining methods to catch more events while keeping false detections
+low~\citep{leigh2019framework}.
+
+WaterStrider keeps the Hampel test and adds what each of these limits calls
+for: a cumulative sum (CUSUM) test for shifts that hold, an exponentially
+weighted moving average (EWMA) test for slow drift, a daily profile and the
+rain gate for daily cycles and storms, a floor on every spread for flat
+sensors, and a calibrated threshold for each test in place of a fixed $k$. Each
+test covers a failure the other two miss. An interquartile range fence or a
+plain z-score on the same window would be close to the same test as Hampel's,
+and would add false alarms without catching anything new.
+
+In StrawberryWatch, a model is whatever meets the detector contract, and the
+contract does not ask for weights. A detector built from medians and fitted
+tails is therefore as much a model as DuskCrayfish. WaterStrider also does a
+second job. Any graph neural network invites the comparison with a simple
+method on the same data, and WaterStrider provides that comparison on the same
+labelled events and at the same false alarm budget, which is a fairer
+comparison than X84 with a guessed $k$.
+
+\subsection{The calibrated configuration}
+\label{sec:configuration}
+
+Table~\ref{tab:config} lists the settings the shipped calibration was fitted
+at, read from the model definition and from
+\texttt{water\_strider\_calibration.json}, which was made on 14 October 2026.
+We refer to these values throughout the mathematics that follows.
+
+\begin{table}[t]
+  \centering
+  \caption{The calibrated configuration. These are the settings the shipped
+    calibration file records, not defaults or recommendations.}
+  \label{tab:config}
+  \begin{tabular}{ll}
+    \toprule
+    Setting & Value \\
+    \midrule
+    Sampling grid & 15 min, 96 steps a day \\
+    Level window & 12 hours (48 steps), trailing median \\
+    Daily profile & median over the previous 14 days \\
+    Share of real readings a window needs & 0.75 \\
+    MAD scale & 1.4826 \\
+    Spread floor & larger of probe resolution and $0.10 \times$ spread \\
+    Hampel window $w$ & 13 steps, including the current one \\
+    CUSUM allowance $k$ & 0.5 \\
+    EWMA weight $\lambda$ & 0.2 \\
+    Gap that resets CUSUM and EWMA & more than 8 missing steps \\
+    Declustering gap & 8 steps \\
+    Tail start percentiles & 98, then 95, 90, 85, 80 \\
+    Minimum clusters for a tail & 20 \\
+    Model false alarm rate $q$ & $10^{-4}$ \\
+    Rate per test $q / 3$ & $3.33 \times 10^{-5}$ \\
+    Calibration span & 4 June 2025 to 29 April 2026 \\
+    Split & even months fitted, odd months held out \\
+    Sensors calibrated & 30 (10 sites $\times$ 3 variables) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Data and Notation}
+\label{sec:data}
+
+\subsection{Readings on the grid}
+\label{sec:grid}
+
+Each sensor is judged on its own readings. We floor every timestamp to the
+quarter hour and average the readings that land on the same grid point, so a
+sensor becomes one value per 15 min step, with a gap where nothing arrived. We
+never fill gaps. DuskCrayfish showed that a filled-in newest reading causes
+false alarms, so instead each window is judged only when at least three
+quarters of its readings are real. For calibration, we drop readings outside
+their plausible range and readings from before the probe's recorded install
+date, since those are not that probe's own.
+
+\subsection{Level, daily profile and residuals}
+\label{sec:residuals}
+
+The tests run on residuals, the reading with its normal level and daily rhythm
+removed. For sensor readings $x_t$, the level $L_t$ is the median of the 48
+readings before step $t$, which is 12 hours of history. The daily profile
+$P(\cdot)$ assigns a value to each of the 96 quarter hours of the Pacific day.
+For each calendar day we take the median of $x_t - L_t$ at each quarter hour,
+and the profile in force on a day is the median of those daily values over the
+previous 14 days. A quarter hour seen on fewer than three of those days has no
+rhythm to remove yet, and its profile value is zero. The residual is then
+\begin{equation}
+  r_{t} = x_{t} - L_{t} - P\big(\mathrm{slot}(t)\big),
+\end{equation}
+so a normal afternoon temperature peak scores close to zero. Medians keep a
+past event from bending the profile, and the whole computation costs almost
+nothing.
+
+The level is a departure from the plan, which subtracted the daily profile
+alone. We tried level windows of 6 and 24 hours as well as 12. At 24 hours the
+shift test went over budget on the held-out months, and at 6 hours a drift was
+absorbed into the level too quickly to be seen.
+
+\subsection{Spread and its floor}
+\label{sec:spread}
+
+Each sensor has one robust spread, the scaled MAD of its residuals over the
+clean fitted steps,
+\begin{equation}
+  s = 1.4826 \cdot \operatorname{median}\big|\, r_{t} - \operatorname{median}(r) \,\big| ,
+\end{equation}
+where the factor makes $s$ approximately one standard deviation for normal
+data. Every spread in WaterStrider is a scaled MAD, and the code names say so.
+The distinction matters, because 5.2 raw MADs is about 3.5 standard deviations,
+while 5.2 scaled MADs is about 5.2.
+
+A steady sensor's MAD can be close to zero, which makes every small change look
+extreme. We therefore floor every spread at
+\begin{equation}
+  f = \max\big(\varepsilon_{v},\ 0.10\, s\big),
+\end{equation}
+where $\varepsilon_{v}$ is the smallest step the probe reports: 1.0 for
+conductivity and depth, 0.1 for temperature and floating conductivity, and
+0.01 for dissolved oxygen, each in that probe's reporting units.
+Table~\ref{tab:notation} collects the symbols used in the rest of this
+document.
+
+\begin{table}[t]
+  \centering
+  \caption{Notation.}
+  \label{tab:notation}
+  \begin{tabular}{lll}
+    \toprule
+    Symbol & Meaning & Dimension \\
+    \midrule
+    $x_{t}$ & one sensor's reading at step $t$ & scalar \\
+    $L_{t}$ & level, 12 hour trailing median & scalar \\
+    $P(\cdot)$ & daily profile by quarter hour & 96 \\
+    $r_{t}$ & residual & scalar \\
+    $s$ & sensor spread, scaled MAD & scalar \\
+    $f$ & spread floor & scalar \\
+    $z_{t}$ & standardised residual, $r_{t} / \max(s, f)$ & scalar \\
+    $H_{t}, C_{t}, E_{t}$ & Hampel, CUSUM and EWMA statistics & scalar \\
+    $\rho$ & lag-one autocorrelation of the residuals & scalar \\
+    $t_{0}$ & tail start, a percentile of the clean statistic & scalar \\
+    $\hat{\sigma}, \hat{\gamma}$ & fitted tail scale and shape & scalar \\
+    $n$ & clean fitted steps & scalar \\
+    $N_{t}$ & clusters above $t_{0}$ & scalar \\
+    $q$ & false alarm rate for the whole model & scalar, $10^{-4}$ \\
+    $z_{q}$ & a test's threshold at rate $q/3$ & scalar \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{The Three Tests}
+\label{sec:tests}
+
+\subsection{Rolling Hampel test}
+\label{sec:hampel}
+
+The Hampel statistic is the distance of a residual from the median of its
+window, in floored scaled MADs,
+\begin{equation}
+  H_{t} = \frac{\big|\, r_{t} - \operatorname{median}(\mathcal{W}_{t}) \,\big|}
+               {\max\!\big(1.4826 \cdot \operatorname{MAD}(\mathcal{W}_{t}),\ f\big)} ,
+\end{equation}
+where $\mathcal{W}_{t}$ holds the $w = 13$ residuals ending at step $t$, about
+three hours. The window is long enough that one bad reading cannot drag the
+median, and short enough that a lasting shift has been absorbed by the time the
+CUSUM test has it. The window includes the step itself, so a spike is judged
+against the readings around it. This is the moving-window form of the rule
+known as the Hampel identifier. The test catches single spikes and sudden
+drops, and it misses shifts that last past half the window.
+
+\subsection{Two-sided CUSUM}
+\label{sec:cusum}
+
+The CUSUM test accumulates standardised residuals beyond a small allowance,
+in both directions~\citep{page1954continuous},
+\begin{equation}
+  C^{+}_{t} = \max\big(0,\ C^{+}_{t-1} + z_{t} - k\big), \qquad
+  C^{-}_{t} = \max\big(0,\ C^{-}_{t-1} - z_{t} - k\big), \qquad
+  C_{t} = \max\big(C^{+}_{t}, C^{-}_{t}\big),
+\end{equation}
+with $k = 0.5$, the usual choice for catching a shift of about one spread. A
+shift that holds keeps adding to one of the sums, while a single spike adds
+once and decays. The test therefore catches shifts that hold and misses single
+spikes by design. Missing steps are skipped, and both sums reset after more
+than 8 consecutive missing steps, so a long gap does not carry a sum across it.
+
+We also tried scaling the CUSUM input for slow wander. Residuals here are
+strongly autocorrelated, and a running sum of autocorrelated values spreads
+wider than one of independent values by the long-run factor
+$\sqrt{(1 + \rho) / (1 - \rho)}$. The scaling shrank real shifts below the
+allowance, and the shift test then barely fired, so the shipped calibration
+has it turned off.
+
+\subsection{EWMA}
+\label{sec:ewma}
+
+The EWMA test averages the standardised residuals with geometrically
+decreasing weights and reads the average in units of its own spread,
+\begin{equation}
+  \bar{z}_{t} = \lambda z_{t} + (1 - \lambda)\, \bar{z}_{t-1}, \qquad
+  E_{t} = \frac{|\bar{z}_{t}|}{\sqrt{\lambda / (2 - \lambda)}} ,
+\end{equation}
+with $\lambda = 0.2$, within the range of 0.2 to 0.3 that the NIST handbook
+suggests~\citep{nisthandbookewma}. Averaging narrows the spread by
+$\sqrt{\lambda / (2 - \lambda)}$, which is why the limits of an EWMA chart are
+narrower than those of the raw data. The test catches slow drift and misses
+sudden changes. It resets after long gaps in the same way as CUSUM.
+
+\subsection{Combining the tests}
+\label{sec:combination}
+
+A step is flagged when any test crosses its own threshold, and the detector
+returns one finding per site, sensor and test. CUSUM and EWMA build up over
+time, so their statistics already describe changes that last. A Hampel spike,
+by contrast, counts only when a second reading agrees, either the step before
+or another sensor at the same site. Writing $R_{t} = H_{t} / z_{q}$ for the
+spike's share of its own threshold and $R'_{t}$ for the largest share among
+the site's other sensors at the same step, the Hampel score that is compared
+with the threshold is
+\begin{equation}
+  \tilde{H}_{t} = z_{q} \cdot \min\!\big(R_{t},\ \max(R_{t-1}, R'_{t})\big).
+\end{equation}
+A single bad reading is the job of the Settling Pool screen described in the
+support modules report, and WaterStrider does not repeat its checks.
+
+\section{Calibration}
+\label{sec:calibration}
+
+\subsection{Clean steps and the split}
+\label{sec:clean}
+
+We computed every statistic over the full calibration span, with CUSUM and EWMA
+carrying their sums as they would in a live check, and fitted only on clean
+steps. A step is clean when it lies outside all eight labelled event spans and
+the rain gate would not be raising the threshold there. Each sensor needed at
+least 14 clean days in the fitted months to be calibrated at all.
+
+We fitted on even months and held out odd months, so that both sides contain
+wet and dry weather. The calibration script records that a chronological split
+put the rain on the held-out side. Measured over the span, the share of steps
+where the rain gate raises the bar is 21.0\% in even months and 10.9\% in odd
+months, against 14.1\% and 22.5\% for a chronological split at 1 February 2026,
+so both splits leave wet weather on both sides.
+
+\subsection{Declustered tails}
+\label{sec:tails}
+
+The residuals are slowly varying. Their lag-one autocorrelation has a median of
+0.963 across the 30 calibrated sensors, with a range of 0.701 to 0.993, and
+CUSUM and EWMA stay over a line for many steps once they cross it. Steps above a
+threshold are therefore far from independent, and a tail fitted to every
+exceedance would describe the length of a few runs rather than how often a run
+begins. We declustered the statistic, which is the usual remedy when
+exceedances are not independent~\citep{coles2001introduction}. Runs over the
+starting threshold that lie within 8 steps of each other count as one cluster,
+and we fitted the tail to the cluster peaks. In this form $N_{t}$ counts
+clusters and $q$ is a rate of alarms per step, not of steps over the line.
+
+For each sensor and test, the tail start $t_{0}$ is the 98th percentile of the
+clean fitted statistic, as in the peaks-over-threshold method of
+\citet{siffer2017spot}. CUSUM and EWMA can spend the top 2\% of steps in a few
+long runs, so where fewer than 20 clusters exceed $t_{0}$ we step down to the
+95th, 90th, 85th and 80th percentiles in turn. A Generalised Pareto
+distribution with location zero is then fitted by maximum likelihood to the
+cluster peaks minus $t_{0}$~\citep{pickands1975gpd}, and the threshold for a
+test's share of the budget is
+\begin{equation}
+  z_{q} = t_{0} + \frac{\hat{\sigma}}{\hat{\gamma}}\left[\left(\frac{(q/3)\, n}{N_{t}}\right)^{-\hat{\gamma}} - 1\right],
+  \qquad
+  z_{q} = t_{0} - \hat{\sigma} \log\!\left(\frac{(q/3)\, n}{N_{t}}\right) \ \text{ as } \hat{\gamma} \to 0 ,
+\end{equation}
+using the exponential limit whenever $|\hat{\gamma}| < 10^{-6}$.
+
+A sensor with fewer than 20 clusters even from the 80th percentile shares a
+tail with every sensor of its kind. We place the kind's statistics end to end,
+with a gap between sensors that no cluster can cross, and fit one tail to the
+pooled peaks. The plan fitted a tail per sensor; pooling is a departure that
+the thin sensors required.
+
+\subsection{The budget}
+\label{sec:budget}
+
+The model's false alarm rate is $q = 10^{-4}$, the same default the support
+modules use, split evenly across the three tests so that each test gets
+$q/3 = 3.33 \times 10^{-5}$. Splitting by addition is a union bound, so the
+real rate of the three tests together is at most $q$~\citep{dunn1961multiple},
+and because the tests share residuals it is likely lower.
+
+The calibration file keeps the whole fit for every sensor and test
+($t_{0}$, $\hat{\sigma}$, $\hat{\gamma}$, $n$ and $N_{t}$) as well as the
+threshold, together with $q$, the span and split used, the settings and a hash
+of the fitted data. Keeping the fit, and not only the threshold, is what lets
+the sensitivity setting in Section~\ref{sec:sensitivity} move the rate without
+recalibrating.
+
+\subsection{The fitted tails}
+\label{sec:fitted}
+
+We calibrated 30 sensors, conductivity, depth and temperature at each of 10
+sites, and skipped 11. Nine of the skipped sensors had too few readings,
+including every sensor at scnf010 and the dissolved oxygen and floating
+conductivity probes at botanical\_garden and south\_fork\_0. The remaining two,
+dissolved oxygen and floating conductivity at south\_fork\_3, had only 10 and
+12 EWMA clusters even from the 80th percentile, and no pooled tail could be
+fitted for them. The calibrated sensors had between 16.5 and 88.9 clean days in
+the fitted months. Table~\ref{tab:tails} summarises the 90 tails.
+
+\begin{table}[t]
+  \centering
+  \caption{The 90 fitted tails by test. A pooled tail is shared by every sensor
+    of one kind. The median threshold is in the units of each statistic.}
+  \label{tab:tails}
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    Test & Own & Pooled & From 98th & $\hat{\gamma} < 0$ & $\hat{\gamma} > 1$ & Median $z_{q}$ \\
+    \midrule
+    Hampel & 30 & 0  & 28 & 2 & 3  & 38.5 \\
+    CUSUM  & 5  & 25 & 0  & 3 & 10 & 3{,}838.0 \\
+    EWMA   & 29 & 1  & 1  & 5 & 5  & 113.0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The CUSUM tails depend most on pooling. All 10 conductivity sensors and all 10
+depth sensors share one CUSUM tail each, as do 5 of the 10 temperature sensors,
+and only one EWMA tail is pooled. The pooled conductivity CUSUM threshold is
+3{,}838.0 and the pooled depth CUSUM threshold is 221{,}574.1, because the
+depth tail's fitted shape is $\hat{\gamma} = 2.77$. A large positive shape
+places the threshold far beyond the observed peaks. The same holds for a few
+sensors' own tails, such as the kingman\_hall conductivity EWMA
+($\hat{\gamma} = 2.00$, $z_{q} = 73{,}312.4$) and the oxford depth Hampel test
+($\hat{\gamma} = 2.83$, $z_{q} = 65{,}418.9$).
+
+\subsection{The held-out check}
+\label{sec:heldout}
+
+A calibration passes only if the alarm rate on the held-out clean steps comes
+within twice the budget. Table~\ref{tab:heldout} gives the result. Every test
+passed, and so did the three tests together.
+
+\begin{table}[t]
+  \centering
+  \caption{Alarms on held-out clean steps (odd months). An alarm is a run over
+    the threshold, with runs closer than 8 steps counted as one. The allowance
+    is twice the budget.}
+  \label{tab:heldout}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Test & Alarms & Steps & Rate & Allowed \\
+    \midrule
+    Hampel   & 5 & 172{,}713 & $2.89 \times 10^{-5}$ & $6.67 \times 10^{-5}$ \\
+    CUSUM    & 5 & 173{,}961 & $2.87 \times 10^{-5}$ & $6.67 \times 10^{-5}$ \\
+    EWMA     & 2 & 173{,}961 & $1.15 \times 10^{-5}$ & $6.67 \times 10^{-5}$ \\
+    Any test & 9 & 173{,}961 & $5.17 \times 10^{-5}$ & $2.00 \times 10^{-4}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Serving}
+\label{sec:serving}
+
+\subsection{Manual sensitivity}
+\label{sec:sensitivity}
+
+The calibration sets the default, and a sensitivity setting lets people move
+away from it in steps that stay statistically sound. The setting moves the
+false alarm rate rather than the thresholds. Each sensor's tail has its own
+shape, so scaling every threshold by the same factor would make one sensor much
+noisier and barely change another, whereas moving the rate keeps every sensor
+equally strict. Each test can be set on its own, and every new threshold comes
+from the tail already fitted, so nothing is refitted. Table~\ref{tab:stops}
+lists the five stops.
+
+\begin{table}[t]
+  \centering
+  \caption{The sensitivity stops, as the model's overall rate. Each test gets a
+    third. The expected flags assume 1{,}632 tests a day per rule, from the
+    plan's count of 17 sensors.}
+  \label{tab:stops}
+  \begin{tabular}{lrl}
+    \toprule
+    Stop & Rate $q$ & Expected false flags \\
+    \midrule
+    Far fewer  & $10^{-5}$ & about one in 2 months \\
+    Fewer      & $3 \times 10^{-5}$ & about one in 3 weeks \\
+    Calibrated & $10^{-4}$ & about one a week \\
+    More       & $3 \times 10^{-4}$ & about one every 2 days \\
+    Far more   & $10^{-3}$ & about one and a half a day \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The range stops there for two reasons. Above about 0.02 per test, the threshold
+would fall below the 98th percentile that the tail fit starts from, and the
+method no longer applies. Well below $10^{-5}$, the threshold lands far beyond
+anything in the calibration data, and the number becomes a guess.
+
+A hand-typed threshold $z$ for one sensor and test runs the threshold formula
+backwards, to give the rate it implies,
+\begin{equation}
+  q = \frac{N_{t}}{n}\left(1 + \frac{\hat{\gamma}\,(z - t_{0})}{\hat{\sigma}}\right)^{-1/\hat{\gamma}},
+  \qquad
+  q = \frac{N_{t}}{n}\, e^{-(z - t_{0}) / \hat{\sigma}} \ \text{ as } \hat{\gamma} \to 0 ,
+\end{equation}
+and a typed threshold past a negative shape's finite endpoint implies a rate
+of zero. At the calibrated stop, the stored threshold is used unchanged.
+
+\subsection{Rain}
+\label{sec:rain}
+
+We calibrated on dry-weather steps, and during and after rain the rain gate
+raises each threshold by a multiplier, as it does for the other models. The
+gate's default rule doubles the bar while it rains and then returns it to the
+base value linearly over 36 hours, counting a reading above 0.1 mm as wet.
+WaterStrider declares rain as built-in support behaviour, so attaching a
+separate rain modulator is refused, since it would raise the thresholds twice.
+
+\subsection{The detector contract}
+\label{sec:contract}
+
+WaterStrider reads one JSON file, the calibration, which the existing file
+check verifies by hash, and it imports no deep learning library. A check is
+medians and running sums over short windows for each sensor, which takes
+milliseconds and a few megabytes. Live checks read two days of readings, which
+is not enough to rebuild a 14 day profile, so the served detector uses the
+latest profile stored in the calibration as a fixed shape and computes the
+level from the live readings. Table~\ref{tab:contract} gives its answers to the
+rest of the contract.
+
+\begin{table}[t]
+  \centering
+  \caption{WaterStrider's answers to the detector contract.}
+  \label{tab:contract}
+  \begin{tabular}{ll}
+    \toprule
+    Contract piece & WaterStrider \\
+    \midrule
+    Sites & in-service sites with a calibrated sensor \\
+    Rules & \texttt{hampel\_spike}, \texttt{cusum\_shift}, \texttt{ewma\_drift} \\
+    Plain wording & a sudden spike, a jump that stayed, a slow drift \\
+    Findings & one per site, sensor and rule over its rain-gated line \\
+    Steps over the line needed & 1 \\
+    Site choices & don't flag, and leave out \\
+    Built-in support & rain \\
+    Weather & needed while the rain gate is on \\
+    Files & \texttt{water\_strider\_calibration.json} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Evaluation}
+\label{sec:evaluation}
+
+We compared WaterStrider with each of its three tests alone, with naive X84 (a
+fixed 5.2 raw MADs from a trailing median, with no daily profile and no rain
+handling), and with DuskCrayfish and CobbleShoal, each with its shipped
+checkpoint and default settings. We count whole events rather than single readings. We ran the
+evaluation on 25 October 2026, against the calibration described above.
+
+\subsection{False flags on held-out months}
+\label{sec:falseflags}
+
+Table~\ref{tab:flags} gives the false flags per sensor-week on the clean steps
+of the held-out months, over 258.9 sensor-weeks. The budget allows about 0.07
+a sensor-week. WaterStrider ran at 0.039, about 1.2 a week across the 30
+sensors.
+
+\begin{table}[t]
+  \centering
+  \caption{False flags per sensor-week on held-out clean data, network wide.
+    X84 was counted on conductivity sensors only.}
+  \label{tab:flags}
+  \begin{tabular}{lr}
+    \toprule
+    Method & Flags per sensor-week \\
+    \midrule
+    WaterStrider          & 0.039 \\
+    Hampel alone          & 0.019 \\
+    CUSUM alone           & 0.023 \\
+    EWMA alone            & 0.008 \\
+    Naive X84, $k = 5.2$   & 5.308 \\
+    Naive X84, $k = 347.3$ & 0.409 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Naive X84 at $k = 5.2$ flagged about 136 times as often as WaterStrider. The
+evaluation then searched for the $k$ at which X84 matches WaterStrider's rate,
+up to $k = 2{,}000$, and the closest it came was 0.409 a sensor-week at
+$k = 347.3$, still about ten times WaterStrider's rate. X84 cannot reach that
+rate at any $k$, because on a flat stretch the raw MAD is zero and any change
+at all exceeds every multiple of it.
+
+\subsection{Labelled events}
+\label{sec:events}
+
+Table~\ref{tab:events} gives which methods flagged conductivity at the labelled
+site in each graded event. The four labelled anomalies are the June 2025
+discharge on the south fork, both halves of the September 2025 overnight event
+on the south fork, and the March 2026 hydrant break into the north fork.
+
+\begin{table}[t]
+  \centering
+  \caption{Labelled anomalies flagged at the labelled site's conductivity
+    sensor. A tick means the method flagged the event; X84 matched is X84 at
+    $k = 347.3$.}
+  \label{tab:events}
+  \begin{tabular}{llcccccc}
+    \toprule
+    Event & Site & WS & Hampel & CUSUM & EWMA & X84 & X84 matched \\
+    \midrule
+    June 2025 discharge      & south\_fork\_1 & & & & & \checkmark & \\
+    September 2025 overnight & south\_fork\_1 & & & & & \checkmark & \\
+    September 2025 overnight & south\_fork\_2 & & & & & \checkmark & \checkmark \\
+    March 2026 hydrant       & north\_fork\_0 & & & & & \checkmark & \\
+    \midrule
+    Caught & & 0 & 0 & 0 & 0 & 4 & 1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+WaterStrider caught none of the four, and neither did any of its tests alone.
+Naive X84 caught all four at $k = 5.2$, at 136 times the false flag rate, and
+one at $k = 347.3$. In the same run, DuskCrayfish flagged three of the four
+(the June discharge and the September event at south\_fork\_1, and the
+hydrant break) and CobbleShoal flagged none.
+
+The events that are not graded give a similar picture. WaterStrider flagged
+the November 2025 foam event at north\_fork\_0 through its Hampel test, 40.5
+hours after the earliest flag from any method, which was X84's. It did not
+flag the June 2025 discharge at south\_fork\_2 or the August 2025 sprinkler
+runoff, and no method flagged the botanical garden actuator event. In both
+rain-only events, the November 2025 rain and the April 2026 rainfall,
+WaterStrider flagged conductivity at one site, codornices, where X84 flagged 7
+and 8 sites and DuskCrayfish 3 and 1.
+
+\subsection{Peaks against thresholds}
+\label{sec:peaks}
+
+Table~\ref{tab:peaks} shows how close each test came. For every step of the
+event window we divided the test's score by its rain-gated line, and the table
+gives the largest share each test reached. A value of 1 would be a flag.
+
+\begin{table}[t]
+  \centering
+  \caption{The largest share of its rain-gated line each test reached at the
+    labelled site's conductivity sensor, at the calibrated rate.}
+  \label{tab:peaks}
+  \begin{tabular}{llrrr}
+    \toprule
+    Event & Site & Hampel & CUSUM & EWMA \\
+    \midrule
+    June 2025 discharge      & south\_fork\_1 & 0.062 & 0.172 & 0.081 \\
+    September 2025 overnight & south\_fork\_1 & 0.937 & 0.145 & 0.148 \\
+    September 2025 overnight & south\_fork\_2 & 0.098 & 0.164 & 0.105 \\
+    March 2026 hydrant       & north\_fork\_0 & 0.256 & 0.099 & 0.237 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Only one event came close. The Hampel test at south\_fork\_1 in the September
+event reached 0.937 of its line. Every CUSUM peak stayed below a fifth of the
+pooled conductivity threshold of 3{,}838.0, so the shift test, the one meant
+for discharges that hold a new level, was furthest from firing.
+
+\subsection{Sensitivity stops}
+\label{sec:stopsresult}
+
+We replayed the same events at each sensitivity stop. Table~\ref{tab:stopsresult}
+gives the result.
+
+\begin{table}[t]
+  \centering
+  \caption{Labelled anomalies caught, and sites whose conductivity was flagged
+    in the November 2025 and April 2026 rain-only events, at each stop.}
+  \label{tab:stopsresult}
+  \begin{tabular}{lrrl}
+    \toprule
+    Stop & Rate $q$ & Anomalies caught & Rain-only sites flagged \\
+    \midrule
+    Far fewer  & $10^{-5}$          & 0 of 4 & 1 and 1 \\
+    Fewer      & $3 \times 10^{-5}$ & 0 of 4 & 1 and 1 \\
+    Calibrated & $10^{-4}$          & 0 of 4 & 1 and 1 \\
+    More       & $3 \times 10^{-4}$ & 1 of 4 & 1 and 1 \\
+    Far more   & $10^{-3}$          & 2 of 4 & 4 and 6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+At the More stop, the Hampel test caught the September event at
+south\_fork\_1. At the Far more stop, the EWMA test also caught the hydrant
+break, but the rain-only events then flagged 4 and 6 sites. The flags at
+codornices in the rain-only events did not go away at any stop, since their
+peaks were several times the line.
+
+\subsection{Pass criteria}
+\label{sec:criteria}
+
+The plan set four pass criteria, and the shipped calibration meets one of
+them. (1) False flags on held-out clean data came within twice the budget,
+which passed. (2) It did not catch the labelled discharge events. (3) It
+flagged one site in each of the labelled rain-only events. (4) At the same
+false flag rate as naive X84, it caught 0 events against X84's 1.
+
+\section{Limitations and Future Work}
+\label{sec:limitations}
+
+The main limitation is that the calibrated thresholds are too far above the
+events. WaterStrider holds its false alarm budget on held-out months, but at
+that budget it catches none of the four labelled anomalies, and at the loosest
+stop it catches two while flagging most sites in a rain-only event. As a
+baseline, it therefore does not yet set a meaningful bar for the graph models.
+That said, DuskCrayfish flagged three of the same four events in this
+evaluation, so the events are detectable from these sensors.
+
+The CUSUM tails are the clearest place to look. Most of them are pooled, the
+pooled conductivity threshold sat 5.8 to 10.1 times above the four events'
+peaks, and the depth tail's large fitted shape put its threshold at
+221{,}574.1. A Generalised Pareto tail with $\hat{\gamma} \ge 1$ has no finite
+mean, and a threshold extrapolated from such a fit may say more about the fit
+than about the creek. We recommend checking the tail fits against the held-out
+peaks, and trying a clamped shape, as CobbleShoal clamps $\gamma$ at zero for
+its p-values, before tuning anything else.
+
+The level window may remove part of what the tests are looking for. A 12
+hour trailing median takes on a new level once that level has held for 6
+hours, half the window, so the residual of a discharge that holds longer
+returns toward zero. This may be one reason the shift test stays quiet. We
+chose 12 hours over 6 and 24 on the false alarm budget alone, and no event was
+part of that choice.
+
+The spike test needs a second reading to agree. A real one-step spike in
+conductivity is therefore counted only when the depth or temperature sensor at
+the same site spikes at the same step, and otherwise not at all. Settling
+Pool, which would take over the job of rejecting single bad readings and so
+allow the corroboration rule to be relaxed, is not yet built.
+
+The reason recorded for the blocked split does not hold on the counts in
+Section~\ref{sec:clean}. Both splits leave rain on both sides, and the blocked
+split puts about twice as many gated steps in the fitted months as in the
+held-out ones. The split is still a reasonable one, but it was not chosen for
+the reason the calibration script states.
+
+The served detector uses a fixed daily profile from the end of the calibration
+span. The plan rebuilt a sensor's profile and thresholds after a replacement,
+using the install dates in the inventory. The calibration drops readings from
+before a probe's install date, but nothing rebuilds the profile while the
+detector runs, so the profile may drift from the creek's rhythm as the
+seasons change, until the calibration is rerun.
+
+The expected false flags in Table~\ref{tab:stops} come from the plan's count of
+17 sensors, while the shipped calibration judges 30. Across the network, the
+calibrated stop therefore allows about two false flags a week rather than one,
+and WaterStrider measured about 1.2.
+
+Finally, every number in this document describes the calibration made on 14
+October 2026 and the evaluation run on 25 October 2026. The tails and
+thresholds are fitted quantities, and they will move when the calibration is
+rerun.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}
