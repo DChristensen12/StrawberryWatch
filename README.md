@@ -84,7 +84,7 @@ drop, and also why they occasionally go quiet when the sun does.
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
     <td align="center" width="33%">A graph neural network paired with an LSTM that scores each sensor separately rather than the network as a whole. It treats every sensor at every site as its own node, learns how quickly each reading goes stale, and combines several independent checks so it can name which sensor looks wrong and how confident it is.</td>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">Bayesian spatio-temporal stream-network model</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/biota/Berries.jpeg" width="351"></td>
@@ -92,14 +92,14 @@ drop, and also why they occasionally go quiet when the sun does.
     <td align="center"><img src="assets/biota/Spider.jpeg" width="351"></td>
   </tr>
   <tr>
-    <td align="center"><b>TBD</b></td>
-    <td align="center"><b>TBD</b></td>
-    <td align="center"><b>TBD</b></td>
+    <td align="center"><b>Storm Woolly</b></td>
+    <td align="center"><b>Azure Sprite</b></td>
+    <td align="center"><b>Acorn Oracle</b></td>
   </tr>
   <tr>
+    <td align="center" width="33%">A functional outlier detector. It treats each storm’s conductivity response as one curve, compares it to past storms, and flags storms that rise, fall or recover unusually.</td>
     <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">TBD</td>
-    <td align="center" width="33%">TBD</td>
+    <td align="center" width="33%">A pretrained time-series foundation model. It forecasts a range for each sensor from upstream sites and rainfall without training on creek data, and flags readings at a set false-alarm rate.</td>
   </tr>
   <tr>
     <td align="center"><img src="assets/biota/Broom_Moth.jpeg" width="351"></td>
