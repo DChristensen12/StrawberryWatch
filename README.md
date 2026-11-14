@@ -83,7 +83,7 @@ drop, and also why they occasionally go quiet when the sun does.
   </tr>
   <tr>
     <td align="center" width="33%">Logistic Regression Model</td>
-    <td align="center" width="33%">A graph neural network paired with an LSTM that scores each sensor separately rather than the network as a whole. It treats every sensor at every site as its own node, learns how quickly each reading goes stale, and combines several independent checks so it can name which sensor looks wrong and how confident it is.</td>
+    <td align="center" width="33%">Gradient-boosted quantile forecasting (LightGBM) with conformalized intervals</td>
     <td align="center" width="33%">Bayesian spatio-temporal stream-network model</td>
   </tr>
   <tr>
