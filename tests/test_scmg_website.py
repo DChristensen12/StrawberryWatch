@@ -1,12 +1,7 @@
-"""
-The website version: the dashboard at /strawberrywatch
-behind a real Django login, with the store on sw_ tables.
-
-There's no MySQL server here. The store runs on SQLite through store_mysql's
-prefixing, and any table it misses fails with "no such table". Point
-STRAWBERRYWATCH_TEST_MYSQL at a JSON login for a throwaway database to run the
-store checks on real MySQL.
-"""
+"""The dashboard at /strawberrywatch behind a real Django login, with the store on sw_ tables."""
+# No MySQL server here. The store runs on SQLite through store_mysql's prefixing, and a
+# table it misses fails with "no such table". Point STRAWBERRYWATCH_TEST_MYSQL at a JSON
+# login for a throwaway database to run the store checks on real MySQL
 
 import json
 import os
@@ -33,6 +28,7 @@ def _login_page(request):
 urlpatterns = [
     path("login/", _login_page, name="login"),
     path("logout/", _login_page, name="logout"),
+    path("alerts/", _login_page, name="alerts"),
 ]
 
 
@@ -288,7 +284,7 @@ def test_setup_tables_reads_the_env_in_the_folder_its_run_from(tmp_path):
         text=True,
         timeout=120,
     )
-    # No MySQL here, so it fails, but on the host from that .env
+    # No MySQL here and it fails, but on the host from that .env
     assert run.returncode != 0
     assert "missing MySQL env vars" not in run.stderr
     assert "setup-tables-test.invalid" in run.stderr
@@ -313,6 +309,37 @@ def test_signed_in_sees_the_website_dashboard(django_site, tmp_path):
     assert "strawberrywatch=" in set_cookie and "Path=/strawberrywatch" in set_cookie
     assert "Secure" in set_cookie and "HttpOnly" in set_cookie
     assert response.headers["Referrer-Policy"] == "same-origin"
+
+
+def test_the_nav_links_to_night_heron(django_site, tmp_path):
+    from django.contrib.auth.models import User
+
+    user = User.objects.create_user("cleo")
+    client, _ = _site(tmp_path)
+    page = _get(client, "/strawberrywatch/", _session_cookie(user)).data.decode()
+    # The site's Alerts link, told which dashboard the person is leaving for
+    assert 'href="/alerts/?to=night-heron"' in page and ">Night Heron<" in page
+
+
+def test_the_dashboard_in_use_goes_in_the_sites_session():
+    from strawberrywatch.integrations.scmg_website import gate
+
+    class Session(dict):
+        saved = 0
+
+        def save(self):
+            self.saved += 1
+
+    class Request:
+        session = Session()
+
+    request = Request()
+    gate.remember(request)
+    assert request.session[gate.DASHBOARD_KEY] == gate.DASHBOARD
+    assert request.session.saved == 1
+    # Already noted. The session isn't written again
+    gate.remember(request)
+    assert request.session.saved == 1
 
 
 def test_the_picker_workbench_and_replay_are_page_not_found(django_site, tmp_path):

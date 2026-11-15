@@ -1,9 +1,6 @@
-"""
-Newtwork Run: reading transport off firing order, and the control that refutes it.
-
-Ordering only. These tests supply no travel time, since we haven't measured
-one, and the module has to be useful without them.
-"""
+"""Newtwork Run: reading transport off firing order, and the control that refutes it."""
+# Ordering only. No travel time is supplied, since none has been measured, and the module
+# has to be useful without one
 
 from __future__ import annotations
 
@@ -84,10 +81,7 @@ def test_the_order_is_what_decides_it():
 
 
 def test_codornices_firing_at_the_same_step_rules_out_transport():
-    """
-    Codornices is a separate watershed. A signal at codornices and at a
-    Strawberry Creek site at the same timestep can't have travelled.
-    """
+    """Codornices is its own watershed. Firing there and here at one step can't be transport."""
     nodes = [*SOUTH, "codornices"]
     seen = verdicts(nodes, {"south_fork_1": 3, "south_fork_2": 3, "codornices": 3})
 
@@ -145,10 +139,7 @@ def test_a_supplied_travel_time_is_picked_up_without_a_code_change(monkeypatch):
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_it_spends_no_false_alarm_budget_on_either_model(model):
-    """
-    The set of firing node-timesteps has to be identical with the module
-    attached and without it.
-    """
+    """The set of firing node-timesteps is identical with the module attached and without it."""
     from strawberrywatch.anomalies.rain_gate import RainGate
 
     nodes = ["south_fork_1", "south_fork_2", "oxford"]

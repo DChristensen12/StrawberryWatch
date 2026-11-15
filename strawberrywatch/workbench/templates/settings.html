@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Settings</h1>
+<div class="wb-content wb-w-860 wb-gap-36" id="settings">
+<p class="wb-intro">Set up each data source once. Model tuning then uses it without asking again.</p>
+
+<section aria-labelledby="src-title" class="wb-stack">
+<h2 id="src-title" class="wb-h-section">Data sources</h2>
+
+<div class="wb-card">
+<h3 class="wb-h-plain">The Strawberry Creek website</h3>
+{% if has_token %}
+<p class="wb-tight">API token saved in this computer's keychain.</p>
+{% else %}
+<p class="wb-tight">No API token saved yet.</p>
+{% endif %}
+<form method="post" action="{{ url_for('main.settings_post') }}" class="wb-token" id="token-form" hidden>
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="what" value="token">
+<label class="wb-field wb-field-wide">API token<input type="password" name="api_token" autocomplete="off" required></label>
+<div class="wb-buttons"><button type="submit" class="wb-primary">Save</button></div>
+</form>
+<div class="wb-buttons">
+{% if has_token %}
+<button type="button" class="wb-secondary" data-reveal="token-form">Replace token</button>
+{% else %}
+<button type="button" class="wb-secondary" data-reveal="token-form">Add token</button>
+{% endif %}
+<form method="post" action="{{ url_for('main.settings_test', kind='api') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<button type="submit" class="wb-secondary">Test connection</button>
+</form>
+</div>
+{% if saved == "token" %}
+<p class="wb-tight" role="status">Saved.</p>
+{% endif %}
+{% if tested and tested.kind == "api" %}
+{% if tested.ok %}
+<p class="wb-tight" role="status">Connected.</p>
+{% else %}
+<p class="wb-warning" role="status">Could not connect: {{ reason }}</p>
+{% endif %}
+{% endif %}
+</div>
+
+<div class="wb-card">
+<h3 class="wb-h-plain">A MySQL database</h3>
+<p class="wb-tight">The password is kept in this computer's keychain, never in a file.</p>
+<form method="post" action="{{ url_for('main.settings_post') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="what" value="mysql">
+<div class="wb-grid">
+<label class="wb-field">Host<input type="text" name="mysql_host" value="{{ host }}"></label>
+<label class="wb-field">Database<input type="text" name="mysql_database" value="{{ database }}" placeholder="Database name"></label>
+<label class="wb-field">Username<input type="text" name="mysql_user" value="{{ username }}"></label>
+<label class="wb-field">Password<input type="password" name="mysql_password" autocomplete="off"></label>
+</div>
+<div class="wb-buttons wb-buttons-gap">
+<button type="submit" class="wb-primary">Save</button>
+<button type="submit" class="wb-secondary" formaction="{{ url_for('main.settings_test', kind='mysql') }}">Test connection</button>
+</div>
+</form>
+{% if saved == "mysql" %}
+<p class="wb-tight" role="status">Saved.</p>
+{% endif %}
+{% if tested and tested.kind == "mysql" %}
+{% if tested.ok %}
+<p class="wb-tight" role="status">Connected.</p>
+{% else %}
+<p class="wb-warning" role="status">Could not connect: {{ reason }}</p>
+{% endif %}
+{% endif %}
+</div>
+
+<div class="wb-card">
+<h3 class="wb-h-plain">A folder of CSV files</h3>
+{% if csv_folder %}
+<p class="wb-tight wb-path">{{ csv_folder }}</p>
+{% else %}
+<p class="wb-tight">No folder chosen yet.</p>
+{% endif %}
+<form method="post" action="{{ url_for('main.settings_post') }}" id="csv-form">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="what" value="csv">
+{% if browser %}
+<label class="wb-field wb-field-wide">A folder of CSV files<input type="text" name="csv_folder" value="{{ csv_folder }}"></label>
+<div class="wb-buttons wb-buttons-gap"><button type="submit" class="wb-primary">Save</button></div>
+{% else %}
+<input type="hidden" name="csv_folder" id="csv-folder" value="{{ csv_folder }}">
+<button type="button" class="wb-secondary" id="choose-folder">Choose folder</button>
+{% endif %}
+</form>
+{% if saved == "csv" %}
+<p class="wb-tight" role="status">Saved.</p>
+{% endif %}
+</div>
+</section>
+
+<form method="post" action="{{ url_for('main.settings_post') }}" class="wb-autosave">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="what" value="size">
+<fieldset class="wb-fieldset">
+<legend class="wb-legend wb-legend-36">Text size</legend>
+<div class="wb-inline-radios wb-gap-28">
+<label class="wb-radio"><input type="radio" name="size" value="normal"{% if size == 'normal' %} checked{% endif %}>Normal</label>
+<label class="wb-radio"><input type="radio" name="size" value="larger"{% if size == 'larger' %} checked{% endif %}>Larger</label>
+</div>
+</fieldset>
+</form>
+
+<form method="post" action="{{ url_for('main.settings_post') }}" class="wb-autosave">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="what" value="theme">
+<fieldset class="wb-fieldset">
+<legend class="wb-legend wb-legend-36">Colors</legend>
+<div class="wb-inline-radios wb-gap-28">
+<label class="wb-radio"><input type="radio" name="theme" value="system"{% if theme == 'system' %} checked{% endif %}>Match this computer</label>
+<label class="wb-radio"><input type="radio" name="theme" value="light"{% if theme == 'light' %} checked{% endif %}>Light</label>
+<label class="wb-radio"><input type="radio" name="theme" value="dark"{% if theme == 'dark' %} checked{% endif %}>Dark</label>
+</div>
+</fieldset>
+</form>
+
+<section aria-labelledby="files-title">
+<h2 id="files-title" class="wb-h-section">Files on this computer</h2>
+<p class="wb-lead">Saved calibrations, events marked here and downloaded readings are stored in one folder.</p>
+<div class="wb-buttons">
+{% if not browser %}
+<button type="button" class="wb-secondary" id="open-folder">Open folder</button>
+{% endif %}
+<form method="post" action="{{ url_for('main.settings_clear') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<button type="submit" class="wb-secondary">Clear downloaded readings</button>
+</form>
+</div>
+<p class="wb-small">Clearing removes downloaded readings only. They download again when needed. Saved calibrations and events stay.</p>
+{% if cleared %}
+<p class="wb-tight" role="status">Downloaded readings cleared.</p>
+{% endif %}
+</section>
+</div>
+{% endblock %}

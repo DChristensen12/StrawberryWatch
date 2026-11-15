@@ -1,10 +1,6 @@
-"""
-The inventory: what it refuses to load, and how it resolves sensor state.
-
-The load tests matter more than they look. A typo that produces a site with no
-sensors gives a site that is silent everywhere. Downstream that reads as a
-healthy, quiet site.
-"""
+"""The inventory: what it refuses to load, and how it resolves sensor state."""
+# A typo that gives a site no sensors makes it silent everywhere, and downstream that reads
+# as a healthy, quiet site
 
 from __future__ import annotations
 
@@ -142,10 +138,7 @@ def index_for(hours):
 
 
 def test_before_install_is_not_installed_and_after_install_with_no_reading_is_missing():
-    """
-    The inventory exists to tell these apart. They're the same silence in the
-    data and opposite things to whoever gets the alert.
-    """
+    """The same silence in the data, and opposite things to whoever gets the alert."""
     inventory = inv.from_dict(build())
     index = pd.date_range("2024-12-20", periods=24, freq="D", tz="UTC")
     values = pd.Series(np.nan, index=index)
@@ -273,11 +266,8 @@ def test_the_dates_that_are_known_are_not_marked_inferred():
 
 
 def test_the_scalar_and_series_paths_agree():
-    """
-    resolve_state and resolve_series apply the same rule twice, and we pin them
-    together. If the two drift apart, a state table stops matching what the
-    live path reports.
-    """
+    """resolve_state and resolve_series apply the same rule twice, pinned together here."""
+    # If they drift apart, a state table stops matching what the live path reports
     inventory = inv.from_dict(build())
     index = index_for(6)
     values = pd.Series(np.nan, index=index)

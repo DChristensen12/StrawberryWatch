@@ -11,8 +11,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class Profile:
     name: str
-    # The list is a line in .env and we send the emails. Otherwise it's in the
-    # database and Night Heron sends them.
+    # The list is a line in .env and the emails go over SMTP. Otherwise it's in
+    # the database and they go through Night Heron's Cloudflare account.
     email_in_env: bool
     # Sign in with the one-time link printed at startup, and only answer on this computer
     token_login: bool

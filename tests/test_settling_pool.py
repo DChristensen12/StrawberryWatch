@@ -1,10 +1,6 @@
-"""
-Settling Pool: the tests it runs, the flags it emits, and the layering it keeps.
-
-The layering test matters most. The split works because the tests don't know
-where the data came from, and a single import of the config into qc_tests.py
-would undo that.
-"""
+"""Settling Pool: the tests it runs, the flags it emits, and the layering it keeps."""
+# The layering test matters most. The tests don't know where the data came from, and one
+# import of the config into qc_tests.py would undo that
 
 from __future__ import annotations
 
@@ -39,10 +35,7 @@ def frame(site, variable, values, idx=None):
 
 
 def test_the_tests_import_nothing_from_the_config_or_the_storage_layer():
-    """
-    Read off the parsed tree and not the text. A comment naming the config
-    doesn't trip it.
-    """
+    """Read off the parsed tree, not the text. A comment naming the config doesn't trip it."""
     tree = ast.parse(inspect.getsource(qc))
     imported = set()
     for node in ast.walk(tree):
@@ -96,10 +89,7 @@ def test_flat_line_catches_a_sensor_that_stopped_changing():
 
 
 def test_attenuated_signal_catches_the_near_but_not_flat_case():
-    """
-    A fouled probe still moves. It moves by far less than the creek, which is
-    what a flat line test cannot see.
-    """
+    """A fouled probe still moves, by far less than the creek. A flat line test can't see that."""
     rng = np.random.default_rng(0)
     lively = rng.normal(0, 5.0, 64)
     fouled = rng.normal(0, 0.01, 64)
@@ -180,10 +170,8 @@ def test_thresholds_come_from_the_inventory_and_not_from_code():
 
 
 def test_a_never_installed_sensor_is_unknown_rather_than_missing():
-    """
-    QARTOD 2 means not evaluated, right for a probe that was never in the
-    creek. Calling it MISSING would report a fault nobody can fix.
-    """
+    """QARTOD 2 means not evaluated, right for a probe that was never in the creek."""
+    # Calling it MISSING would report a fault nobody can fix
     # south_fork_3 declares a pH probe with a null install date. The inventory
     # knows the channel exists and that no probe has been fitted
     pool = SettlingPool()
@@ -221,10 +209,7 @@ def test_a_policy_that_excludes_good_is_refused():
 
 
 def test_enforcing_the_policy_removes_exactly_the_flagged_cells_and_nothing_else():
-    """
-    Run the same window with and without enforcement and the difference has
-    to be the flagged cells, cell for cell.
-    """
+    """The same window with and without enforcement differs by the flagged cells, cell for cell."""
     flags = {
         ("south_fork_1", "conductivity"): np.full(T, qc.GOOD, dtype=np.uint8),
         ("south_fork_2", "conductivity"): np.full(T, qc.GOOD, dtype=np.uint8),

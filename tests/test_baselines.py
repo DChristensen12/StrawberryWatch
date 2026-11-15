@@ -1,11 +1,7 @@
-"""
-The model-free baselines, and the properties the comparison rests on.
-
-These detectors are a fair floor, and most of the tests are about fairness:
-same input, same step, same null path, no lookahead. We assert the two blind
-spots, a frozen node and a reflected one, instead of describing them. They are
-the finding, and a regression into "it catches everything" would erase it.
-"""
+"""The model-free baselines, and the properties the comparison rests on."""
+# Most tests are about fairness: same input, same step, same null path, no lookahead. The two
+# blind spots, a frozen node and a reflected one, are asserted. They are the finding, and a
+# regression into catching everything would erase it
 
 from __future__ import annotations
 
@@ -47,9 +43,8 @@ def test_the_median_window_is_shorter_than_the_scored_window():
 
 
 def test_an_unobserved_step_contributes_nothing():
-    # A one-step excursion at the end, before the trailing median absorbs it.
-    # A sustained shift would read zero either way once the median catches up.
-    # That's the chart working, not the mask.
+    # A one-step excursion at the end, before the trailing median absorbs it. A sustained
+    # shift would read zero once the median catches up. That's the chart working, not the mask
     v = np.zeros((12, 1))
     v[3] = 1.0
     v[-1] = 50.0
@@ -164,12 +159,9 @@ def test_a_spike_on_the_scored_step_outscores_the_clean_window(calibrated, name)
 
 @pytest.mark.parametrize("name", sorted(bl.BASELINES))
 def test_a_frozen_node_is_invisible_to_a_residual_chart(calibrated, name):
-    """
-    The finding, asserted. A stuck sensor has no residual against its own
-    trailing median, and a residual chart scores it below a healthy node
-    instead of above one. Dispersion catches this and a chart has no dispersion channel.
-    If this starts failing, the baseline grew a second channel.
-    """
+    """A stuck sensor scores below a healthy node, with no residual against its trailing median."""
+    # Dispersion catches it, and a chart has no dispersion channel. Failing means the baseline
+    # grew one
     det, nulls, _pot = calibrated[name]
     node = 0
     clean = det.score(bs.clean_batch(0), nulls).ravel()[node]
@@ -179,10 +171,8 @@ def test_a_frozen_node_is_invisible_to_a_residual_chart(calibrated, name):
 
 @pytest.mark.parametrize("name", sorted(bl.BASELINES))
 def test_a_reflected_node_is_invisible_too(calibrated, name):
-    """
-    decouple preserves mean and variance and only inverts the correlation with
-    the node's siblings, which a marginal chart doesn't look at.
-    """
+    """decouple keeps mean and variance and only inverts the correlation with its siblings."""
+    # A marginal chart doesn't look at that
     det, nulls, _pot = calibrated[name]
     node = 0
     batch, _truth = _faulted(0, node, "decouple")
@@ -209,13 +199,13 @@ def test_the_sweep_covers_every_shape_and_every_node():
 
 
 def test_the_cached_window_matches_a_freshly_generated_one():
-    """The cache is a speedup. Same creek."""
+    """The cache is a speedup over the same creek."""
     fresh = cs.make_synthetic_creek(n_steps=bs.N_STEPS, seed=3)
     np.testing.assert_array_equal(fresh["values"], bs._window(3)["values"])
 
 
 def test_the_batch_matches_the_shared_builder():
-    """baseline_sweep builds its own batch for speed. Has to be the same batch."""
+    """baseline_sweep builds its own batch for speed, and it has to be the same batch."""
     import torch
 
     from tests.synthetic import nested_batch

@@ -1,19 +1,8 @@
-"""
-Standing audit sweep over the package. One test per recurring defect class.
-
-Each of these has cost real time in this project. We check them mechanically
-instead of by inspection:
-
-  metrics that cannot vary   a residual correlation sat pinned at -1/(n-1)
-                             for weeks before anyone noticed
-  masks that do not mask     a node_mask once existed and did nothing live
-  duplicated rules           three rain formulas; two copies of the alerting
-                             constants; decisions() carrying its own fired()
-  fit-at-inference           a scaler refitted on a serving path
-  zip length mismatch        truncating to the shorter sequence unnoticed
-
-    .venv/bin/python -m pytest tests/test_audit_sweep.py -q
-"""
+"""Standing audit sweep, one test per recurring defect class."""
+# Each one cost real time: (1) a residual correlation pinned at -1/(n-1) for weeks, (2) a
+# node_mask that did nothing live, (3) three rain formulas, two copies of the alerting
+# constants and decisions() carrying its own fired(), (4) a scaler refitted on a serving
+# path and (5) zip truncating to the shorter sequence
 
 from __future__ import annotations
 
@@ -55,8 +44,8 @@ def test_rain_multipliers_respond_to_rain_and_to_every_knob():
     differs(m_wet, ad._rain_multipliers(g, wet, 12, 2.0, 99.0, 36)[0], "vs amount")
     differs(m_wet, ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 4)[0], "vs decay_hours")
 
-    # decay_hours sets both the taper slope and how far back it looks for rain.
-    # 36 against 72 keeps the rain inside both. Only the slope can change it.
+    # decay_hours sets both the taper slope and how far back it looks for rain. 36 against
+    # 72 keeps the rain inside both, and only the slope can change it
     slow = ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 36)[0]
     slower = ad._rain_multipliers(g, wet, 12, 2.0, 0.1, 72)[0]
     tapering = (slow > 1.0) & (slow < 2.0)
@@ -92,11 +81,8 @@ def test_both_rules_vary_with_signal_and_with_their_threshold():
 
 
 def test_rain_adjust_level_k_is_a_documented_no_op():
-    """
-    This one IS constant: an explicit pass-through hook, left unwired because
-    inheriting Rule 1's multiplier is convenient but not justified. Wiring it
-    up trips this test.
-    """
+    """This one is constant, a pass-through hook left unwired. Wiring it up trips this test."""
+    # Inheriting Rule 1's multiplier would be convenient but isn't justified
     g = _grid(50)
     dry = pd.Series(np.zeros(len(g)), index=g)
     wet = dry.copy()
@@ -138,10 +124,7 @@ def test_real_mask_responds_and_fails_closed():
 
 
 def test_alerting_constants_have_one_definition():
-    """
-    The test module mustn't keep its own copy of the alerting thresholds, or it
-    stops testing production the moment either side moves.
-    """
+    """A copy of the alerting thresholds here stops testing production once either side moves."""
     import tests.test_anomaly_detection as t
 
     assert t.MIN_TIMESTEPS_OVER_THRESHOLD is ad.MIN_TIMESTEPS_OVER_THRESHOLD
@@ -155,7 +138,7 @@ def test_rain_rule_has_one_definition():
     src = inspect.getsource(t._rain_adjusted_thresholds)
     assert "_rain_multipliers(" in src, "the test rain rule stopped delegating"
 
-    # Code only. The docstring may mention the arithmetic, the body mustn't do it.
+    # Code only. The docstring may mention the arithmetic, the body mustn't do it
     fn = ast.parse(textwrap.dedent(src)).body[0]
     body = fn.body[1:] if ast.get_docstring(fn) else fn.body
     code = "\n".join(ast.unparse(stmt) for stmt in body)
@@ -176,12 +159,8 @@ def test_flagged_verdict_has_one_definition():
 
 
 def test_serving_path_reuses_the_trained_scaler():
-    """
-    prepare_sequences_normalized refits only when no scaler is handed to it.
-    Every caller that scores against a trained checkpoint must hand one over,
-    or the model is evaluated in a different normalised space from the one it
-    was trained in.
-    """
+    """Every caller scoring a trained checkpoint hands prepare_sequences_normalized its scaler."""
+    # It refits only without one, which judges the model in a space it wasn't trained in
     from strawberrywatch.preprocessing import data_processor
 
     src = inspect.getsource(data_processor.prepare_sequences_normalized)
@@ -215,10 +194,7 @@ def test_serving_path_reuses_the_trained_scaler():
 
 
 def test_no_unguarded_zip_anywhere_editable():
-    """
-    Every zip over sequences that must be the same length needs strict=True,
-    or a length mismatch truncates instead of raising.
-    """
+    """zip over same-length sequences needs strict=True, or a mismatch truncates."""
     offenders = []
     for d in PACKAGE_DIRS:
         for path in (ROOT / d).rglob("*.py"):
@@ -234,10 +210,8 @@ def test_no_unguarded_zip_anywhere_editable():
 
 
 def test_rain_config_has_no_orphan_keys():
-    """
-    RAIN_SATURATION_MM was the upper end of an amount-scaled ramp that was
-    never implemented. Each rain knob left on Config must have a reader.
-    """
+    """Each rain knob left on Config needs a reader."""
+    # RAIN_SATURATION_MM was the top of an amount-scaled ramp that never got built
     readers = "\n".join(p.read_text() for d in PACKAGE_DIRS for p in (ROOT / d).rglob("*.py"))
     for name in [n for n in dir(Config) if n.startswith("RAIN_") or "RAIN" in n]:
         assert f"Config.{name}" in readers or f"{name}" in readers, f"Config.{name} has no reader"
@@ -245,14 +219,9 @@ def test_rain_config_has_no_orphan_keys():
 
 
 def test_synthetic_generator_never_refits_a_supplied_scaler():
-    """
-    creek_synthetic fits a NodeScaler only when the caller omits one. Fault
-    windows must reuse the training scaler: normalising them with statistics
-    computed from data containing the fault shrinks the signal the sweep is
-    there to measure.
-
-    Object identity. A refit can't pass by being equal.
-    """
+    """creek_synthetic fits a NodeScaler only when the caller omits one."""
+    # Fault windows reuse the training scaler. Statistics from data with the fault in it
+    # shrink the signal the sweep measures. Checked by identity, since a refit can come out equal
     from tests.synthetic import creek_synthetic
 
     train = creek_synthetic.make_synthetic_creek(n_steps=120, seed=1)
@@ -263,10 +232,7 @@ def test_synthetic_generator_never_refits_a_supplied_scaler():
 
 
 def test_calibration_is_loaded_not_fitted():
-    """
-    The serving path reads its nulls and threshold off disk. If this module
-    ever grows a fit call, the artifact stops being what production runs on.
-    """
+    """The serving path reads its nulls and threshold off disk and fits nothing."""
     import inspect
 
     from strawberrywatch.anomalies import cobble_calibration

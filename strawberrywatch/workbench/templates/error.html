@@ -1,0 +1,13 @@
+{#- dashboard/security.py renders this by name, with its own messages -#}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}" data-size="{{ size }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ code }}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
+</head>
+<body>
+<main class="wb-error"><p>{{ message }}</p></main>
+</body>
+</html>

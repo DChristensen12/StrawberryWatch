@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Past calibrations</h1>
+<div class="wb-content wb-w-900 wb-gap-26">
+<div>
+<h2 class="wb-h-step">{{ model }}, saved {{ saved_date }}</h2>
+{% if mode == "compare" %}
+<p class="wb-intro wb-intro-step">Compare with the one in use</p>
+{% else %}
+<p class="wb-intro wb-intro-step">See the check results</p>
+<p class="wb-tight">These results were saved with the calibration on {{ saved_date }}.</p>
+{% endif %}
+</div>
+<div class="wb-table-card">
+<table class="wb-table wb-table-600">
+<caption class="wb-hidden">Past events</caption>
+<thead><tr><th scope="col">Event</th><th scope="col">Should a model alert?</th>
+{% if mode == "compare" %}
+<th scope="col">In use</th><th scope="col">This one</th>
+{% else %}
+<th scope="col">Now</th><th scope="col">After recalibrating</th>
+{% endif %}
+</tr></thead>
+<tbody>
+{% for r in rows %}
+<tr><th scope="row">{{ r.name }}<span class="wb-row-sub">{{ r.dates }}</span></th><td>{{ r.alert }}</td><td>{{ r.now }}</td><td>{{ r.after }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+<p><a class="wb-bold-link" href="{{ url_for('main.calibrations') }}">Back to Past calibrations</a></p>
+</div>
+{% endblock %}

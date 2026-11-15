@@ -1,8 +1,5 @@
-"""
-What Trial Bed says, and that it costs the detector nothing. The match tests
-are built from the signature table itself, and they fail when the table
-changes.
-"""
+"""What Trial Bed says, and that it costs the detector nothing."""
+# The match tests are built from the signature table itself and fail when the table changes
 
 from __future__ import annotations
 
@@ -33,12 +30,12 @@ NODES = ["n1", "n2", "n3"]
 T = 12
 EVENT_STEPS = (8, 9, 10, 11)
 
-# What the deployed network measures. Config.SCORED_TARGET_FEATURES is the same
-# three, and depth is not in the signature table at all.
+# What the deployed network measures. Config.SCORED_TARGET_FEATURES is the same three,
+# and depth is not in the signature table at all
 DEPLOYED_CHANNELS = ("conductivity", "depth", "temperature")
 
-# The opposite of every direction the table asserts, for the row that must not
-# match. FLAT has no opposite and becomes a move.
+# The opposite of every direction the table asserts, for the row that must not match.
+# FLAT has no opposite and becomes a move
 OPPOSITE = {sig.UP: sig.DOWN, sig.DOWN: sig.UP, sig.FLAT: sig.UP}
 
 
@@ -55,15 +52,13 @@ def a_run():
 
 
 def a_window(channels=None, event_node="n1"):
-    """
-    A raw frame where one node shows a sewage pattern over EVENT_STEPS. channels
-    limits it to a subset, like the deployed network's three.
-    """
+    """A raw frame where one node shows a sewage pattern over EVENT_STEPS."""
+    # channels limits it to a subset, like the deployed network's three
     rng = np.random.default_rng(0)
     times = pd.date_range("2026-04-01", periods=T, freq="h", tz="UTC")
 
-    # Baseline level then event level, for the sewage row: temperature up,
-    # dissolved oxygen down, conductivity up, floating conductivity up.
+    # Baseline level then event level, for the sewage row: temperature up, dissolved
+    # oxygen down, conductivity up, floating conductivity up
     levels = {
         "conductivity": (300.0, 400.0),
         "floating_conductivity": (300.0, 400.0),
@@ -136,11 +131,8 @@ def test_a_signature_does_not_match_its_own_opposite(pollutant):
 
 @pytest.mark.parametrize("pollutant", sorted(sig.SIGNATURES))
 def test_a_row_short_of_one_parameter_cannot_be_evaluated(pollutant):
-    """
-    Hold back one parameter a row needs and the row drops out, naming what was
-    missing. Scored on the rest, a partial signature would get the same
-    confidence as a whole one.
-    """
+    """Hold back one parameter a row needs and the row drops out, naming what was missing."""
+    # Scored on the rest, a partial signature would get a whole one's confidence
     required = sig.required_parameters(pollutant)
     withheld = required[-1]
     observed = {p: sig.SIGNATURES[pollutant][p][0] for p in required[:-1]}
@@ -167,10 +159,8 @@ def test_three_parameters_of_a_row_that_needs_four_cannot_be_evaluated():
 
 
 def test_no_signature_is_evaluable_on_the_deployed_channels():
-    """
-    The network measures conductivity, depth and temperature today. Every row
-    needs dissolved oxygen and floating conductivity, and none can be judged.
-    """
+    """Every row needs dissolved oxygen and floating conductivity, and none can be judged today."""
+    # The network measures conductivity, depth and temperature
     assert sig.evaluable_on(DEPLOYED_CHANNELS) == []
     assert len(sig.SIGNATURES) == 5
 
@@ -212,10 +202,8 @@ def test_a_node_that_never_fired_has_nothing_to_explain():
 
 
 def test_flipping_one_direction_in_the_table_changes_the_answer():
-    """
-    A matcher that had drifted off the table would keep naming sewage after the
-    sewage row changed. We mutate a copy and leave the shipped table alone.
-    """
+    """A matcher drifted off the table would keep naming sewage after the sewage row changed."""
+    # We mutate a copy and leave the shipped table alone
     observed = {p: sig.SIGNATURES["sewage"][p][0] for p in sig.required_parameters("sewage")}
     assert classify(observed)["cause"] == "sewage"
 
@@ -241,11 +229,8 @@ def test_a_direction_is_read_off_the_baselines_own_spread():
 
 
 def test_attaching_trial_bed_changes_no_firing():
-    """
-    The same window, run with the explainer and without it. Thresholds, primary
-    decisions and the set of firing node-timesteps must all match. Otherwise
-    the explainer has become a test.
-    """
+    """The same window with and without the explainer: thresholds, decisions and firings match."""
+    # Otherwise the explainer has become a test
     s, p, rain = a_run()
     window = a_window()
 
@@ -262,7 +247,7 @@ def test_attaching_trial_bed_changes_no_firing():
         assert a["primary_fired"] is b["primary_fired"]
         assert a["verdict"] == b["verdict"]
 
-    # And it had something to say, which makes the comparison above meaningful.
+    # And it had something to say, which makes the comparison above meaningful
     entry = next(e for e in with_bed[0]["support"] if e["name"] == "trial_bed")
     assert entry["budget_q"] is None and entry["fired"] is None
 
@@ -280,10 +265,7 @@ def test_trial_bed_leaves_the_whole_budget_to_the_primary():
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_the_same_readings_give_the_same_account_on_both_models(model):
-    """
-    No model-specific arguments. It reads the raw frame and the timestamps,
-    which main.py builds the same way whichever model ran.
-    """
+    """It reads the raw frame and the timestamps, which main.py builds the same for either model."""
     s, p, rain = a_run()
     window = a_window()
     stack = SupportStack.load(["trial_bed"], model)
@@ -313,10 +295,7 @@ def test_the_account_names_the_cause_the_evidence_and_the_confidence():
 
 
 def test_every_cell_carries_its_mechanism():
-    """
-    A direction with no mechanism is a claim nobody can argue with. We refuse
-    a half sourced table.
-    """
+    """A direction with no mechanism can't be argued with. A half sourced table is refused."""
     for pollutant, row in sig.SIGNATURES.items():
         for param, cell in row.items():
             assert len(cell) == 3, f"{pollutant}.{param} has no mechanism"
@@ -358,10 +337,8 @@ def test_the_tapwater_constants_are_numbers_and_are_testable():
 
 
 def test_the_hydrant_event_is_recorded_as_an_exception_and_the_row_is_unchanged():
-    """
-    The March 2026 break showed no temperature move, which contradicts the
-    tapwater row. That is a finding for the group, not an edit.
-    """
+    """The March 2026 break showed no temperature move, against the tapwater row."""
+    # That's a finding for the group, not an edit
     exceptions = [e for e in sig.KNOWN_EXCEPTIONS if e["row"] == "tapwater"]
     assert exceptions, "the hydrant contradiction is not recorded anywhere"
 
@@ -379,11 +356,8 @@ def test_the_hydrant_event_is_recorded_as_an_exception_and_the_row_is_unchanged(
 
 
 def test_how_many_signatures_each_site_can_evaluate_today():
-    """
-    No site has a pH probe reporting, and rain, tapwater and oil all assert a
-    pH direction. Only the two rows with an indeterminate pH can be judged
-    anywhere.
-    """
+    """No site has a pH probe reporting, and rain, tapwater and oil all assert a pH direction."""
+    # Only the two rows with an indeterminate pH can be judged anywhere
     bed = TrialBed()
     per_site = bed.evaluable_per_site()
 
@@ -411,10 +385,7 @@ def test_a_row_needing_ph_is_never_scored_without_ph():
 
 
 def test_a_probe_never_fitted_and_a_probe_gone_silent_read_differently():
-    """
-    Both are the same silence in the data. They are different problems and
-    they get different sentences.
-    """
+    """The same silence in the data, two different problems and two different sentences."""
     from strawberrywatch.support_modules.trial_bed import (
         INSTALLED_NO_DATA,
         NEVER_INSTALLED,

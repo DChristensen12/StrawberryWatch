@@ -4,11 +4,13 @@ the list live in .env. Everyone gets their own copy. Nobody sees who else is
 on the list, and one bad address can't stop the rest.
 
 On the website the list is in the database, and the check's own process sends
-an HTML email to each person with an unsubscribe link. Replays don't send.
+an HTML email to each person with an unsubscribe link, through Cloudflare's
+email API with Night Heron's account. Replays don't send.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -19,9 +21,10 @@ import ssl
 import tempfile
 import time
 from email.message import EmailMessage
-from email.utils import formataddr, getaddresses
+from email.utils import formataddr, formatdate, getaddresses, make_msgid
 from pathlib import Path
 
+import requests
 from dotenv import dotenv_values, find_dotenv, load_dotenv
 
 from strawberrywatch.dashboard import view
@@ -30,6 +33,20 @@ from strawberrywatch.watch import sources
 logger = logging.getLogger(__name__)
 
 ACCOUNT = ("ALERT_EMAIL_SENDER", "ALERT_EMAIL_PASSWORD", "SMTP_SERVER", "SMTP_PORT")
+# The website's account, the same lines Night Heron reads from the site's .env
+CLOUDFLARE = ("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_EMAIL_API_TOKEN", "FROM_EMAIL")
+CLOUDFLARE_URL = "https://api.cloudflare.com/client/v4/accounts/{}/email/sending/send"
+# Seconds to connect and to wait for the answer, Night Heron's numbers
+CLOUDFLARE_TIMEOUT = (5, 25)
+# Cloudflare's codes for a token or account that can't send. Everyone after would fail too
+CANT_SEND = {
+    10101: "Cloudflare turned down the API token in .env.",
+    10103: "Cloudflare turned down the API token in .env.",
+    10102: "The API token in .env isn't allowed to send email.",
+    10105: "Email sending is off for the Cloudflare account.",
+    10203: "Email sending is off for the Cloudflare account.",
+    10207: "Email sending is paused for the Cloudflare account.",
+}
 LIST_KEY = "ALERT_EMAIL_RECIPIENTS"
 # Strict enough that an address can't sneak in a header, a second address, or
 # a quote that ends the .env line early
@@ -224,16 +241,22 @@ def mailing_list(store, in_env=True):
 # Sending
 
 
-def missing():
+def missing(website=False):
     """The account settings missing from .env. Empty means we can send."""
     load_dotenv(find_dotenv(usecwd=True))
     load_dotenv()
-    return [name for name in ACCOUNT if not os.getenv(name)]
+    names = CLOUDFLARE if website else ACCOUNT
+    return [name for name in names if not (os.getenv(name) or "").strip()]
 
 
-def sender():
-    """The From address. ALERT_EMAIL_FROM when the account logs in under a different name."""
+def sender(website=False):
+    """
+    The From address. On the website that's Night Heron's FROM_EMAIL. Locally
+    it's ALERT_EMAIL_FROM when the account logs in under a different name.
+    """
     missing()
+    if website:
+        return (os.getenv("FROM_EMAIL") or "").strip()
     return os.getenv("ALERT_EMAIL_FROM") or os.getenv("ALERT_EMAIL_SENDER") or ""
 
 
@@ -256,6 +279,17 @@ def send(subject, body, people):
         return message
 
     return deliver(people, plain)
+
+
+def stamp(message, address):
+    """
+    Adds Date and Message-ID. Spam filters score a message without them, and
+    neither EmailMessage nor smtplib adds either one.
+    """
+    if "Date" not in message:
+        message["Date"] = formatdate(localtime=True)
+    if "Message-ID" not in message:
+        message["Message-ID"] = make_msgid(domain=address.rpartition("@")[2] or None)
 
 
 def deliver(people, build):
@@ -287,6 +321,7 @@ def deliver(people, build):
             smtp.login(account, os.getenv("ALERT_EMAIL_PASSWORD"))
             for person in people:
                 message = build(address, person)
+                stamp(message, address)
                 try:
                     smtp.send_message(message, from_addr=address, to_addrs=[person["email"]])
                     results.append((person["email"], True, "Sent"))
@@ -310,6 +345,76 @@ def deliver(people, build):
             if p["email"] not in done
         ]
     return results
+
+
+def deliver_cloudflare(people, build):
+    """
+    Sends build(sender address, person) to each person through Cloudflare's
+    email API, the way Night Heron sends. One request each, since everyone has
+    their own unsubscribe link. Returns [(email, ok, message)], or raises
+    MailError if no email went out. No message holds the token or account id.
+    """
+    gaps = missing(website=True)
+    if gaps:
+        raise MailError(f"Email isn't set up on the server. .env needs {', '.join(gaps)}.")
+    if not people:
+        raise MailError("There's nobody on the list.")
+    url = CLOUDFLARE_URL.format(os.getenv("CLOUDFLARE_ACCOUNT_ID").strip())
+    address = sender(website=True)
+    results = []
+    with requests.Session() as http:
+        http.headers["Authorization"] = f"Bearer {os.getenv('CLOUDFLARE_EMAIL_API_TOKEN').strip()}"
+        for i, person in enumerate(people):
+            try:
+                response = http.post(url, json=build(address, person), timeout=CLOUDFLARE_TIMEOUT)
+            except requests.Timeout:
+                stop = "Cloudflare didn't answer in time."
+            except requests.RequestException:
+                # Not the exception's own text. It has the URL, and the URL has the account id
+                stop = "Couldn't reach Cloudflare."
+            else:
+                ok, message, stop = _cloudflare_answer(response)
+                if stop is None:
+                    results.append((person["email"], ok, message))
+                    continue
+            # The rest would go the same way
+            if not results:
+                raise MailError(f"The email didn't go. {stop}")
+            results += [(p["email"], False, stop) for p in people[i:]]
+            break
+    return results
+
+
+def _cloudflare_answer(response):
+    """
+    (ok, message, stop) for one person's email. stop is why nobody else would
+    get one either, or None. Only Cloudflare's codes are kept from its answer.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        body = {}
+    codes = [e.get("code") for e in body.get("errors") or [] if isinstance(e, dict)]
+    for code in codes:
+        if code in CANT_SEND:
+            return False, "", CANT_SEND[code]
+    if response.status_code in (401, 403):
+        return False, "", "Cloudflare turned down the API token in .env."
+    if response.ok and body.get("success") is not False:
+        # One address a request, so any entry is this person's
+        result = body.get("result") or {}
+        if result.get("permanent_bounces"):
+            return False, "The address bounced.", None
+        if result.get("delivered") or result.get("queued"):
+            return True, "Sent", None
+        return False, "Cloudflare didn't take this address.", None
+    if response.status_code == 429:
+        return False, "Cloudflare's sending limit was reached.", None
+    code = next((c for c in codes if isinstance(c, int)), None)
+    found = f"error {code}" if code is not None else f"HTTP {response.status_code}"
+    return False, f"Cloudflare didn't send it ({found}).", None
 
 
 def _record(store, kind, people, results, subject, check_id=None):
@@ -464,24 +569,30 @@ def picked(person, items, now):
     return [i for i, item in enumerate(items) if wanted is None or item["model"] in wanted]
 
 
-def html_message(address, to, subject, text, html, unsubscribe=None):
-    """One email to one person: plain text, an HTML version, and the logos inside it."""
-    message = EmailMessage()
-    message["From"] = formataddr((SENDER_NAME, address))
-    message["To"] = to
-    message["Subject"] = subject
-    if unsubscribe:
-        message["List-Unsubscribe"] = f"<{unsubscribe}>"
-    message.set_content(text)
-    message.add_alternative(html, subtype="html")
-    # Same layout as the inline image example in Python's email docs
-    html_part = message.get_payload()[1]
+def cloudflare_email(address, to, subject, text, html, unsubscribe=None):
+    """One email to one person as Cloudflare's API takes it: text, HTML and the logos inside it."""
     folder = Path(__file__).resolve().parent / "static"
-    for name, path in LOGOS.items():
-        html_part.add_related(
-            (folder / path).read_bytes(), maintype="image", subtype="png", cid=f"<{name}>"
-        )
-    return message
+    email = {
+        "from": {"address": address, "name": SENDER_NAME},
+        "to": [to],
+        "subject": subject,
+        "text": text,
+        "html": html,
+        "attachments": [
+            {
+                "content": base64.b64encode((folder / path).read_bytes()).decode("ascii"),
+                "filename": Path(path).name,
+                "type": "image/png",
+                "disposition": "inline",
+                "content_id": name,
+            }
+            for name, path in LOGOS.items()
+        ],
+    }
+    # Cloudflare turns the whole email down over an http:// link here
+    if unsubscribe and unsubscribe.startswith("https://"):
+        email["headers"] = {"List-Unsubscribe": f"<{unsubscribe}>"}
+    return email
 
 
 def alert_email(subject, opener, blocks, unsubscribe, images=INLINE):
@@ -524,10 +635,10 @@ def website_alert(store, inventory, check_id, address, items=None):
             mine, opener, blocks = alert_parts([views[i] for i in chosen[person["id"]]], inventory)
             link = unsubscribe_link(address, person["unsubscribe_token"])
             text, html = alert_email(mine, opener, blocks, link)
-            return html_message(sender_address, person["email"], mine, text, html, link)
+            return cloudflare_email(sender_address, person["email"], mine, text, html, link)
 
         try:
-            results = deliver(people, build)
+            results = deliver_cloudflare(people, build)
         except MailError as exc:
             for person in people:
                 store.record_email_result(person["email"], "alert", False, str(exc))
@@ -551,10 +662,10 @@ def website_test(store, address, only=None):
     def build(sender_address, person):
         link = unsubscribe_link(address, person["unsubscribe_token"])
         text, html = alert_email(subject, opener, [], link)
-        return html_message(sender_address, person["email"], subject, text, html, link)
+        return cloudflare_email(sender_address, person["email"], subject, text, html, link)
 
     try:
-        results = deliver(people, build)
+        results = deliver_cloudflare(people, build)
     except MailError as exc:
         for person in people:
             store.record_email_result(person["email"], "test", False, str(exc))

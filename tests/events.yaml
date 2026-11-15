@@ -1,35 +1,26 @@
-# Real things that happened in the creek, and what the detector is expected
-# to say about each one. This file is the evidence base. The synthetic sweep
-# under tests/synthetic/ is the controlled complement to it, not a substitute.
+# Real events in the creek, and what the detector should say about each one. This file is
+# the evidence base, and the synthetic sweep under tests/synthetic/ complements it.
 #
-# To add an event you need two things:
+# Adding an event takes (1) a folder under data/anomalies/ with one CSV per site, named by
+# the site and cut out of data/raw_data/ with
 #
-#   1. A folder under data/anomalies/ holding one CSV per site, named
-#      by the site. Cut it out of data/raw_data/ with:
+#   python scripts/rebuild_fixture.py --folder <folder> --site <site> --output <path>
 #
-#        python scripts/rebuild_fixture.py --folder <folder> --site <site> --output <path>
+# and (2) one entry below. No test code changes. To check an edit:
 #
-#   2. One entry below. No test code changes.
+#   python -m pytest tests/test_event_catalog.py -q
 #
-# Check your edit:  python -m pytest tests/test_event_catalog.py -q
-#
-# Each entry:
+# Each entry has these fields:
 #
 #   folder   the directory name under data/anomalies/
 #   group    a short handle used in test names and reports
-#   site     the node whose conductivity error is scored, in the
-#            model's vocabulary (north_fork_0, footbridge,
-#            south_fork_1, south_fork_2, oxford)
-#   label    what the detector must say, one of:
-#
+#   site     the node whose conductivity error is scored, in the model's vocabulary
+#            (north_fork_0, footbridge, south_fork_1, south_fork_2, oxford)
+#   label    what the detector must say:
 #              anomaly        must cross the threshold
 #              true_negative  must stay below it
-#              relative_only  known event, not graded. No test
-#                             reads this label yet. It records an
-#                             event we know about without covering
-#                             it.
-#
-#   note     why the event is in the list, and what's odd about it
+#              relative_only  a known event that no test grades yet
+#   note     why the event is in the list, and what is odd about it
 #
 # One event scored at two sites is two entries with the same folder.
 
@@ -98,28 +89,24 @@ events:
       support_modules/spill_signatures.py for the temperature anomaly.
 
 
-# Events on disk that aren't listed, and why
+# Events on disk that are not listed, and why
 #
 # anomaly_2025_11_13_rain_nf1, anomaly_2026_04_01_rainfall
-#   The two rain events, pulled on 2026-09-06 in favour of the 2026-09-03 storm,
-#   which is better attested: a known wall-clock time, a known set of nodes that
-#   fired, and rain confirmed on the LBNL Berkeley tower. Both fixtures stay on
-#   disk. Re-listing either one is a single entry above.
+#   The two rain events, pulled on 2026-09-06 in favour of the 2026-09-03 storm. The storm
+#   is better attested: a known wall-clock time, a known set of nodes that fired, and rain
+#   confirmed on the LBNL Berkeley tower. Both fixtures stay on disk, and re-listing either
+#   one is a single entry above.
 #
-#   Removing these took the true-negative count to zero. No test currently
-#   checks that the detector stays quiet, and test_true_negative_not_flagged
-#   parametrizes over an empty list. We know about the gap and it's
-#   temporary. test_no_true_negative_coverage_yet in test_event_catalog.py
-#   keeps it visible, future_work.md writes it up, and it closes when the
-#   September storm is cut into a fixture.
+#   Removing them took the true-negative count to zero, and test_true_negative_not_flagged
+#   now parametrizes over an empty list. The gap is temporary. In test_event_catalog.py,
+#   test_no_true_negative_coverage_yet keeps it visible, future_work.md describes it, and it
+#   closes when the September storm is cut into a fixture.
 #
 # anomaly_2026_01_botanical_actuator
-#   The botanical-garden actuator malfunction, January to February 2026. It was
-#   scored against oxford and has been removed. The malfunction is at
-#   botanical_garden, which is not a graph node. The label was attached to
-#   oxford downstream, and oxford shows no corresponding signal in its own
-#   conductivity trace. The span is also 55 days, a period of interest and not
-#   an event: as a point label it marks 5,279 steps, 16.89% of oxford's record.
-#   A detector that stays on through February would score well on it for no
-#   reason. The fixture stays in data/anomalies/ in case botanical is ever
+#   The botanical-garden actuator malfunction, January to February 2026, removed after it was
+#   scored against oxford. botanical_garden is not a graph node, the label sat on oxford
+#   downstream, and oxford's conductivity shows no corresponding signal. The span is also 55
+#   days, a period of interest and not an event. As a point label it marks 5,279 steps
+#   (16.89% of oxford's record), which a detector staying on through February would score
+#   well on for no reason. The fixture stays in data/anomalies/ in case botanical_garden is
 #   wired in as a real node.

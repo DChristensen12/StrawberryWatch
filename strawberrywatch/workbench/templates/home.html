@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Home</h1>
+<div class="wb-content wb-w-940 wb-gap-32">
+<p class="wb-intro">Explore Strawberry Creek readings and recalibrate the anomaly detection models on this computer.</p>
+
+<section aria-labelledby="creek-title">
+<div class="wb-section-head">
+<h2 id="creek-title" class="wb-h-section">The creek right now</h2>
+<a href="{{ url_for('main.sensors') }}" class="wb-bold-link">See every sensor</a>
+</div>
+<p class="wb-map-lead">{{ reporting }} of {{ total }} sites are reporting.
+{% if n_quiet_sites > 1 %}
+{{ quiet_sites }} have sent no readings in the last 60 minutes.
+{% elif n_quiet_sites == 1 %}
+{{ quiet_sites }} has sent no readings in the last 60 minutes.
+{% endif %}
+</p>
+{% if n_quiet_sites %}
+<svg viewBox="0 0 720 196" class="wb-map" role="img" aria-label="Creek map. Every site is reporting except {{ quiet_sites }}.">
+{% else %}
+<svg viewBox="0 0 720 196" class="wb-map" role="img" aria-label="Creek map. Every site is reporting.">
+{% endif %}
+{% with pick=False %}{% include "_creek_map.html" %}{% endwith %}
+</svg>
+<p class="wb-small wb-after-map">Filled dots are reporting. Empty dots have sent no readings in the last 60 minutes.</p>
+</section>
+
+<div class="wb-cards">
+{% if unfinished %}
+<section class="wb-card wb-card-resume" aria-labelledby="resume-title">
+<h2 id="resume-title" class="wb-h-card">Unfinished tuning</h2>
+{% with model=unfinished.model, sites=unfinished.sites, dates_long=unfinished.dates_long, step=unfinished.step, step_name=unfinished.step_name %}
+<p>{{ model }} on {{ sites }}, {{ dates_long }}. Stopped at step {{ step }}, {{ step_name }}.</p>
+{% endwith %}
+<div class="wb-card-foot"><a class="wb-button" href="{{ unfinished.href }}">Continue</a></div>
+</section>
+{% endif %}
+<section class="wb-card wb-card-models" aria-labelledby="models-title">
+<h2 id="models-title" class="wb-h-card">Models and drift</h2>
+<p class="wb-small">The drift check compares the last 30 days at each site with the data each calibration was made from.</p>
+<ul class="wb-model-list">
+{% for row in models %}
+<li>
+<span><strong>{{ row.title }}</strong>
+{% if row.shipped %}
+Using the calibration it shipped with.
+{% else %}
+{% with saved_date=row.saved_date %}Using the calibration saved {{ saved_date }}.{% endwith %}
+{% endif %}
+{% if row.drift == "found" %}
+{% with drifted=row.drifted %}<span class="wb-drift is-found">Drift found: {{ drifted }} has moved away from the calibration data.</span>{% endwith %}
+{% elif row.drift == "clear" %}
+<span class="wb-drift">No drift found.</span>
+{% elif row.drift == "none_here" %}
+<span class="wb-drift">No drift check yet. The data this calibration was made from is not on this computer.</span>
+{% endif %}
+</span>
+<span class="wb-row-links">
+{% if row.drift == "found" %}<a href="{{ url_for('main.tuning_drift', model=row.model) }}">See the drift check</a>{% endif %}
+<a href="{{ url_for('main.tuning_pick', model=row.model) }}">Recalibrate</a>
+</span>
+</li>
+{% endfor %}
+</ul>
+<p class="wb-small">Other models appear here once they are ready.</p>
+</section>
+</div>
+
+<p class="wb-note wb-note-19">The <a href="{{ url_for('main.manual_page', slug='getting-started') }}">user manual</a> explains each tab. We recommend reading it before the first recalibration.</p>
+</div>
+
+<section class="wb-band" aria-labelledby="band-title">
+<div class="wb-band-text">
+<h2 id="band-title" class="wb-band-heading">Model tuning</h2>
+<p>Pick data, explore it, then recalibrate. Models change only after you save.</p>
+</div>
+<a class="wb-band-action" href="{{ url_for('main.tuning_pick') }}">Start model tuning</a>
+</section>
+{% endblock %}

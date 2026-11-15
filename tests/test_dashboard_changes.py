@@ -1,7 +1,4 @@
-"""
-Dashboard changes shared by the local app and the website, through Flask's
-test client with the clock fixed.
-"""
+"""Changes shared by the local and website dashboards, on Flask's test client with a fixed clock."""
 
 import json
 import os

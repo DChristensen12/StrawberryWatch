@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Events</h1>
+<div class="wb-content wb-w-980 wb-gap-26">
+<p class="wb-intro">Every known event in the creek data, including spills, rain, sensor problems and field visits.</p>
+
+<div class="wb-toolbar wb-toolbar-end">
+<div class="wb-toolbar-left">
+<a class="wb-primary" href="{{ url_for('main.event_new') }}">Mark a new event</a>
+<button type="button" class="wb-secondary wb-export" data-href="{{ url_for('main.export_events') }}" data-save-as="events.csv">Export event list (CSV)</button>
+</div>
+<form method="get" action="{{ url_for('main.events_page') }}">
+<label class="wb-field">Kind<select name="kind" class="wb-submit-on-change">
+<option value="">All kinds</option>
+{% for key, name in kinds.items() %}
+<option value="{{ key }}"{% if key == kind %} selected{% endif %}>{{ name }}</option>
+{% endfor %}
+</select></label>
+</form>
+</div>
+
+<div class="wb-table-card">
+<table class="wb-table wb-table-780">
+<caption class="wb-hidden">Known events</caption>
+<thead><tr><th scope="col">Event</th><th scope="col">Kind</th><th scope="col">Sites</th><th scope="col">Dates</th><th scope="col">Should a model alert?</th><th scope="col">Source</th></tr></thead>
+<tbody>
+{% for e in rows %}
+<tr{% if e.selected %} class="is-highlight"{% endif %}>
+<th scope="row"><a href="{{ url_for('main.event_view', event_id=e.id) }}">{{ e.name }}</a></th>
+<td>{{ e.kind }}</td>
+<td>{{ e.sites }}</td>
+<td class="wb-nowrap">{{ e.dates }}</td>
+<td>{{ e.alert }}</td>
+<td class="wb-nowrap">{{ e.source }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% if editor %}
+<section class="wb-card wb-editor" aria-labelledby="edit-title">
+<form method="post" action="{{ url_for('main.event_create') if editor.new else url_for('main.event_save', event_id=editor.id) }}" id="event-form" data-alert-kinds="{{ alert_kinds | join(',') }}" data-new="{{ 'yes' if editor.new else 'no' }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<div>
+{% if editor.new %}
+<h2 id="edit-title" class="wb-h-editor">New event</h2>
+{% else %}
+<h2 id="edit-title" class="wb-h-editor">{{ editor.name }}</h2>
+{% if editor.shipped %}
+<p class="wb-tight">Shipped with StrawberryWatch. Changes are saved on this computer only.</p>
+{% else %}
+<p class="wb-tight">Added on this computer.</p>
+{% endif %}
+{% endif %}
+</div>
+{% if problem %}
+<p class="wb-warning" role="alert">Pick at least 1 site and a start and end time.</p>
+{% endif %}
+<p class="wb-warning" id="event-problem" hidden>Pick at least 1 site and a start and end time.</p>
+{% if editor.new %}
+<label class="wb-field wb-field-wide">Name<input type="text" name="name" value="{{ editor.name }}" required></label>
+{% endif %}
+<fieldset class="wb-fieldset">
+<legend class="wb-legend-small">Sites</legend>
+<div class="wb-checks">
+{% for s in all_sites %}
+<label class="wb-check"><input type="checkbox" name="sites" value="{{ s.site }}"{% if s.site in editor.ticked %} checked{% endif %}>{{ s.name }}</label>
+{% endfor %}
+</div>
+</fieldset>
+{% if editor.first and not editor.new %}
+<div id="event-chart-block" data-series="{{ url_for('main.api_event_series') }}" data-event="{{ editor.id }}" data-site="{{ editor.first }}" data-reading="{{ reading_key }}">
+<p class="wb-bold wb-tight">{{ site }}, {{ reading_label }}</p>
+<div role="group" aria-label="Reading to show" class="wb-toggles wb-toggles-small">
+{% for key, name in reading_buttons %}
+<button type="button" class="wb-toggle" data-reading="{{ key }}" aria-pressed="{{ 'true' if key == reading_key else 'false' }}">{{ name }}</button>
+{% endfor %}
+</div>
+<div class="wb-chart" id="chart-event" role="img" aria-label="Line chart of {{ reading }} at {{ site }}. The marked range runs from {{ start }} to {{ end }}."></div>
+<p class="wb-small">Drag across the chart to change where the event starts and ends.</p>
+</div>
+{% endif %}
+<div class="wb-dates">
+<label class="wb-field">Starts<input type="datetime-local" name="starts" id="event-starts" step="900" value="{{ editor.starts }}" required></label>
+<label class="wb-field">Ends<input type="datetime-local" name="ends" id="event-ends" step="900" value="{{ editor.ends }}" required></label>
+</div>
+<fieldset class="wb-fieldset">
+<legend class="wb-legend-small">Kind</legend>
+<div class="wb-inline-radios">
+{% for key, name in kinds.items() %}
+<label class="wb-radio"><input type="radio" name="kind" value="{{ key }}"{% if key == editor.kind %} checked{% endif %}>{{ name }}</label>
+{% endfor %}
+</div>
+</fieldset>
+<fieldset class="wb-fieldset">
+<legend class="wb-legend-small">Should a model alert on this?</legend>
+<div class="wb-inline-radios">
+<label class="wb-radio"><input type="radio" name="should_alert" value="yes"{% if editor.should_alert %} checked{% endif %}>{{ yes }}</label>
+<label class="wb-radio"><input type="radio" name="should_alert" value="no"{% if not editor.should_alert %} checked{% endif %}>{{ no }}</label>
+</div>
+</fieldset>
+<label class="wb-field wb-field-wide wb-bold-label">Note<textarea name="note" rows="2">{{ editor.note }}</textarea></label>
+<div class="wb-run">
+<button type="submit" class="wb-primary">Save changes</button>
+<a href="{{ url_for('main.events_page') }}" class="wb-bold-link">Cancel</a>
+</div>
+</form>
+{% if not editor.new and not editor.shipped %}
+<form method="post" action="{{ url_for('main.event_delete', event_id=editor.id) }}" id="delete-form">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<p id="delete-question" hidden>Delete this event? This cannot be undone.</p>
+<button type="submit" class="wb-secondary">Delete event</button>
+</form>
+{% endif %}
+</section>
+{% endif %}
+
+<p class="wb-note wb-note-19 wb-max-60">Log sensor cleanings and swaps as field visits. Readings can shift after a cleaning, and that shift should stay out of calibration data.</p>
+</div>
+
+<section class="wb-band" aria-labelledby="band-title">
+<div class="wb-band-text">
+<h2 id="band-title" class="wb-band-heading">How model tuning uses events</h2>
+<p>Step 1 leaves these events out of the picked data, and step 3 checks each new calibration against them.</p>
+</div>
+<a class="wb-band-action" href="{{ url_for('main.tuning_pick') }}">Start model tuning</a>
+</section>
+{% endblock %}

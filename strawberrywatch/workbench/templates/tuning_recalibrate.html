@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Model tuning</h1>
+<form method="post" action="{{ url_for('main.tuning_check') }}" id="check-form" data-check-key="{{ check_key }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<div class="wb-content wb-w-900 wb-gap-34">
+<div>
+<h2 class="wb-h-step">Step 3: Recalibrate</h2>
+<p class="wb-intro wb-intro-step">Recalibrating moves the alert line that each model's score must cross, using the picked data. The model itself does not change.</p>
+</div>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Which model?</legend>
+<div class="wb-model-options">
+{% for o in options %}
+<label class="wb-option-top wb-model-option"><input type="radio" name="model" value="{{ o.model }}"{% if o.model == model %} checked{% endif %}{% if not o.ready %} disabled{% endif %}><span><strong>{{ o.title }}</strong><span class="wb-block">{{ o.text }}
+{% with model_sites=o.model_sites, n_model_sites=o.n_model_sites, missing_sites=o.missing_sites %}
+{% if o.ready %}
+It uses {{ model_sites }}, and the picked data includes all {{ n_model_sites }}.
+{% else %}
+It uses {{ model_sites }}. Add {{ missing_sites }} in step 1.
+{% endif %}
+{% endwith %}
+</span></span></label>
+{% endfor %}
+</div>
+<p class="wb-under">Models that are not ready yet do not appear here.</p>
+</fieldset>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">How many false alarms are acceptable?</legend>
+<p class="wb-lead">Counted on data like the picked data. Fewer false alarms may let small spills go unnoticed.</p>
+<div class="wb-radios">
+{% for key, label in choices.items() %}
+<label class="wb-radio"><input type="radio" name="false_alarms" value="{{ key }}"{% if key == choice %} checked{% endif %}>{{ label }}</label>
+{% endfor %}
+</div>
+</fieldset>
+
+<section aria-labelledby="check-title">
+<h3 id="check-title" class="wb-h-chart">Check against past events</h3>
+<p class="wb-lead wb-max-62">Before saving, check whether the new alert line still catches known spills and stays quiet during events that should not alert. The events come from the <a href="{{ url_for('main.events_page') }}">Events</a> tab.</p>
+<div class="wb-table-card">
+<table class="wb-table wb-table-600">
+<caption class="wb-hidden">Past events</caption>
+<thead><tr><th scope="col">Event</th><th scope="col">Should a model alert?</th><th scope="col">Now</th><th scope="col">After recalibrating</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr><th scope="row">{{ r.name }}<span class="wb-row-sub">{{ r.dates }}</span></th><td>{{ r.alert }}</td><td>{{ r.now }}</td><td>{{ r.after }}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% if checked %}
+<p class="wb-under">Alerts on the picked data: {{ before }} now, {{ after }} after recalibrating.</p>
+{% endif %}
+<div class="wb-run">
+<button type="submit" class="wb-primary wb-primary-48"{% if not model %} disabled{% endif %}>Run the check</button>
+<span>The check also counts alerts on the picked data, before and after recalibrating.</span>
+</div>
+<div class="wb-job" id="job" data-job="{{ job or '' }}" data-next="{{ url_for('main.tuning_recalibrate') }}">
+<p class="wb-job-running" hidden>Running the check. This may take a few minutes.</p>
+</div>
+</section>
+</div>
+</form>
+
+<section class="wb-band wb-band-tuning" aria-labelledby="band-title">
+<div class="wb-band-text">
+<h2 id="band-title" class="wb-band-heading">Models change only after you save</h2>
+<p>The current calibration stays in Past calibrations, so you can switch back at any time.</p>
+</div>
+<form method="post" action="{{ url_for('main.tuning_save') }}" class="wb-save">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<input type="hidden" name="model" value="{{ model or '' }}" id="save-model">
+<input type="hidden" name="false_alarms" value="{{ choice }}" id="save-choice">
+{% if saved %}
+<p class="wb-saved">Saved and in use. The previous calibration is in Past calibrations.</p>
+{% else %}
+<button type="submit" class="wb-band-save" id="save-button"{% if not checked %} disabled{% endif %}>Save new calibration</button>
+<span class="wb-save-hint" id="save-hint"{% if checked %} hidden{% endif %}>Run the check first.</span>
+{% endif %}
+</form>
+</section>
+{% endblock %}

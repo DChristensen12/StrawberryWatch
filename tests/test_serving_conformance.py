@@ -1,9 +1,7 @@
-"""
-Every model in the serving registry, held to what the Night Heron runner relies
-on: it loads from a bare folder, reads raw site tables, hands back Findings, and
-shrugs off a site or a column that is not there. A model passing this can be
-named in GNN_MODELS. Whether it is any good is graded elsewhere.
-"""
+"""Every registered model, held to what the Night Heron runner relies on."""
+# It loads from a bare folder, reads raw site tables, hands back Findings and shrugs off a
+# missing site or column. Passing makes a model fit for GNN_MODELS. Quality is graded
+# elsewhere
 
 import shutil
 
@@ -73,8 +71,8 @@ def detector(request, tmp_path_factory):
         if not source.exists():
             pytest.skip(f"no {name} in checkpoints/{request.param}/")
         shutil.copy(source, bare / name)
-    # The fallback points at an empty folder. A detector that reached for the
-    # repo's checkpoints instead of the one it was handed fails here
+    # The fallback points at an empty folder. A detector that reached for the repo's
+    # checkpoints instead of the one it was handed fails here
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("STRAWBERRYWATCH_CHECKPOINTS_DIR", str(bare / "not_here"))
         return cls.load(bare)
@@ -93,10 +91,8 @@ def test_every_alert_type_fits_their_column(detector):
 
 
 def test_an_obvious_step_comes_back_as_a_finding(detector):
-    """
-    Plumbing, not grading. Every model here should flag a 1500 uS/cm step on the
-    newest readings. An empty answer means the tables didn't reach the model.
-    """
+    """Plumbing, not grading. Every model should flag a 1500 uS/cm step on the newest readings."""
+    # An empty answer means the tables didn't reach the model
     tables, weather = _event()
     found = detector.findings(_spiked(tables), weather)
     assert ("south_fork_1", "conductivity") in {(f.site, f.variable) for f in found}
@@ -156,10 +152,8 @@ def _key(found):
 
 
 def test_scores_agree_with_findings_at_a_scale_of_one(detector):
-    """
-    A dashboard decides from notice() over scores(). At the tested line it has
-    to fire exactly where findings() does, and first cross at the same step.
-    """
+    """At the tested line, notice() over scores() fires where findings() does, at the same step."""
+    # A dashboard decides from notice() over scores()
     tables, weather = _event()
     for case in (tables, _spiked(tables)):
         scored = detector.scores(case, weather)

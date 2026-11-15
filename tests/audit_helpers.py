@@ -6,13 +6,8 @@ import numpy as np
 
 
 def differs(a, b, what):
-    """
-    Two inputs that should give different answers, and do.
-
-    Infinity counts as a real answer. hours_since_wet returns +inf before any
-    rain has fallen and that's the documented value. Only an all-NaN result
-    means the statistic couldn't be computed.
-    """
+    """Asserts two inputs give different answers. +inf counts as one, only all-NaN fails."""
+    # hours_since_wet returns +inf before any rain, its documented value
     a, b = np.asarray(a, float), np.asarray(b, float)
     assert not np.isnan(a).all() and not np.isnan(b).all(), f"{what}: all NaN"
     assert not np.array_equal(np.nan_to_num(a, nan=-9e99), np.nan_to_num(b, nan=-9e99)), (

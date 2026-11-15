@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">User manual</h1>
+<div class="wb-content wb-w-1040 wb-gap-24">
+<form method="get" action="{{ url_for('main.manual_index') }}" class="wb-search">
+<label class="wb-field wb-field-wide">Search the manual<input type="search" name="q" value="{{ query }}" placeholder="For example: false alarms"></label>
+</form>
+
+<div class="wb-manual">
+<nav aria-label="Manual contents" class="wb-manual-nav">
+<ol>
+{% for p in contents %}
+<li><a href="{{ url_for('main.manual_page', slug=p.slug) }}"{% if p.current %} aria-current="page"{% endif %}>{{ p.title }}</a></li>
+{% endfor %}
+</ol>
+</nav>
+
+<article class="wb-card wb-article">
+{% if article %}
+<h2 class="wb-h-step">{{ article.title }}</h2>
+<div class="wb-article-body">
+{{ article.html | safe }}
+</div>
+<div class="wb-article-foot">
+{% if prev_title %}
+<a href="{{ url_for('main.manual_page', slug=prev_slug) }}">Previous: {{ prev_title }}</a>
+{% else %}
+<span></span>
+{% endif %}
+{% if next_title %}
+<a href="{{ url_for('main.manual_page', slug=next_slug) }}">Next: {{ next_title }}</a>
+{% endif %}
+</div>
+{% elif matches %}
+<ul class="wb-matches">
+{% for m in matches %}
+<li><a href="{{ url_for('main.manual_page', slug=m.slug) }}">{{ m.title }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p>No pages match {{ query }}.</p>
+{% endif %}
+</article>
+</div>
+</div>
+{% endblock %}

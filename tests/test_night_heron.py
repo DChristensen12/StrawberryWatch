@@ -1,11 +1,7 @@
-"""
-The Night Heron runner, with their database and Open-Meteo swapped for fakes.
-
-Checks the runner's half of the deal: the dict their fire_alerts_task takes,
-the cooldown, one model failing without taking the rest down, and each table
-read once however many models want it. The last test runs both real models
-through the whole pass on an event fixture.
-"""
+"""The Night Heron runner, with their database and Open-Meteo swapped for fakes."""
+# Checks the runner's half of the deal: (1) the dict their fire_alerts_task takes, (2) the
+# cooldown, (3) one model failing without taking the rest down and (4) each table read once
+# however many models want it. The last test runs both real models through a whole pass
 
 import threading
 import uuid
@@ -67,8 +63,8 @@ def reads(monkeypatch):
     monkeypatch.setattr(gnn_alerts, "ENABLED", True)
     monkeypatch.setenv("GNN_ALERT_EMAILS", "a@example.com, b@example.com")
     monkeypatch.delenv("GNN_ALERT_PHONES", raising=False)
-    # _score takes torch down to one thread for the daemon's sake. Put it back,
-    # or every test after this one runs single threaded.
+    # _score takes torch down to one thread for the daemon's sake. Put it back, or every
+    # later test runs single threaded
     threads = torch.get_num_threads()
     gnn_alerts.reset_state()
     yield reads
@@ -211,11 +207,8 @@ def _night_heron_tables(folder, spike_site, add, rows):
 
 
 def test_both_real_models_through_a_whole_pass(monkeypatch):
-    """
-    Dusk Crayfish and Cobble Shoal from their checkpoints, an event fixture
-    standing in for MySQL, and a step on south_fork_1. Both should say so, each
-    under its own alert type.
-    """
+    """Dusk Crayfish and Cobble Shoal from their checkpoints both flag a step on south_fork_1."""
+    # An event fixture stands in for MySQL, and each model alerts under its own alert type
     tables, weather = _night_heron_tables(
         "anomaly_2025_09_10_overnight_sf", "south_fork_1", 1500.0, 6
     )

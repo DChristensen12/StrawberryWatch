@@ -1,8 +1,6 @@
-"""
-The Dusk Crayfish design document against the code. The two drifted apart once,
-so these read documents/Dusk-Crayfish/Math_and_Design_of_DuskCrayfish.tex itself
-and fail when either side changes alone.
-"""
+"""The Dusk Crayfish design document against the code, which drifted apart once."""
+# These read documents/Dusk-Crayfish/Math_and_Design_of_DuskCrayfish.tex and fail when
+# either side changes alone
 
 import re
 from pathlib import Path
@@ -165,10 +163,7 @@ def test_loss_channel_restriction_is_documented(doc, flat):
 
 
 def test_rain_rule_is_step_plus_taper_not_a_pure_step(doc, flat):
-    """
-    The taper covers the delayed first flush. Pin both the document and the
-    code, and neither can revert to the step unnoticed.
-    """
+    """The taper covers the delayed first flush. Neither document nor code may revert to a step."""
     assert r"D = 36" in flat or "Post rain decay window" in flat
     assert "decay" in flat.lower(), "document no longer describes the taper"
 
@@ -199,10 +194,8 @@ def test_rain_rule_is_step_plus_taper_not_a_pure_step(doc, flat):
 
 
 def test_node_prediction_spread_is_not_zero(flat):
-    """
-    The document states per-node predictions and gives the measured spread.
-    A model that pooled node identity away would give exactly zero here.
-    """
+    """The document's per-node predictions and their measured spread."""
+    # A model that pooled node identity away would give exactly zero here
     import pickle
 
     from strawberrywatch.models import model_calls

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Past calibrations</h1>
+<div class="wb-content wb-w-900 wb-gap-34">
+<p class="wb-intro">Every calibration saved on this computer, grouped by model. Switching takes effect immediately and deletes nothing. Each exported summary is a 1-page PDF for sharing with Environment, Health &amp; Safety (EH&amp;S).</p>
+{% if used %}
+<p class="wb-saved-note" role="status">Now in use.</p>
+{% endif %}
+
+{% for s in sections %}
+<section aria-labelledby="title-{{ s.model }}">
+<h2 id="title-{{ s.model }}" class="wb-h-section wb-h-gap">{{ s.title }}</h2>
+<ol class="wb-calibrations">
+<li class="wb-card{% if s.shipped_in_use %} is-in-use{% endif %}">
+<div class="wb-card-head">
+<h3 class="wb-h-plain">Shipped with the model</h3>
+{% if s.shipped_in_use %}
+<span class="wb-mark wb-bold"><span class="wb-square wb-square-12"></span>In use</span>
+{% else %}
+<span class="wb-mark"><span class="wb-square wb-square-12 is-hollow"></span>Not in use</span>
+{% endif %}
+</div>
+<p class="wb-tight">Made from the model's training data when it was built.</p>
+{% if not s.saved %}
+{% with model=s.title %}
+<p class="wb-tight">No saved calibrations yet. <a href="{{ url_for('main.tuning_pick', model=s.model) }}">Tune {{ model }}</a> to make one.</p>
+{% endwith %}
+{% endif %}
+{% if not s.shipped_in_use %}
+<form method="post" action="{{ url_for('main.calibration_use', model=s.model, calibration_id='shipped') }}" class="wb-actions">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<button type="submit" class="wb-primary">Use this one</button>
+</form>
+{% endif %}
+</li>
+{% for c in s.saved %}
+<li class="wb-card{% if c.in_use %} is-in-use{% endif %}">
+<div class="wb-card-head">
+{% with saved_date=c.saved_date %}<h3 class="wb-h-plain">Saved {{ saved_date }}</h3>{% endwith %}
+{% if c.in_use %}
+<span class="wb-mark wb-bold"><span class="wb-square wb-square-12"></span>In use</span>
+{% else %}
+<span class="wb-mark"><span class="wb-square wb-square-12 is-hollow"></span>Not in use</span>
+{% endif %}
+</div>
+<dl class="wb-facts">
+<dt>Data</dt>
+{% with sites=c.sites, dates_short=c.dates_short, source_name=c.source_name %}<dd>{{ sites }}, {{ dates_short }}, from {{ source_name }}</dd>{% endwith %}
+<dt>Left out</dt><dd>{{ c.left_out }}</dd>
+<dt>False alarms</dt><dd>{{ c.false_alarms }}</dd>
+<dt>Past events</dt><dd><a href="{{ url_for('main.calibration_results', model=s.model, calibration_id=c.id) }}">See the check results</a></dd>
+</dl>
+{% if c.note %}
+{% with note=c.note %}<p class="wb-quote">"{{ note }}"</p>{% endwith %}
+{% endif %}
+<div class="wb-actions">
+{% if not c.in_use %}
+<form method="post" action="{{ url_for('main.calibration_use', model=s.model, calibration_id=c.id) }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<button type="submit" class="wb-primary">Use this one</button>
+</form>
+<a class="wb-bold-link" href="{{ url_for('main.calibration_compare', model=s.model, calibration_id=c.id) }}">Compare with the one in use</a>
+{% endif %}
+<a class="wb-bold-link wb-export" href="{{ url_for('main.calibration_summary', model=s.model, calibration_id=c.id) }}" data-href="{{ url_for('main.calibration_summary', model=s.model, calibration_id=c.id) }}" data-save-as="{{ s.model }}_{{ c.id }}.pdf">Export summary (PDF)</a>
+</div>
+</li>
+{% endfor %}
+</ol>
+</section>
+{% endfor %}
+</div>
+
+<section class="wb-band" aria-labelledby="band-title">
+<div class="wb-band-text">
+<h2 id="band-title" class="wb-band-heading">The shipped calibration stays available</h2>
+<p>Each model keeps the calibration it shipped with, so you can return to it at any time.</p>
+</div>
+</section>
+{% endblock %}

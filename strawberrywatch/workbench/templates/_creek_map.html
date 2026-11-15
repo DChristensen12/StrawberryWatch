@@ -1,0 +1,14 @@
+{#- The creek map's inside. Home uses it in status mode inside its own svg; step 1 passes pick=True -#}
+<g class="wb-river"><polyline points="70,50 510,50 640,105 705,105"></polyline><polyline points="70,150 400,150 640,105"></polyline><line x1="560" y1="168" x2="700" y2="168"></line></g>
+{% if not pick %}
+<g class="wb-dots">
+{% for d in dots %}
+<a href="{{ url_for('main.sensors', site=d.site) }}"><circle cx="{{ d.x }}" cy="{{ d.y }}" r="{{ d.r }}" class="{{ 'is-quiet' if d.quiet else 'is-live' }}"></circle></a>
+{% endfor %}
+</g>
+{% endif %}
+<g class="wb-map-labels">
+{% for d in dots %}
+<text x="{{ d.lx }}" y="{{ d.ly }}"{% if d.bold %} class="is-bold"{% endif %} data-site="{{ d.site }}">{{ d.name }}</text>
+{% endfor %}
+</g>

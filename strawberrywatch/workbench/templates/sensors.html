@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Sensors</h1>
+<div class="wb-content wb-w-980 wb-gap-26">
+<div>
+<p class="wb-intro">Every sensor at every site, and when it last sent a reading. A sensor counts as quiet after 60 minutes with no readings.</p>
+<p class="wb-intro wb-bold wb-tight">{{ reporting }} of {{ total }} sites are reporting.
+{% if n_quiet == 1 %}
+1 is quiet.
+{% elif n_quiet > 1 %}
+{{ n_quiet }} are quiet.
+{% endif %}
+</p>
+</div>
+
+<div class="wb-toolbar">
+<form method="get" action="{{ url_for('main.sensors') }}">
+<div role="group" aria-label="Which sites to show" class="wb-toggles">
+<button type="submit" name="show" value="all" class="wb-toggle" aria-pressed="{{ 'false' if quiet_only else 'true' }}">All sites</button>
+<button type="submit" name="show" value="quiet" class="wb-toggle" aria-pressed="{{ 'true' if quiet_only else 'false' }}">Quiet sites only</button>
+</div>
+</form>
+<button type="button" class="wb-secondary wb-export" data-href="{{ url_for('main.export_sensors') }}" data-save-as="sensor_status.csv">Export sensor status (CSV)</button>
+</div>
+
+<div class="wb-table-card">
+<table class="wb-table wb-table-760">
+<caption class="wb-hidden">Sensors at each site</caption>
+<thead><tr><th scope="col">Site</th>
+{% for name in readings %}
+<th scope="col">{{ name }}</th>
+{% endfor %}
+<th scope="col">Last reading</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr{% if r.quiet %} class="is-highlight"{% endif %}>
+<th scope="row"><a href="{{ url_for('main.sensors', site=r.site, show='quiet' if quiet_only else None) }}">{{ r.name }}</a></th>
+{% for c in r.cells %}
+<td class="wb-nowrap">
+{% if c.status == 'live' %}
+<span class="wb-mark"><span class="wb-square"></span>{{ c.word }}</span>
+{% elif c.status == 'quiet' %}
+<span class="wb-mark wb-bold"><span class="wb-square is-hollow"></span>{{ c.word }}</span>
+{% else %}
+<span class="wb-none">{{ c.word }}</span>
+{% endif %}
+</td>
+{% endfor %}
+<td class="wb-nowrap{% if r.quiet %} wb-bold{% endif %}">{{ r.ago }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+<div class="wb-row">
+<section class="wb-card wb-flex-detail" aria-labelledby="site-title">
+<h2 id="site-title" class="wb-h-chart">{{ site }}</h2>
+{% if time %}
+<p class="wb-tight">Last reading at {{ time }}, about {{ ago }}.</p>
+{% endif %}
+<p class="wb-bold wb-marks-title">Last 24 hours</p>
+<span class="wb-marks" role="img" aria-label="Last 24 hours: {{ n_full }} full, {{ n_half }} half and {{ n_empty }} empty">
+{% for m in marks %}
+<span class="wb-hour is-{{ m }}"></span>
+{% endfor %}
+</span>
+<p class="wb-small">One mark per hour. A full mark means all 4 readings arrived, a half mark means 1 to 3 arrived, and an empty mark means none did.</p>
+</section>
+<p class="wb-note wb-note-19 wb-flex-side">A quiet site likely means the logger lost its cellular signal or its battery is low. We recommend telling the field team.</p>
+</div>
+</div>
+
+<section class="wb-band" aria-labelledby="band-title">
+<div class="wb-band-text">
+<h2 id="band-title" class="wb-band-heading">Before model tuning</h2>
+<p>We recommend leaving quiet sites out when picking data, since gaps can shift the new alert line.</p>
+</div>
+<a class="wb-band-action" href="{{ url_for('main.tuning_pick') }}">Start model tuning</a>
+</section>
+{% endblock %}

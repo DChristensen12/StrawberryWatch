@@ -1,8 +1,5 @@
-"""
-A store that looks live, for pages that only show live data. One real check of
-a past event, moved so its last reading is now. test_live_dashboard/run.py does
-the same with more checks.
-"""
+"""A store that looks live: one real check of a past event, moved so its last reading is now."""
+# test_live_dashboard/run.py does the same with more checks
 
 import time
 

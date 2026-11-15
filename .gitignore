@@ -8,6 +8,8 @@ data/processed_data/
 !data/normal/*.csv
 # The dashboard's replay events, copies of data/anomalies that ship in the package
 !strawberrywatch/watch/events/**/*.csv
+# The baseline tables, small and worth reading in a diff
+!baselines/tables/*.csv
 *.ipynb_checkpoints
 
 # Python Environments
@@ -45,3 +47,8 @@ logs/
 
 # Produced file in document
 *.bbl
+# pdflatex aux files, kept beside the source and out of the history
+documents/*/build/
+
+# Temporary files
+/temp

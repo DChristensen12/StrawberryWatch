@@ -1,9 +1,4 @@
-"""
-The dashboard as the website runs it. The site mounts make_dashboard() at
-/strawberrywatch/ (see INSTALL.md). It reads the website's sensor database,
-uses the site's own sign-in, and keeps its own data in sw_ tables. Night Heron
-runs the checks.
-"""
+"""The dashboard as the website runs it, mounted at /strawberrywatch/ (see INSTALL.md)."""
 
 from __future__ import annotations
 
@@ -11,7 +6,7 @@ MOUNT = "/strawberrywatch"
 
 
 class NoWatcher:
-    """Night Heron runs the website's checks. There's no watcher to start here."""
+    """Stands in for the watcher. Night Heron runs the website's checks."""
 
     busy = False
     next_at = None
@@ -21,7 +16,7 @@ class NoWatcher:
 
 
 def make_dashboard(store=None):
-    """Returns the dashboard as a WSGI app, behind the gate."""
+    """Returns the dashboard as a WSGI app behind the site's own sign-in."""
     from strawberrywatch.dashboard import create_app, profiles
     from strawberrywatch.integrations.scmg_website import night_heron_list
     from strawberrywatch.integrations.scmg_website.gate import Gate
@@ -29,8 +24,8 @@ def make_dashboard(store=None):
     from strawberrywatch.watch.model_updates import ChildUpdater
     from strawberrywatch.watch.store_mysql import MysqlStore
 
-    store = store or MysqlStore()
-    # Always the website's database, whatever a visitor sends
+    store = store or MysqlStore()  # its own data, in the sw_ tables
+    # Readings always come from the website's sensor database, whatever is saved
     if (store.source() or {}).get("kind") != sources.SITE:
         store.set_source(sources.SITE)
     app = create_app(
@@ -44,14 +39,23 @@ def make_dashboard(store=None):
     )
     app.config["SESSION_COOKIE_PATH"] = MOUNT
     app.config["SIGN_OUT_URL"] = sign_out_url()
+    app.config["OTHER_DASHBOARD"] = {"text": "Night Heron", "href": night_heron_url()}
     return Gate(app)
 
 
 def sign_out_url():
-    """The site's own sign-out page."""
+    return site_url("logout", "/logout/")
+
+
+def night_heron_url():
+    """The site's Alerts link, which also notes Night Heron as the dashboard in use."""
+    return site_url("alerts", "/alerts/") + "?to=night-heron"
+
+
+def site_url(name, fallback):
     try:
         from django.urls import reverse
 
-        return reverse("logout")
+        return reverse(name)
     except Exception:
-        return "/logout/"
+        return fallback

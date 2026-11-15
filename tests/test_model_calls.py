@@ -1,12 +1,7 @@
-"""
-The calling-contract layer, and the Dusk Crayfish gate that goes with it.
-
-Dusk Crayfish's weights are the audit baseline. The two-failed-four-passed
-suite, the hydrant diagnosis and the -23.9 oxford skill number are all measured
-against them. If routing its forward pass through model_calls.py moved its
-output by a single bit, those numbers would no longer compare with earlier
-records.
-"""
+"""The calling-contract layer, and the Dusk Crayfish gate that goes with it."""
+# Dusk Crayfish's weights are the audit baseline: the two-failed-four-passed suite, the
+# hydrant diagnosis and the -23.9 oxford skill number. Moving its output by a single bit
+# through model_calls.py would break comparison with earlier records
 
 import pytest
 import torch
@@ -83,11 +78,9 @@ def test_node_mask_is_only_passed_when_accepted():
 
 
 def test_nested_model_refuses_sequence_input_loudly():
-    """
-    Cobble Shoal reads per-node series off the node registry. Handed a
-    sequence tensor it must raise, not score whatever it was given: a plausible
-    looking number from the wrong input is the failure that is hard to catch.
-    """
+    """Handed a sequence tensor, Cobble Shoal must raise, not score whatever it was given."""
+    # It reads per-node series off the node registry. A plausible number from the wrong input is
+    # the failure that's hard to catch
     seq, edge_index, _mask = _inputs()
     model = CobbleShoal.from_metadata({"seed": 1, "window": 24})
     with pytest.raises(model_calls.ContractMismatch, match="nested_node_batch"):
@@ -127,10 +120,7 @@ def test_forward_kwargs_track_the_batch_they_are_given():
 
 
 def test_cobble_shoal_score_is_one_number_per_node():
-    """
-    The detector-facing contract: the alerting path sees a score, not a
-    channel. Guarded here against a future refactor widening it back.
-    """
+    """The alerting path sees a score, not a channel. Guards against a refactor widening it back."""
     import inspect
 
     sig = inspect.signature(CobbleShoal.score)

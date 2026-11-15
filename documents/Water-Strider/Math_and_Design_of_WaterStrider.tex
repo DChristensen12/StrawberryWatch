@@ -636,7 +636,12 @@ WaterStrider caught none of the four, and neither did any of its tests alone.
 Naive X84 caught all four at $k = 5.2$, at 136 times the false flag rate, and
 one at $k = 347.3$. In the same run, DuskCrayfish flagged three of the four
 (the June discharge and the September event at south\_fork\_1, and the
-hydrant break) and CobbleShoal flagged none.
+hydrant break) and CobbleShoal flagged none. The evaluation replays each event
+through the served detectors, and the served CobbleShoal judges only the
+anchors within two hours of a window's last reading, so we also scored every
+anchor of each event. CobbleShoal still flagged none, and FlameSkimmer, scored
+the same way, flagged two, the September event at south\_fork\_1 and the
+hydrant break.
 
 The events that are not graded give a similar picture. WaterStrider flagged
 the November 2025 foam event at north\_fork\_0 through its Hampel test, 40.5

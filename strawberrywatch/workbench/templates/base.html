@@ -1,0 +1,55 @@
+{#- The frame every page shares, the green rail and the main column -#}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ theme }}" data-size="{{ size }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf() }}">
+<title>{{ page_title }}</title>
+<link rel="icon" href="{{ url_for('main.shared', filename='scmg-logo.png') }}" type="image/png">
+<link rel="stylesheet" href="{{ url_for('main.shared', filename='uplot/uPlot.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='workbench.css') }}">
+</head>
+<body data-words="{{ words }}" data-browser="{{ 'yes' if browser else 'no' }}" data-page="{{ section }}">
+<div class="wb-page">
+<aside class="wb-rail">
+<div class="wb-brand">
+<img src="{{ url_for('main.shared', filename='scmg-logo.png') }}" alt="" width="40" height="47">
+<div><span class="wb-wordmark">StrawberryWatch</span><span class="wb-subtitle">Workbench</span></div>
+</div>
+<nav aria-label="Sections">
+<ul class="wb-nav">
+<li><a href="{{ url_for('main.overview') }}"{% if section == 'home' %} aria-current="page"{% endif %}>Home</a></li>
+{% if steps %}
+<li class="wb-nav-tuning">
+<a href="{{ url_for('main.tuning_pick') }}" aria-current="page">Model tuning</a>
+<ol aria-label="Steps" class="wb-steps">
+{% set links = [url_for('main.tuning_pick'), url_for('main.tuning_explore'), url_for('main.tuning_recalibrate')] %}
+<li><a href="{{ links[0] }}"{% if steps[0].current %} aria-current="step"{% endif %}><span class="wb-step-circle{% if steps[0].filled %} is-filled{% endif %}">1</span><span><span class="wb-step-name">Pick data</span><span class="wb-step-status">{{ steps[0].status }}</span></span></a></li>
+<li><a href="{{ links[1] }}"{% if steps[1].current %} aria-current="step"{% endif %}><span class="wb-step-circle{% if steps[1].filled %} is-filled{% endif %}">2</span><span><span class="wb-step-name">Explore</span><span class="wb-step-status">{{ steps[1].status }}</span></span></a></li>
+<li><a href="{{ links[2] }}"{% if steps[2].current %} aria-current="step"{% endif %}><span class="wb-step-circle{% if steps[2].filled %} is-filled{% endif %}">3</span><span><span class="wb-step-name">Recalibrate</span><span class="wb-step-status">{{ steps[2].status }}</span></span></a></li>
+</ol>
+</li>
+{% else %}
+<li><a href="{{ url_for('main.tuning_pick') }}">Model tuning</a></li>
+{% endif %}
+<li><a href="{{ url_for('main.sensors') }}"{% if section == 'sensors' %} aria-current="page"{% endif %}>Sensors</a></li>
+<li><a href="{{ url_for('main.events_page') }}"{% if section == 'events' %} aria-current="page"{% endif %}>Events</a></li>
+<li><a href="{{ url_for('main.calibrations') }}"{% if section == 'calibrations' %} aria-current="page"{% endif %}>Past calibrations</a></li>
+<li><a href="{{ url_for('main.manual_index') }}"{% if section == 'manual' %} aria-current="page"{% endif %}>User manual</a></li>
+</ul>
+</nav>
+<div class="wb-rail-foot">
+<a href="{{ url_for('main.settings') }}"{% if section == 'settings' %} aria-current="page"{% endif %}>Settings</a>
+<span>Runs on this computer.</span>
+</div>
+<img class="wb-squiggle" src="{{ url_for('static', filename='creek-squiggle.svg') }}" alt="" aria-hidden="true">
+</aside>
+<main class="wb-main" id="main">
+{% block main %}{% endblock %}
+</main>
+</div>
+<script src="{{ url_for('main.shared', filename='uplot/uPlot.iife.min.js') }}"></script>
+<script src="{{ url_for('static', filename='workbench.js') }}"></script>
+</body>
+</html>

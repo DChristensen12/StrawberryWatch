@@ -41,12 +41,9 @@ def _build_model(model_name, metadata):
     return model
 
 
-# Each test runs once per model, against that model's own trained threshold,
-# with its node_mask passed in.
-#
-# Only sequence-contract models belong here. Cobble Shoal scores every node at
-# once against the POT threshold in its calibration, not one node against a
-# metadata threshold. scripts/run_audit_comparison.py grades it instead.
+# Each test runs once per model, against that model's own trained threshold and node_mask
+# Only sequence-contract models. Cobble Shoal scores every node at once against its
+# calibration's POT threshold, and scripts/run_audit_comparison.py grades it instead
 _MODELS = [
     ("dusk_crayfish", True),
 ]

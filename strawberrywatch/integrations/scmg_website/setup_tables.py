@@ -1,6 +1,5 @@
 """
-Creates StrawberryWatch's sw_ tables on the website's database, using Night
-Heron's MySQL login. Safe to run twice, existing tables are left alone.
+Creates the sw_ tables with Night Heron's MySQL login. Existing tables are left alone.
 
     python -m strawberrywatch.integrations.scmg_website.setup_tables
 """
@@ -31,7 +30,7 @@ def main(store=None):
 if __name__ == "__main__":
     from dotenv import find_dotenv, load_dotenv
 
-    # The site's .env, from the folder this is run in. Config reads it once, on
-    # import, and main() imports the store
+    # The site's .env from the current folder, before main() imports the store.
+    # Config reads it once, on import
     load_dotenv(find_dotenv(usecwd=True))
     raise SystemExit(main())

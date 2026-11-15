@@ -1,7 +1,5 @@
-"""
-Each person's alerts on the website: which models they hear about, and
-pausing them for a while or until someone turns them back on.
-"""
+"""Each person's alerts on the website: which models they hear about, and pausing them."""
+# For a while, or until someone turns them back on
 
 import sqlite3
 import time
@@ -97,8 +95,8 @@ def test_each_person_is_emailed_only_their_models_and_nothing_while_paused(
     mail.website_alert(store, inv.load(), check, "https://localhost/strawberrywatch", items)
     by_person = {to[0]: message for message, to in sent}
     assert set(by_person) == {"ana@example.org", "ben@example.org"}
-    assert by_person["ana@example.org"]["Subject"] == "StrawberryWatch: 2 alerts"
-    ben_text = by_person["ben@example.org"].get_body(("plain",)).get_content()
+    assert by_person["ana@example.org"]["subject"] == "StrawberryWatch: 2 alerts"
+    ben_text = by_person["ben@example.org"]["text"]
     assert "Flagged by Water Strider" in ben_text and "Dusk Crayfish" not in ben_text
     assert store.emails()[0]["people"] == 2
 

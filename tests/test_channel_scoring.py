@@ -1,12 +1,7 @@
-"""
-Detection channels and their nulls: does each statistic depend on its input,
-and does each mask actually mask.
-
-Both classes have bitten here before. A statistic that returns the same number
-whatever you feed it looks like a working measurement for weeks, and the
-dispersion channel once scored ordinary sensor outages as frozen sensors
-because its mask was optional and nobody passed it.
-"""
+"""Whether each detection statistic depends on its input and each mask masks."""
+# Both have bitten here. A statistic stuck on one number passed for a measurement for weeks,
+# and the dispersion channel once scored outages as frozen sensors because nobody passed its
+# optional mask
 
 import numpy as np
 
@@ -149,8 +144,7 @@ def test_reconstruction_mask_is_live():
     assert np.isnan(scoring.reconstruction(xh, sc, vals, off)).all(), (
         "reconstruction ignores observed_mask"
     )
-    # The masked steps carry a different error. If the mean doesn't move, the
-    # mask is being ignored
+    # The masked steps carry a different error. If the mean doesn't move, the mask is ignored
     half = on.copy()
     half[:, :2, :] = False
     mixed = np.zeros((1, 4, 2))

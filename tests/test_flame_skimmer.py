@@ -169,7 +169,7 @@ def test_forward_channels_and_score_run_on_synthetic_batch(batch):
     assert model.training, "channels() should put the model back the way it found it"
 
 
-# The served model on the real checkpoint. Skipped without the weights, like the conformance tests.
+# The served model on the real checkpoint, skipped without the weights like the conformance tests
 
 
 @pytest.fixture(scope="module")

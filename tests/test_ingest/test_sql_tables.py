@@ -1,9 +1,6 @@
-"""
-Which of Night Heron's tables a site's readings come out of, against a fake MySQL.
-
-Their fetcher writes scnf010 lowercased, while the table their sensor signal made
-keeps the site code's case. On a case sensitive server that is two tables.
-"""
+"""Which of Night Heron's tables a site's readings come out of, against a fake MySQL."""
+# Their fetcher lowercases scnf010 while their sensor signal's table keeps the site code's
+# case. On a case sensitive server those are two tables
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta

@@ -29,6 +29,7 @@
               {% for item in nav %}
                 <li><a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.text }}{% if item.count %} <span class="nav-count">{{ item.count }}</span>{% endif %}</a></li>
               {% endfor %}
+              {% if other_dashboard %}<li><a href="{{ other_dashboard.href }}">{{ other_dashboard.text }}</a></li>{% endif %}
               {% if sign_out %}<li><a href="{{ sign_out }}">Sign out</a></li>{% endif %}
             </ul>
           </nav>

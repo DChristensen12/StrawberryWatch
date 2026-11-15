@@ -1,7 +1,4 @@
-"""
-Water Strider, from the arithmetic up to the dashboard's slider. The first
-three tests are the slider's sensitivity checks.
-"""
+"""Water Strider, from the arithmetic up to the dashboard's slider."""
 
 import json
 import re

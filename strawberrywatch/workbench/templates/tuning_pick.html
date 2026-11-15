@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Model tuning</h1>
+<form method="post" action="{{ url_for('main.tuning_pick_post') }}" id="pick-form" data-pairs="{{ pairs }}">
+<input type="hidden" name="csrf_token" value="{{ csrf() }}">
+<div class="wb-content wb-w-900 wb-gap-32">
+<div>
+<h2 class="wb-h-step">Step 1: Pick data</h2>
+<p class="wb-intro wb-intro-step">Choose where readings come from and which part of the creek to look at. Models change only after you save in step 3.</p>
+</div>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Where should readings come from?</legend>
+<div class="wb-options">
+<label class="wb-option-top"><input type="radio" name="source" value="api" data-set-up="{{ 'yes' if set_up.api else 'no' }}"{% if values.source == 'api' %} checked{% endif %}><span><strong>The Strawberry Creek website</strong><span class="wb-block">Uses the API token saved on this computer.</span></span></label>
+<label class="wb-option-top"><input type="radio" name="source" value="csv" data-set-up="{{ 'yes' if set_up.csv else 'no' }}"{% if values.source == 'csv' %} checked{% endif %}><span><strong>A folder of CSV files</strong><span class="wb-block">Pick a folder on this computer.</span></span></label>
+<label class="wb-option-top"><input type="radio" name="source" value="mysql" data-set-up="{{ 'yes' if set_up.mysql else 'no' }}"{% if values.source == 'mysql' %} checked{% endif %}><span><strong>A MySQL database</strong><span class="wb-block">Sign in with a database username and password.</span></span></label>
+</div>
+<p class="wb-warning" id="not-set-up"{% if set_up[values.source] %} hidden{% endif %}>Set up this data source in <a href="{{ url_for('main.settings') }}">Settings</a> first.</p>
+</fieldset>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Which sites?</legend>
+<p class="wb-lead">Click a dot to tick it, or tick the sites a model needs:
+{% for m in models %}
+<button type="button" class="wb-link-button" data-model-sites="{{ m.sites }}" data-model-readings="{{ m.readings }}">{{ m.title }}</button>{{ "," if not loop.last else "." }}
+{% endfor %}
+</p>
+<div class="wb-map-pick" role="group" aria-label="Creek map. Ticked: {{ ticked_sites }}." data-template="{% raw %}Creek map. Ticked: {{ ticked_sites }}.{% endraw %}">
+<svg viewBox="0 0 720 196" class="wb-map" aria-hidden="true">
+{% with pick=True %}{% include "_creek_map.html" %}{% endwith %}
+</svg>
+{% for d in dots %}
+<input type="checkbox" class="wb-dot" name="sites" value="{{ d.site }}" aria-label="{{ d.name }}" data-left="{{ d.left }}" data-top="{{ d.top }}" data-name="{{ d.name }}"{% if d.ticked %} checked{% endif %}>
+{% endfor %}
+</div>
+{% if extra %}
+<div class="wb-checks">
+{% for d in extra %}
+<label class="wb-check"><input type="checkbox" name="sites" value="{{ d.site }}" data-name="{{ d.name }}"{% if d.ticked %} checked{% endif %}>{{ d.name }}</label>
+{% endfor %}
+</div>
+{% endif %}
+</fieldset>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Which readings?</legend>
+<div class="wb-checks">
+{% for key, name in readings_all %}
+<label class="wb-check"><input type="checkbox" name="readings" value="{{ key }}"{% if key in values.readings %} checked{% endif %}>{{ name }}</label>
+{% endfor %}
+</div>
+<p class="wb-under">Dissolved oxygen and pH are only measured at some sites.</p>
+</fieldset>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Which dates?</legend>
+<div class="wb-dates">
+<label class="wb-field">From<input type="date" name="start_date" id="start-date" value="{{ values.start_date }}" required></label>
+<label class="wb-field">To<input type="date" name="end_date" id="end-date" value="{{ values.end_date }}" required></label>
+<p class="wb-shortcuts">Or: <button type="button" class="wb-link-button" data-from="{{ last7[0] }}" data-to="{{ last7[1] }}">Last 7 days</button>, <button type="button" class="wb-link-button" data-from="{{ last30[0] }}" data-to="{{ last30[1] }}">Last 30 days</button>, <button type="button" class="wb-link-button" id="around-event" aria-expanded="false" aria-controls="past-event">Around a past event</button></p>
+</div>
+<div id="past-event" hidden>
+<label class="wb-field wb-field-wide">Past event<select id="past-event-select">
+<option value=""></option>
+{% for e in past %}
+<option value="{{ e.id }}" data-from="{{ e['from'] }}" data-to="{{ e.to }}">{{ e.name }}</option>
+{% endfor %}
+</select></label>
+</div>
+</fieldset>
+
+<fieldset class="wb-fieldset">
+<legend class="wb-legend">Leave anything out?</legend>
+<label class="wb-option-top wb-leave"><input type="checkbox" name="leave_out_events" value="yes"{% if values.leave_out_events %} checked{% endif %}><span><strong>Known events from the event list</strong><span class="wb-block">Recalibrating on a spill raises the alert line, so similar spills become harder to catch.</span></span></label>
+<label class="wb-option-top wb-leave"><input type="checkbox" name="leave_out_rain" value="yes"{% if values.leave_out_rain %} checked{% endif %}><span><strong>Rainy hours</strong><span class="wb-block">Rain changes most readings. We recommend leaving this ticked unless you are studying storms.</span></span></label>
+</fieldset>
+
+<div class="wb-job" id="job" data-job="{{ job or '' }}" data-next="{{ url_for('main.tuning_explore') }}">
+<p class="wb-job-running" hidden>Loading readings. This may take a few minutes.</p>
+<p class="wb-job-error" hidden data-template="Could not load readings from {{ source_name }}. {% raw %}{{ reason }}{% endraw %}">Could not load readings from {{ source_name }}. {% raw %}{{ reason }}{% endraw %}</p>
+<p class="wb-job-empty" hidden>No readings were found for these sites and dates.</p>
+</div>
+</div>
+
+<section class="wb-band wb-band-tuning" aria-label="What you picked">
+<p class="wb-band-line" id="picked" data-template="{% raw %}{{ days }}, {{ sites }}, {{ readings }} each: {{ total }} before anything is left out.{% endraw %}">{{ days }}, {{ sites }}, {{ readings }} each: {{ total }} before anything is left out.</p>
+<button type="submit" class="wb-band-action">Load and explore</button>
+</section>
+</form>
+{% endblock %}

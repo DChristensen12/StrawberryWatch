@@ -1,11 +1,6 @@
-"""
-The fault sweep, for any detector with score(batch, nulls). Models and control
-charts go through the same code path. A comparison compares the detectors and
-not two scoring functions.
-
-Dusk Crayfish isn't here. It wants weather channels and the generator makes
-none. It's compared on the real audit events instead.
-"""
+"""The fault sweep for any detector with score(batch, nulls), models and control charts alike."""
+# Dusk Crayfish wants weather channels the generator doesn't make. It's compared on the real
+# audit events instead
 
 from __future__ import annotations
 
@@ -35,7 +30,7 @@ SWEEP_SEEDS = (0, 1, 2, 3, 4)
 
 @functools.cache
 def _graph():
-    """Node registry and adjacency, built once. They do not depend on the window."""
+    """Node registry and adjacency, built once since they don't depend on the window."""
     nodes, node_site, node_var = build_node_registry()
     return {
         "nodes": nodes,
@@ -49,13 +44,9 @@ def _graph():
 
 @functools.lru_cache(maxsize=64)
 def _window(seed):
-    """
-    One generated creek per seed, cached.
-
-    build_batch regenerates the full series every call. Fine for a handful of
-    batches, quadratic misery over 1375 cases, since the regrid alone is a
-    merge_asof per node.
-    """
+    """One generated creek per seed, cached."""
+    # build_batch regenerates the series each call, quadratic over 1375 cases
+    # (a merge_asof per node)
     return cs.make_synthetic_creek(n_steps=N_STEPS, seed=seed)
 
 
@@ -101,23 +92,15 @@ def cases(seed, shapes=cs.SHAPES):
 
 
 def rank_of_truth(scores, faulted):
-    """
-    1-based rank of the best placed true node. 1 means it topped the list.
-
-    Best placed, not a mean, since slow_all faults every node and any of them
-    coming first is a correct localisation.
-    """
+    """1-based rank of the best placed true node."""
+    # slow_all faults every node, and any of them coming first is a correct localisation
     order = np.argsort(-np.asarray(scores).ravel(), kind="stable")
     positions = {int(node): i + 1 for i, node in enumerate(order)}
     return min(positions[i] for i in faulted)
 
 
 def evaluate(detector, nulls, threshold, seeds=SWEEP_SEEDS, shapes=cs.SHAPES):
-    """
-    Score every case in the sweep. One record per case, no aggregation.
-
-    That is the caller's job. A mean across shapes hides what this exists to find.
-    """
+    """One record per case. A mean across shapes would hide what the sweep looks for."""
     records = []
     for seed in seeds:
         for batch, truth in cases(seed, shapes=shapes):
@@ -156,13 +139,9 @@ def by_shape(records):
 
 
 def false_alarms(detector, nulls, threshold, seeds, calmest_decile=False):
-    """
-    Rate on fault-free windows, over windows and over node-steps.
-
-    calmest_decile takes the tenth with the least movement, by median over nodes
-    of the window sd. A detector that only behaves when the creek is busy is not
-    calibrated.
-    """
+    """Rate on fault-free windows, over windows and over node-steps."""
+    # calmest_decile is the tenth with the least movement (median over nodes of the window sd).
+    # A detector that only behaves when the creek is busy isn't calibrated
     batches = [clean_batch(s) for s in seeds]
     if calmest_decile:
         activity = [float(np.median(np.std(np.asarray(b["values"])[0], axis=0))) for b in batches]

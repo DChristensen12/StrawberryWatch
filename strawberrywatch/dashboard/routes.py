@@ -183,6 +183,8 @@ def common():
         # The site's own sign-out page on the website, ours locally
         "sign_out": current_app.config.get("SIGN_OUT_URL")
         or (url_for("main.sign_out") if ctx().profile.token_login else None),
+        # The other dashboard the site mounts, as {text, href}. None locally
+        "other_dashboard": current_app.config.get("OTHER_DASHBOARD"),
     }
 
 
@@ -506,7 +508,7 @@ def _fold(hours, show, now):
                 if last["end"] > now
                 else ("midnight" if last is hours[-1] else view.hour(last["end"]))
             )
-            label = f"{quiet[0]['label']} – {until}"
+            label = f"{quiet[0]['label']} to {until}"
         rows.append({"label": label, "quiet": True, "checks": sum(h["checks"] for h in quiet)})
         quiet.clear()
 
@@ -1359,8 +1361,8 @@ def email():
         people=people,
         total=total,
         on=mail.is_on(store),
-        gaps=mail.missing(),
-        sender=mail.sender(),
+        gaps=mail.missing(website=not in_env),
+        sender=mail.sender(website=not in_env),
         in_env=in_env,
         last=_email_line(last[0]) if last else "",
         labels=labels,
@@ -1407,7 +1409,7 @@ def email_sending():
     store = ctx().store
     where = "on this computer" if ctx().profile.email_in_env else "on the server"
     if request.form.get("on") == "yes":
-        if mail.missing():
+        if mail.missing(website=not ctx().profile.email_in_env):
             flash(f"Email isn't set up {where}, so sending can't be turned on.", "error")
         else:
             store.set_pref("email_on", "yes")

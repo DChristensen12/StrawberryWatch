@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block main %}
+<h1 class="wb-pill">Model tuning</h1>
+<div class="wb-content wb-w-980 wb-gap-26" id="explore" data-site="{{ site_id }}" data-reading="{{ reading_key }}" data-series="{{ url_for('main.api_series') }}" data-day="{{ url_for('main.api_typical_day') }}" data-histogram="{{ url_for('main.api_histogram') }}" data-notes="{{ url_for('main.tuning_notes') }}" data-png="{{ url_for('main.export_png') }}" data-csv="{{ url_for('main.export_readings') }}">
+<div>
+<h2 class="wb-h-step">Step 2: Explore</h2>
+<p class="wb-intro wb-intro-step">{{ site }}, {{ dates_long }}. Before recalibrating, look for anything unusual in the picked data.</p>
+</div>
+
+<div class="wb-toolbar">
+<form method="get" action="{{ url_for('main.tuning_explore') }}" class="wb-toolbar-left" id="explore-form">
+<div role="group" aria-label="Reading to show" class="wb-toggles">
+{% for key, name in reading_buttons %}
+<button type="submit" name="reading" value="{{ key }}" class="wb-toggle" aria-pressed="{{ 'true' if key == reading_key else 'false' }}">{{ name }}</button>
+{% endfor %}
+</div>
+<label class="wb-field">Site<select name="site" class="wb-submit-on-change">
+{% for key, name in site_options %}
+<option value="{{ key }}"{% if key == site_id %} selected{% endif %}>{{ name }}</option>
+{% endfor %}
+</select></label>
+<input type="hidden" name="reading" value="{{ reading_key }}" disabled class="wb-reading-keep">
+</form>
+<div class="wb-toolbar-right">
+<button type="button" class="wb-secondary" id="export-csv">Export readings (CSV)</button>
+<button type="button" class="wb-secondary" id="export-png">Export charts (PNG)</button>
+</div>
+</div>
+<p class="wb-exported" id="exported" hidden data-template="{% raw %}Exported to {{ path }}.{% endraw %}">{% raw %}Exported to {{ path }}.{% endraw %}</p>
+
+<div class="wb-row">
+<section class="wb-card wb-chart-card wb-flex-main" aria-labelledby="ts-title">
+<h3 id="ts-title" class="wb-h-chart">{{ reading_title }}</h3>
+<div class="wb-chart" id="chart-series" role="img" aria-label="Line chart of {{ reading }} at {{ site }}, {{ dates_long }}."></div>
+</section>
+<label class="wb-notes">Your notes<span class="wb-notes-hint">Saved with the calibration.</span><textarea id="notes" name="notes" rows="6">{{ notes }}</textarea></label>
+</div>
+
+<div class="wb-row wb-row-24">
+<section class="wb-card wb-chart-card wb-flex-half" aria-labelledby="day-title">
+<h3 id="day-title" class="wb-h-card">A typical day</h3>
+<p class="wb-small wb-chart-note">The line is the middle (median) reading for each hour. The shaded band covers the middle half of the days (25th to 75th percentiles).</p>
+<div class="wb-chart" id="chart-day" role="img" aria-label="Typical day of {{ reading }} at {{ site }}: the median for each hour, with the 25th to 75th percentiles shaded."></div>
+</section>
+<section class="wb-card wb-chart-card wb-flex-half" aria-labelledby="spread-title">
+<h3 id="spread-title" class="wb-h-card">How readings spread</h3>
+<p class="wb-small wb-chart-note">The number of readings in each {{ bin }} range.</p>
+<div class="wb-chart" id="chart-histogram" role="img" aria-label="Histogram of {{ reading }} at {{ site }} in {{ bin }} ranges."></div>
+</section>
+</div>
+
+<section class="wb-card wb-checks-card" aria-labelledby="checks-title">
+<h3 id="checks-title" class="wb-h-card">Data checks</h3>
+<dl class="wb-check-list">
+<div><dt>Missing readings</dt><dd>{{ missing }} of {{ expected }} expected</dd></div>
+<div><dt>Stuck at one value</dt><dd>{{ stretches }}</dd></div>
+<div><dt>Far from the rest</dt><dd>{{ far_count }}. <button type="button" class="wb-link-button" id="show-flags" aria-pressed="false">Show them on the chart</button></dd></div>
+</dl>
+</section>
+</div>
+
+<section class="wb-band wb-band-tuning" aria-labelledby="band-title">
+<div class="wb-band-text wb-band-56">
+<h2 id="band-title" class="wb-band-heading">Before you recalibrate</h2>
+<p>Recalibrating on this data counts its patterns as normal, so the models become less likely to flag them. To change the dates, go back to step 1.</p>
+</div>
+<a class="wb-band-action" href="{{ url_for('main.tuning_recalibrate') }}">Next: recalibrate</a>
+</section>
+{% endblock %}

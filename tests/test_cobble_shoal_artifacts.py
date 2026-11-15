@@ -1,9 +1,6 @@
-"""
-Cobble Shoal's shipped artifacts, loaded and scored.
-
-The package doesn't load these weights itself, and a broken file name would
-otherwise turn up late. Skips without the checkpoints, like conftest.
-"""
+"""Cobble Shoal's shipped artifacts, loaded and scored."""
+# The package doesn't load these weights itself, and a broken file name would turn up late.
+# Skips without the checkpoints, like conftest
 
 from __future__ import annotations
 
@@ -38,8 +35,8 @@ def model(calibration):
         pytest.skip(f"no weights at {path}")
     net = nested_batch.build_model({"seed": calibration.seed, "window": nested_batch.WINDOW})
     blob = torch.load(path, map_location="cpu", weights_only=True)
-    # The training harness saved {"state_dict", "meta"} instead of a bare
-    # state dict, and the package doesn't unwrap it yet.
+    # The training harness saved {"state_dict", "meta"}, not a bare state dict, and the
+    # package doesn't unwrap it yet
     net.load_state_dict(blob["state_dict"] if "state_dict" in blob else blob)
     net.eval()
     return net
@@ -57,10 +54,7 @@ def test_calibration_carries_a_usable_threshold(calibration):
 
 
 def test_scoring_gives_one_finite_number_per_node(model, calibration):
-    """
-    What the alerting path needs: a score per node, and no channel visible
-    from here.
-    """
+    """What the alerting path needs: a score per node and no channel visible from here."""
     batch = nested_batch.build_batch()
     keys = nested_batch.node_keys()
 
@@ -74,10 +68,8 @@ def test_scoring_gives_one_finite_number_per_node(model, calibration):
 
 
 def test_a_faulted_node_outscores_the_clean_window(model, calibration):
-    """
-    Not a detection claim, just evidence the score responds to the input at
-    all. A frozen node against the same window it was frozen out of.
-    """
+    """Evidence the score responds to the input at all, not a detection claim."""
+    # A frozen node against the same window it was frozen out of
     from tests.synthetic import creek_synthetic
 
     clean = nested_batch.build_batch()
@@ -95,10 +87,8 @@ def test_a_faulted_node_outscores_the_clean_window(model, calibration):
 
 
 def test_the_real_calibration_carries_the_scaler_its_nulls_were_fitted_in(real_calibration):
-    """
-    A null only means something in the normalization space it was fitted in.
-    The scaler has to ship with it, not be refitted later.
-    """
+    """A null means something only in the normalization space it was fitted in."""
+    # The scaler has to ship with it, not be refitted later
     scaler = real_calibration.window_scaler()
     assert len(scaler.mean) == len(nested_batch.node_keys())
     assert len(scaler.std) == len(nested_batch.node_keys())
@@ -107,11 +97,9 @@ def test_the_real_calibration_carries_the_scaler_its_nulls_were_fitted_in(real_c
 
 
 def test_the_synthetic_calibration_refuses_to_supply_a_scaler(calibration):
-    """
-    It didn't record one, and returning None would let build_window fit a
-    fresh scaler and score real data against nulls from another space. That
-    failure gives finite, plausible numbers. It has to raise.
-    """
+    """No scaler was recorded, and None would score real data against another space's nulls."""
+    # build_window would fit a fresh one and the numbers come out finite and plausible. It has
+    # to raise
     assert calibration.node_scaler is None
     assert not calibration.is_real
     with pytest.raises(cobble_calibration.CalibrationError, match="no node_scaler"):
@@ -119,11 +107,8 @@ def test_the_synthetic_calibration_refuses_to_supply_a_scaler(calibration):
 
 
 def test_the_two_calibrations_are_not_interchangeable(calibration, real_calibration, model):
-    """
-    Close thresholds, different score scales. That's why load_calibration
-    takes the filename instead of picking one, and why neither falls back to
-    the other.
-    """
+    """Close thresholds, different score scales."""
+    # load_calibration takes the filename for that reason, and neither falls back to the other
     batch = nested_batch.build_batch()
     synthetic = model.score(batch, calibration.nulls).ravel()
     real = model.score(batch, real_calibration.nulls).ravel()

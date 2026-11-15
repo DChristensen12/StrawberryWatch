@@ -1,8 +1,5 @@
-"""
-What integrations/scmg_website may touch, enforced. It gets the website's
-database login, a username and whether that person may edit. That's all.
-A reviewer only has to check this test is still here.
-"""
+"""What integrations/scmg_website may touch: the database login, a username and edit rights."""
+# A reviewer only has to check this test is still here
 
 import re
 from pathlib import Path

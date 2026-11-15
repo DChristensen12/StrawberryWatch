@@ -1,8 +1,5 @@
-"""
-The labelled event catalog, read from tests/events.yaml. The anomaly tests and
-run_audit_comparison.py both read it through here. Adding an event is one
-entry in one file. It only checks the catalog's shape and hands back rows.
-"""
+"""The labelled event catalog in tests/events.yaml, for the anomaly tests and audit reports."""
+# Checks the catalog's shape and hands back rows. Adding an event is one entry in one file
 
 from __future__ import annotations
 
@@ -15,8 +12,7 @@ from strawberrywatch import paths
 
 CATALOG_PATH = Path(__file__).with_name("events.yaml")
 
-# What a label commits the detector to. relative_only records an event we know
-# about without covering it. No test grades those rows yet.
+# What a label commits the detector to. relative_only records a known event no test grades yet
 LABELS = ("anomaly", "true_negative", "relative_only")
 
 REQUIRED = ("folder", "group", "site", "label")
@@ -24,7 +20,7 @@ OPTIONAL = ("note",)
 
 
 class CatalogError(ValueError):
-    """The catalog is malformed. The message names the entry and the fix."""
+    """The message names the entry and the fix."""
 
 
 @dataclass(frozen=True)
@@ -39,7 +35,7 @@ class Event:
 
     @property
     def path(self) -> Path:
-        """Where the fixture CSVs live. Not guaranteed to exist."""
+        """The fixture CSV folder, which may not exist."""
         return paths.anomalies_dir() / self.folder
 
     def as_tuple(self):
@@ -53,10 +49,8 @@ def _fail(index, entry, message):
 
 
 def parse(blob, known_sites=None):
-    """
-    Validates a parsed mapping and returns its events in file order. With
-    known_sites, a misspelled site fails here instead of becoming a skipped test.
-    """
+    """Validates a parsed mapping and returns its events in file order."""
+    # With known_sites, a misspelled site fails here, not as a skipped test
     if not isinstance(blob, dict) or "events" not in blob:
         raise CatalogError("tests/events.yaml has no top-level 'events:' key")
     rows = blob["events"]
@@ -99,10 +93,7 @@ def parse(blob, known_sites=None):
 
 
 def known_sites():
-    """
-    Site names in either vocabulary. The model says footbridge and the inventory
-    says scnf010, and an entry may use either.
-    """
+    """Site names in both vocabularies. The model says footbridge, the inventory scnf010."""
     from strawberrywatch.models.Cobble_Shoal import SITE_ORDER
 
     names = set(SITE_ORDER)
@@ -111,7 +102,7 @@ def known_sites():
 
         names |= set(inventory_module.load().sites)
     except Exception:
-        # An unloadable inventory is its own test's problem, not this one's.
+        # An unloadable inventory is its own test's problem, not this one's
         pass
     return names
 
@@ -131,14 +122,9 @@ def by_label(label, events=None):
 
 
 def by_folder(events=None):
-    """
-    One row per event folder: (folder, group, sites, label), in file order.
-
-    Reports that score a full event window instead of a single node want the
-    folder, not the (folder, site) pair. Where a folder carries more than one
-    label its first entry decides, since the folder is named for that row; the
-    rest are the same event judged at other nodes.
-    """
+    """One row per event folder, (folder, group, sites, label), in file order."""
+    # For reports that score a whole event window. A folder's first entry decides its label,
+    # since the folder is named for that row
     order, agg = [], {}
     for e in events if events is not None else load():
         if e.folder not in agg:

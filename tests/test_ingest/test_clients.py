@@ -1,7 +1,6 @@
-# Connectivity smoke checks against live endpoints, not correctness tests. A pass
-# means the network and credentials worked today, and a failure may just be an
-# outage. Four of them return a bool instead of asserting, and pass whatever
-# the endpoint says.
+# Connectivity smoke checks against live endpoints, not correctness tests. A pass means the
+# network and credentials worked today, and a failure may be an outage. Four return a bool
+# instead of asserting and pass whatever the endpoint says
 import argparse
 import sys
 import traceback

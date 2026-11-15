@@ -1,4 +1,4 @@
-"""The strawberrywatch command. Today it has one job: `strawberrywatch dashboard`."""
+"""The strawberrywatch command: `strawberrywatch dashboard` and `strawberrywatch workbench`."""
 
 from __future__ import annotations
 
@@ -29,10 +29,32 @@ def main(argv=None):
     dash.add_argument(
         "--no-browser", action="store_true", help="Print the link instead of opening a browser tab"
     )
+    bench = commands.add_parser(
+        "workbench",
+        help="Open the StrawberryWatch Workbench in its own window.",
+        description="Opens the Workbench, for exploring readings and recalibrating models on this computer.",
+    )
+    bench.add_argument(
+        "--browser", action="store_true", help="Open it in a browser tab instead of its own window"
+    )
     args = parser.parse_args(argv)
     if args.command == "dashboard":
         return dashboard(args.port, not args.no_browser)
+    if args.command == "workbench":
+        return workbench(args.browser)
     return 2
+
+
+def workbench(browser=False):
+    try:
+        from strawberrywatch.workbench import window
+    except ImportError:
+        print(
+            'The Workbench needs its extras: pip install -e ".[workbench]"',
+            file=sys.stderr,
+        )
+        return 1
+    return window.main(browser=browser)
 
 
 def dashboard(port=DEFAULT_PORT, open_browser=True):

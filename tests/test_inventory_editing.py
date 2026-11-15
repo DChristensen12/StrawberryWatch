@@ -1,10 +1,6 @@
-"""
-The inventory as a thing a non-coder edits: the grid, and the guard rails.
-
-Every validation rule gets its bad value written and its message checked, because
-a message that does not name the site and the sensor is a message that sends a
-student back to someone who writes Python.
-"""
+"""The inventory as a non-coder edits it: the grid, and the guard rails."""
+# Every validation rule gets its bad value written and its message checked. A message that
+# doesn't name the site and the sensor sends a student back to someone who writes Python
 
 from __future__ import annotations
 

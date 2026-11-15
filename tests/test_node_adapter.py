@@ -1,10 +1,6 @@
-"""
-The adapter that lets Cobble Shoal read the real corpus.
-
-Three properties matter: no lookahead, agreement with the synthetic generator
-it mirrors, and an uninstalled sensor doesn't become a zero. The rest is
-plumbing.
-"""
+"""The adapter that lets Cobble Shoal read the real corpus."""
+# Three properties matter: (1) no lookahead, (2) agreement with the synthetic generator it
+# mirrors and (3) an uninstalled sensor doesn't become a zero. The rest is plumbing
 
 from __future__ import annotations
 
@@ -122,7 +118,7 @@ def test_a_probe_that_was_never_installed_is_masked_not_zero_filled(tables, inve
     win = nw.build_window(tables, tables["oxford"].index[0], tables["oxford"].index[-1], inventory)
     keys = [n.key for n in win["nodes"]]
 
-    # south_fork_1's ctd went in 2025-06-04. A window before that is absence.
+    # south_fork_1's ctd went in 2025-06-04. A window before that is absence
     early = pd.date_range("2025-01-01", periods=len(tables["oxford"]), freq="15min", tz="UTC")
     shifted = {k: v.set_axis(early).rename_axis("datetime") for k, v in tables.items()}
     before = nw.build_window(shifted, early[0], early[-1], inventory)
@@ -154,12 +150,9 @@ def test_a_switched_off_sensor_leaves_the_window(tables, inventory, tmp_path):
 
 
 def test_perturbing_the_future_does_not_move_the_present(tables, inventory):
-    """
-    The scored step is bit-identical when data after it changes.
-
-    Fixed scaler. Fitting one on the window is itself lookahead (that's why
-    build_window takes one). Holding it still measures the regrid alone.
-    """
+    """The scored step is bit-identical when data after it changes."""
+    # Fixed scaler. Fitting one on the window is itself lookahead (why build_window takes one),
+    # and holding it still measures the regrid alone
     span = (tables["oxford"].index[0], tables["oxford"].index[-1])
     base = nw.build_window(tables, *span, inventory)
     scaler = base["scaler"]
@@ -202,10 +195,8 @@ def test_the_model_output_at_the_window_end_is_bit_identical(tables, inventory, 
 
 
 def test_the_two_paths_produce_the_same_node_tensors(inventory):
-    """
-    Same readings through both paths. They share the regrid, and this checks
-    that the adapter's renaming and masking leave the values alone.
-    """
+    """Same readings through both paths, which share the regrid."""
+    # Checks that the adapter's renaming and masking leave the values alone
     idx = pd.date_range("2026-04-01", periods=120, freq="15min", tz="UTC")
     rng = np.random.default_rng(4)
 
@@ -229,8 +220,8 @@ def test_the_two_paths_produce_the_same_node_tensors(inventory):
 
     got = nw.build_window(archive, idx[0], idx[-1], inventory)
 
-    # depth_dev is the site median removed, and the scaler removes it again.
-    # We compare the scaled arrays, not the raw ones.
+    # depth_dev is the site median removed, and the scaler removes it again. We compare
+    # the scaled arrays, not the raw ones
     scaler = nw.NodeScaler().fit(want[0], want[3])
     np.testing.assert_allclose(got["values"], scaler.transform(want[0]), rtol=1e-4, atol=1e-4)
     np.testing.assert_array_equal(got["staleness"], want[1])
@@ -262,10 +253,7 @@ def test_to_batch_matches_the_synthetic_builder():
 
 
 def test_dusk_crayfish_weights_and_metadata_are_untouched():
-    """
-    Its weights are the audit baseline. The adapter doesn't touch its path, and
-    we assert that here.
-    """
+    """Its weights are the audit baseline, and the adapter doesn't touch its path."""
     import pickle
 
     from strawberrywatch.paths import model_dir

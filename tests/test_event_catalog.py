@@ -1,9 +1,7 @@
-"""
-The labelled event catalog, which people edit without writing Python. Adding an
-event should be one entry in tests/events.yaml. A bad entry has to say what's
-wrong instead of turning into a skipped test. The fixtures aren't in git, and
-tests that need the CSVs skip without them.
-"""
+"""The labelled event catalog, which people edit without writing Python."""
+# Adding an event is one entry in tests/events.yaml, and a bad entry says what's wrong
+# instead of becoming a skipped test. The fixtures aren't in git, and tests that need the
+# CSVs skip without them
 
 from __future__ import annotations
 
@@ -43,10 +41,7 @@ def test_every_label_is_one_the_tests_know(events):
 
 
 def test_the_graded_events_are_still_graded(events):
-    """
-    The graded rows are the evidence base. Dropping one would leave a green
-    suite that tests less than it did.
-    """
+    """The graded rows are the evidence base. Dropping one leaves a green suite that tests less."""
     graded = {(e.folder, e.site, e.label) for e in events if e.label != "relative_only"}
     assert graded == {
         ("anomaly_2025_06_12_spill_sf", "south_fork_1", "anomaly"),
@@ -57,12 +52,10 @@ def test_the_graded_events_are_still_graded(events):
 
 
 def test_no_true_negative_coverage_yet(events):
-    """
-    No test checks yet that the detector stays quiet. The April rain rows came
-    out on 2026-09-06 for the 2026-09-03 storm, which isn't a fixture yet.
-    test_true_negative_not_flagged runs over an empty list, and this keeps that
-    visible. Delete it once the storm is in (see future_work.md).
-    """
+    """No test checks yet that the detector stays quiet."""
+    # The April rain rows came out on 2026-09-06 for the 2026-09-03 storm, not a fixture yet.
+    # test_true_negative_not_flagged runs over an empty list, and this keeps that visible.
+    # Delete it once the storm is in (see future_work.md)
     assert not [e for e in events if e.label == "true_negative"], (
         "true negatives are back. Add them to the graded set in "
         "test_the_graded_events_are_still_graded and delete this test."
@@ -70,10 +63,7 @@ def test_no_true_negative_coverage_yet(events):
 
 
 def test_the_catalog_has_exactly_one_definition():
-    """
-    The anomaly tests and run_audit_comparison.py both read this module, and
-    neither may grow its own copy back.
-    """
+    """The anomaly tests and run_audit_comparison.py read this module, and neither keeps a copy."""
     import inspect
 
     import tests.test_anomaly_detection as tad
@@ -107,16 +97,13 @@ def test_an_unknown_label_lists_the_ones_that_work():
 
 
 def test_a_misspelled_site_is_refused_rather_than_skipped():
-    """
-    An unrecognised site would otherwise reach the model, miss location_to_idx
-    and skip. A skipped test reads as a passing suite.
-    """
+    """An unknown site would miss location_to_idx and skip, and a skip reads as a pass."""
     with pytest.raises(ec.CatalogError, match="not a site this repo knows"):
         ec.parse(_blob(site="south_fork_9"), known_sites=ec.known_sites())
 
 
 def test_a_site_name_in_either_vocabulary_is_accepted():
-    """The model says footbridge, the inventory says scnf010. Both are the same place."""
+    """The model says footbridge and the inventory scnf010, the same place."""
     for name in ("footbridge", "scnf010"):
         assert ec.parse(_blob(site=name), known_sites=ec.known_sites())[0].site == name
 
@@ -157,10 +144,8 @@ def test_an_empty_or_shapeless_file_says_so():
 
 
 def test_every_entry_points_at_a_folder_that_exists(events):
-    """
-    Skips wholesale when data/anomalies is absent, because the fixtures are not
-    in git. Present-but-missing-a-folder is a typo and fails.
-    """
+    """Skips wholesale without data/anomalies, since the fixtures aren't in git."""
+    # A folder missing while the rest are there is a typo and fails
     if not paths.anomalies_dir().exists():
         pytest.skip("no data/anomalies on this machine")
     missing = sorted({e.folder for e in events if not e.path.is_dir()})
@@ -168,11 +153,8 @@ def test_every_entry_points_at_a_folder_that_exists(events):
 
 
 def test_every_entry_has_a_csv_for_the_site_it_scores(events):
-    """
-    A folder present but missing the target site's CSV skips at score time. We
-    check it here, where it fails instead. footbridge is stored under its table
-    name, and both spellings count.
-    """
+    """A missing CSV for the target site fails here, not as a skip at score time."""
+    # footbridge is stored under its table name, and both spellings count
     if not paths.anomalies_dir().exists():
         pytest.skip("no data/anomalies on this machine")
     from strawberrywatch.preprocessing.node_windows import SITE_TO_TABLE
@@ -188,11 +170,9 @@ def test_every_entry_has_a_csv_for_the_site_it_scores(events):
 
 
 def test_folders_on_disk_that_the_catalog_ignores_are_named_in_the_file():
-    """
-    An event fixture nobody listed is evidence sitting unused. That's how
-    anomaly_2025_08_sprinklers_nf0 went ungraded for months. A fixture left out
-    has to be listed as left out, in the file itself.
-    """
+    """A fixture the catalog leaves out has to be listed as left out, in the file itself."""
+    # Unlisted, it's evidence sitting unused. anomaly_2025_08_sprinklers_nf0 went ungraded for
+    # months that way
     if not paths.anomalies_dir().exists():
         pytest.skip("no data/anomalies on this machine")
     text = ec.CATALOG_PATH.read_text()

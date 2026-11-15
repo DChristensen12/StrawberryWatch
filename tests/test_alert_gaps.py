@@ -1,8 +1,4 @@
-"""
-Each model's minutes between alerts on the website: after a model alerts, its
-new alerts are held until the time is up, the way Night Heron switches a rule
-off until its reactivate_at.
-"""
+"""Each model's minutes between alerts on the website, held like Night Heron's reactivate_at."""
 
 import pytest
 

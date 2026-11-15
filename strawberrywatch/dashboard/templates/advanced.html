@@ -102,7 +102,7 @@
     {% if profile.checks_here %}
       <p class="small">Limit: at most {{ limits.max_models_on }} models on. It's set in settings.yaml and can't be changed here.</p>
     {% else %}
-      <p class="small">Limits: at most {{ limits.max_models_on }} models on, checks stopped after {{ '%g' | format(limits.check_timeout_minutes) }} minutes, and skipped when the server has less than {{ '{:,.0f}'.format(limits.min_free_memory_mb) }} MB free. These keep model checks from affecting Night Heron's own alerts. They're set in settings.yaml from scripts/load_test.py measurements and can't be changed here.</p>
+      <p class="small">Limits: at most {{ limits.max_models_on }} models on, checks stopped after {{ '%g' | format(limits.check_timeout_minutes) }} minutes, and skipped when the server has less than {{ '{:,.0f}'.format(limits.min_free_memory_mb) }} MB free. They keep model checks from affecting Night Heron's own alerts. The values come from scripts/load_test.py and are set in settings.yaml, not here.</p>
     {% endif %}
   {% endif %}
 

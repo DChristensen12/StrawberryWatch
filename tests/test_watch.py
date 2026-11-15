@@ -1,8 +1,5 @@
-"""
-The local watcher: settings, sources, decisions, the 7 day preview, the store
-and the 15 minute thread. Tests from the build spec's steps 1, 2 and 5 name
-their step in the docstring.
-"""
+"""The local watcher: settings, sources, decisions, 7 day preview, store and 15 minute thread."""
+# Tests from the build spec's steps 1, 2 and 5 name their step in the docstring
 
 import os
 import re
@@ -120,7 +117,7 @@ def test_cobble_shoal_refuses_going_under_half_its_sensors_and_warns_near_it(mod
 
 
 def test_a_rain_modulator_on_dusk_crayfish_is_refused(models, sites, monkeypatch):
-    """check_collision, against the model class rather than the serving detector."""
+    """check_collision, against the model class and not the serving detector."""
     from strawberrywatch.support_modules import SUPPORT_REGISTRY, SupportModulator
 
     class Rain(SupportModulator):

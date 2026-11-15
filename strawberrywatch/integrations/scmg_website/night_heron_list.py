@@ -1,7 +1,4 @@
-"""
-The addresses on Night Heron's alert rules, for copying onto StrawberryWatch's
-list once. After that the two lists are separate.
-"""
+"""Night Heron's alert rule addresses, copied once onto StrawberryWatch's own list."""
 
 from __future__ import annotations
 
@@ -9,7 +6,7 @@ import re
 
 # Night Heron's three kinds of alert rule, each with a comma-separated email list
 RULE_TABLES = ("base_staticthreshold", "base_movingthreshold", "base_advancedalert")
-# Night Heron's forms start the field with made-up addresses until someone types real ones
+# Night Heron's forms fill the field with example addresses until someone types real ones
 PLACEHOLDER = re.compile(r"^example\d*@", re.IGNORECASE)
 
 

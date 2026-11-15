@@ -78,58 +78,61 @@
 \maketitle
 
 \begin{abstract}
-FlameSkimmer is the third detector built for Strawberry Creek, and its job is
-to know when it is out of its depth. DuskCrayfish gives a point forecast, and
-CobbleShoal adds a scale that says how noisy a sensor usually is, but neither
-can say that it has never seen conditions like the ones in front of it. A storm,
-a change of season or a long outage is forced into the same yes or no as an
-ordinary afternoon. FlameSkimmer keeps CobbleShoal's encoder unchanged and
-replaces its forecast head with a small Bayesian neural network, one that
-learns a distribution over its weights rather than a single value for each.
-Every forecast then carries two variances: the noise the sensor is expected to
-show, and the disagreement between plausible versions of the model. This
-document sets out the mathematics of that head, how it is trained, how its two
-variances feed the detection channels, and what the first trained checkpoint
-measured. The short version of the last part is that the machinery works and
-the uncertainty it reports does not yet respond to storms, for a reason that
-is now understood and can be fixed.
+FlameSkimmer is the third detector we built for Strawberry Creek, and its
+purpose is to recognize when it is outside the conditions it has learned.
+DuskCrayfish gives a point forecast, and CobbleShoal adds a scale that
+describes how noisy a sensor usually is, but neither model can indicate that it
+has never seen conditions like the ones in front of it. A storm, a change of
+season or a long outage receives the same yes or no decision as an ordinary
+afternoon. FlameSkimmer keeps CobbleShoal's encoder unchanged and replaces its
+forecast head with a small Bayesian neural network, which learns a
+distribution over its weights rather than a single value for each. Every
+forecast then carries two variances: the noise the sensor is expected to show,
+and the disagreement between plausible versions of the model. Here, we set out
+the mathematics of that head, how we trained it, how its two variances feed the
+detection channels, and what the first trained checkpoint measured. In brief,
+the machinery works, but the uncertainty it reports does not yet respond to
+storms, for a reason we now understand and can address. Finally, we describe
+how this checkpoint is served, experimentally, in the StrawberryWatch dashboard
+and how it scored the labelled events there.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:introduction}
 
 A forecasting detector flags a reading when it lands somewhere the model did not
-expect. That works when the model's expectations are good. It goes wrong when
-the creek does something the model has rarely or never seen, because the model
-still produces a forecast, still produces a scale around it, and reports both
-with the same confidence it would have on a dry Tuesday in August. The
-resulting score cannot tell an unusual reading from an unusual situation.
+expect. This works when the model's expectations are good. It fails when the
+creek does something the model has rarely or never seen, because the model
+still produces a forecast and a scale around it, and reports both with the same
+confidence it would have on a dry Tuesday in August. The resulting score
+cannot distinguish an unusual reading from an unusual situation.
 
 Storms are the clearest case on this creek. Rain changes conductivity, stage
 and temperature together and quickly, rain-mode behaviour is unlabelled at
-three of the four nodes, and most of the corpus is dry. Uber met the same
+three of the four nodes, and most of the corpus is dry. Uber faced the same
 problem in traffic forecasting, where the departures that matter most, such as
-holidays, are exactly the periods with the least history behind them, and
-built a Bayesian network's uncertainty into anomaly detection for that
-reason~\citep{zhu2017uber}. Storms play the part of holidays here.
+holidays, are the periods with the least history behind them, and for that
+reason built a Bayesian network's uncertainty into anomaly
+detection~\citep{zhu2017uber}. On this creek, storms play the role of holidays.
 
-It helps to name the two kinds of uncertainty involved~\citep{kendall2017uncertainties}.
-\emph{Aleatoric} uncertainty is noise in the data itself, the wobble a
-conductivity probe shows even when nothing is happening. More data does not
-reduce it. \emph{Epistemic} uncertainty is uncertainty about the model, and it
-is large where training data was thin and small where it was plentiful. More
-data does reduce it. CobbleShoal already estimates the first through its
-heteroscedastic scale head. Nothing in the repository estimated the second
-before FlameSkimmer.
+Two kinds of uncertainty are involved~\citep{kendall2017uncertainties}.
+\emph{Aleatoric} uncertainty is noise in the data itself, such as the
+variation a conductivity probe shows even when nothing is happening, and more
+data does not reduce it. \emph{Epistemic} uncertainty is uncertainty about the
+model. It is large where training data was sparse and small where it was
+plentiful, and more data does reduce it. CobbleShoal already estimates the
+first through its heteroscedastic scale head. Before FlameSkimmer, nothing in
+the repository estimated the second.
 
 \subsection{The trained configuration}
 \label{sec:configuration}
 
-The values in Table~\ref{tab:config} are the settings of the first trained
-checkpoint, read from the model definition, the training script and the
-calibration artifact written beside the weights. The model is experimental and
-not served; these are the settings the evaluation in
-Section~\ref{sec:evaluation} measured.
+Table~\ref{tab:config} lists the settings of the first trained checkpoint,
+which we read from the model definition, the training script and the
+calibration artifact written beside the weights. The model is experimental.
+These are the settings that the evaluation in Section~\ref{sec:evaluation}
+measured, and the served model uses the same checkpoint
+(Section~\ref{sec:deployment}).
 
 \begin{table}[t]
   \centering
@@ -160,10 +163,10 @@ Section~\ref{sec:evaluation} measured.
   \end{tabular}
 \end{table}
 
-The head is tiny next to the encoder, and that is on purpose. Its 5{,}250
-weights and biases each carry a mean and a width, which is where the 10{,}500
-comes from, and everything uncertain about the model lives in those numbers.
-The 62{,}137 parameters of the encoder are ordinary point estimates.
+The head is small next to the encoder, by design. Its 5{,}250 weights and
+biases each carry a mean and a width, which gives the 10{,}500 parameters, and
+all of the model's uncertainty lives in those numbers. The 62{,}137 parameters
+of the encoder are ordinary point estimates.
 
 \section{Data and Notation}
 \label{sec:data}
@@ -171,23 +174,24 @@ The 62{,}137 parameters of the encoder are ordinary point estimates.
 \subsection{Corpus and split}
 \label{sec:corpus}
 
-FlameSkimmer trains on exactly the windows CobbleShoal's clock model trained on.
-The corpus runs from 4 June 2025 to 29 April 2026, the span over which every
-site in the roster reports. The split is chronological, with validation
-starting on 1 February 2026, because a detector is deployed forward in time and
-adjacent 15 minute windows overlap by 23 of their 24 steps, so a shuffled split
-would put the training set into validation. Out of 19{,}096 fault-free anchors,
-14{,}106 sit wholly on the training side and 4{,}990 on the validation side;
-the run used evenly spaced subsets of 12{,}000 and 3{,}000. The recorded spans
-are 4 June to 31 December 2025 for training and 25 February to 28 April 2026
-for validation. The scaler is fitted on training rows only, and the two
-footbridge sensors the training side never observed, dissolved oxygen and
-floating conductivity, are held offline.
+FlameSkimmer trains on the same windows that CobbleShoal's clock model trained
+on. The corpus runs from 4 June 2025 to 29 April 2026, the span over which
+every site in the roster reports. The split is chronological, with validation
+starting on 1 February 2026. We chose a chronological split because a detector
+is deployed forward in time, and adjacent 15 minute windows overlap by 23 of
+their 24 steps, so a shuffled split would leak the training set into
+validation. Of 19{,}096 fault-free anchors, 14{,}106 lie wholly on the
+training side and 4{,}990 on the validation side, and the run used evenly
+spaced subsets of 12{,}000 and 3{,}000. The recorded spans are 4 June to 31
+December 2025 for training and 25 February to 28 April 2026 for validation.
+The scaler is fitted on training rows only, and we hold offline the two
+footbridge sensors that the training side never observed, dissolved oxygen and
+floating conductivity.
 
 The corpus, the split, the anchors and the calibration routine are all imported
 from CobbleShoal's training script rather than copied. A change there reaches
-both models, and a comparison between them cannot be undone by the two copies
-drifting apart.
+both models, so two copies cannot drift apart and undermine a comparison
+between them.
 
 \begin{table}[t]
   \centering
@@ -221,19 +225,19 @@ drifting apart.
 \subsection{The shared trunk}
 \label{sec:trunk}
 
-The encoder is CobbleShoal's NestedEncoder, unchanged: decay LSTM over each
-sensor node, sibling exchange within a site, directed transport downstream, and
-a final mix back into the nodes. Its mathematics is set out in the CobbleShoal
-report and is not repeated here.
+The encoder is CobbleShoal's NestedEncoder, unchanged: a decay long short-term
+memory (LSTM) cell over each sensor node, a sibling exchange within each site,
+directed transport downstream, and a final mix back into the nodes. We set out
+its mathematics in the CobbleShoal report and do not repeat it here.
 
-What matters for FlameSkimmer is how it is built. The global random seed is set,
-the encoder is constructed, and then the seed is set again with a fixed offset
-of 10{,}000 before the head is constructed. CobbleShoal does the same. At the
+For FlameSkimmer, the order of construction matters. We set the global random
+seed, construct the encoder, and then set the seed again with a fixed offset
+of 10{,}000 before constructing the head. CobbleShoal does the same. At the
 same seed the two encoders therefore start from byte-identical weights, which a
-unit test checks, and any difference between the two models' results belongs to
-their heads rather than to a luckier draw of the trunk. FlameSkimmer composes
-the encoder rather than inheriting CobbleShoal's base class, so none of the
-leave-one-out or reconstruction machinery comes with it.
+unit test checks, so any difference between the two models' results belongs to
+their heads rather than to a more favourable draw of the trunk. FlameSkimmer
+composes the encoder rather than inheriting CobbleShoal's base class, so none
+of the leave-one-out or reconstruction machinery comes with it.
 
 \subsection{The Bayesian head}
 \label{sec:head}
@@ -246,62 +250,65 @@ numbers, a forecast delta and a raw scale. It has three layers,
   (\Delta, r) = W_{3}\bm{z}_{2} + \bm{b}_{3},
 \end{equation}
 and every entry of every $W$ and $\bm{b}$ is a random variable rather than a
-number. The approximate posterior is mean-field Gaussian, so each weight is
-independent of the others,
+fixed number. The approximate posterior is mean-field Gaussian, so each weight
+is independent of the others,
 \begin{equation}
   q_{\phi}(w) = \mathcal{N}\big(\mu_{w},\ \sigma_{w}^{2}\big), \qquad
   \sigma_{w} = \log\big(1 + e^{\rho_{w}}\big),
 \end{equation}
 and the trainable parameters $\phi$ are the pairs $(\mu_{w}, \rho_{w})$. The
-softplus keeps $\sigma_{w}$ positive without a constraint, which is the
+softplus keeps $\sigma_{w}$ positive without a constraint. This is the
 parameterisation of Bayes by Backprop~\citep{blundell2015weight} and of the
-bayesian-torch layers this head was modelled on~\citep{krishnan2022bayesiantorch}.
-The means start where an ordinary linear layer's weights start, uniform within
-$\pm 1/\sqrt{\text{fan in}}$, so the head begins at the same place
-CobbleShoal's scale head does. Every $\rho_{w}$ starts at $-5$.
+bayesian-torch layers on which we modelled this
+head~\citep{krishnan2022bayesiantorch}. The means start where an ordinary
+linear layer's weights start, uniform within $\pm 1/\sqrt{\text{fan in}}$, so
+the head begins at the same place as CobbleShoal's scale head. Every
+$\rho_{w}$ starts at $-5$.
 
-The forecast and its scale come out exactly as they do in CobbleShoal,
+The forecast and its scale are computed as in CobbleShoal,
 \begin{equation}
   \mu = a + \Delta, \qquad \sigma = \operatorname{softplus}(r) + 10^{-2},
 \end{equation}
 with the forecast anchored on the node's last reading and the scale floored so
-the likelihood cannot reward claiming perfect certainty.
+that the likelihood cannot reward claiming perfect certainty.
 
-\subsection{Why only the head is Bayesian}
+\subsection{A Bayesian head on a deterministic trunk}
 \label{sec:partial}
 
-Making the encoder Bayesian too would multiply the parameters that need a
-width, slow training, and force the whole encoder to be run once per sample at
-prediction time. The evidence says it would not buy much. Across four inference
-methods and eight datasets, networks with only some layers stochastic matched
-fully stochastic ones, with no systematic benefit from going further~\citep{sharma2023stochastic}.
-Keeping the trunk deterministic means the encoder runs once per window and only
-the small head is sampled, so 64 samples cost 64 passes through about five
-thousand weights rather than 64 passes through the whole model.
+Making the encoder Bayesian as well would multiply the number of parameters
+that need a width, slow training, and require running the whole encoder once
+per sample at prediction time. The evidence suggests it would add little.
+Across four inference methods and eight datasets, networks with only some
+layers stochastic matched fully stochastic ones, with no systematic benefit
+from going further~\citep{sharma2023stochastic}. With a deterministic trunk,
+the encoder runs once per window and only the small head is sampled, so 64
+samples cost 64 passes through about five thousand weights rather than 64
+passes through the whole model.
 
-\subsection{Why two hidden layers}
+\subsection{Depth of the head}
 \label{sec:depth}
 
-A single hidden layer would be cheaper, and it would be wrong in a way that
-matters here. Mean-field networks with one hidden layer provably cannot raise
-their uncertainty in the gap between two well separated regions of
+A single hidden layer would be cheaper, but it would fail in a way that matters
+here. Mean-field networks with one hidden layer provably cannot raise their
+uncertainty in the gap between two well-separated regions of
 data~\citep{foong2020expressiveness}. Dry season and storm are, loosely, two
-such regions, and the point of the model is the uncertainty between and beyond
-them. The same work sees similar trouble empirically in deeper networks, which
-is why the deep ensemble reference in Section~\ref{sec:limitations} exists.
+such regions, and the purpose of the model is the uncertainty between and
+beyond them. The same work reports similar problems empirically in deeper
+networks, which is why we propose a deep ensemble reference in
+Section~\ref{sec:limitations}.
 
-\subsection{Keeping the heteroscedastic output}
+\subsection{The heteroscedastic output}
 \label{sec:hetero}
 
 The head still predicts a scale for every reading. Replacing the per-reading
-scale with weight uncertainty alone would lose the aleatoric part, and the
-dispersion channel in Section~\ref{sec:channels} needs exactly that part.
-Combining an input-dependent noise scale with weight uncertainty in one model is
-the construction of~\citet{kendall2017uncertainties}. This is also why two
-off-the-shelf alternatives were set aside: post hoc Laplace approximation and
-variational Bayesian last layers, as implemented in their libraries, both learn
-a single noise level shared by every input, which throws away the per-reading
-scale.
+scale with weight uncertainty alone would lose the aleatoric part, which the
+dispersion channel (Section~\ref{sec:channels}) requires. Combining an
+input-dependent noise scale with weight uncertainty in one model follows the
+construction of~\citet{kendall2017uncertainties}. For the same reason, we set
+aside two off-the-shelf alternatives, post hoc Laplace approximation and
+variational Bayesian last layers. As implemented in their libraries, both
+learn a single noise level shared by every input, which discards the
+per-reading scale.
 
 \section{Training}
 \label{sec:training}
@@ -309,19 +316,20 @@ scale.
 \subsection{The evidence lower bound}
 \label{sec:elbo}
 
-Training fits $\phi$ by maximising the evidence lower bound,
+Training fits $\phi$ by maximising the evidence lower bound (ELBO),
 \begin{equation}
   \mathcal{L}_{\mathrm{ELBO}}(\phi) =
     \mathbb{E}_{q_{\phi}(w)}\big[\log p(\mathcal{D} \mid w)\big]
     - \mathrm{KL}\big(q_{\phi}(w)\ \|\ p(w)\big),
 \end{equation}
-which trades fitting the data against staying close to the prior. The first
-term rewards weights that explain the readings. The second charges for every
-bit of certainty the posterior claims beyond what the prior allows, so a weight
-the data says nothing about drifts back toward $\mathcal{N}(0, s_p^2)$, and its
-width grows, which is where epistemic uncertainty comes from.
+which balances fitting the data against staying close to the prior. The first
+term rewards weights that explain the readings. The second term charges for
+every bit of certainty the posterior claims beyond what the prior allows. A
+weight that the data says nothing about therefore drifts back toward
+$\mathcal{N}(0, s_p^2)$ and its width grows, which is the source of epistemic
+uncertainty.
 
-The likelihood is CobbleShoal's masked Gaussian negative log likelihood,
+The likelihood is CobbleShoal's masked Gaussian negative log likelihood (NLL),
 \begin{equation}
   \mathcal{L}_{\mathrm{nll}} = \frac{1}{|M|} \sum_{i \in M}
     \left[ \tfrac{1}{2} \left( \frac{y_i - \mu_i}{\sigma_i} \right)^{2} + \log \sigma_i \right],
@@ -329,55 +337,56 @@ The likelihood is CobbleShoal's masked Gaussian negative log likelihood,
 averaged over the entries $M$ where a target was observed and the anchor was
 fresh enough to predict a delta from.
 
-\subsection{The KL term, summed}
+\subsection{The summed KL term}
 \label{sec:kl}
 
-With a Gaussian posterior and a Gaussian prior the divergence has a closed form
-per weight,
+With a Gaussian posterior and a Gaussian prior, the Kullback-Leibler (KL)
+divergence has a closed form per weight,
 \begin{equation}
   \mathrm{KL}\big(\mathcal{N}(\mu_{w}, \sigma_{w}^{2})\ \|\ \mathcal{N}(0, s_{p}^{2})\big)
   = \log\frac{s_{p}}{\sigma_{w}} + \frac{\sigma_{w}^{2} + \mu_{w}^{2}}{2 s_{p}^{2}} - \frac{1}{2},
 \end{equation}
-and the KL of the whole head is the sum of this over all 5{,}250 weights and
-biases. The sum matters. The bayesian-torch base layer returns the mean over
-weights instead, which shrinks the penalty by a factor of the parameter count
-and quietly turns the ELBO into something else. The same library also fills its
-prior width with an argument named \texttt{prior\_variance}, so what it calls a
-variance is used as a standard deviation. FlameSkimmer writes its own
-small layer instead of depending on that library, which avoids both, and
-avoids one more import paying the network file system cost on the OCF host. A
-unit test checks the summed KL against PyTorch's own
-\texttt{kl\_divergence}, and another checks that it comes out at zero when the
-posterior equals the prior.
+and the KL of the whole head is the sum of this term over all 5{,}250 weights
+and biases. Summing matters. The bayesian-torch base layer returns the mean
+over weights instead, which shrinks the penalty by a factor of the parameter
+count and turns the ELBO into a different objective without any warning. The
+same library also fills its prior width from an argument named
+\texttt{prior\_variance}, so a quantity it calls a variance is used as a
+standard deviation. FlameSkimmer uses its own small layer rather than depending
+on that library, which avoids both problems and also avoids one more import
+paying the network file system cost on the OCF host. One unit test checks the
+summed KL against PyTorch's own \texttt{kl\_divergence}, and another checks
+that it is zero when the posterior equals the prior.
 
 \subsection{Scaling and warmup}
 \label{sec:beta}
 
-The likelihood above is a mean over targets, so the KL has to be put on the same
-per-target footing. The loss for one minibatch is
+The likelihood above is a mean over targets, so the KL has to be placed on the
+same per-target footing. The loss for one minibatch is
 \begin{equation}
   \mathcal{L} = \mathcal{L}_{\mathrm{nll}} + \beta \, \frac{\mathrm{KL}(q_{\phi} \,\|\, p)}{N_{\mathrm{train}}},
 \end{equation}
 where $N_{\mathrm{train}} = 141{,}534$ is the number of supervised
 $(\text{anchor}, \text{node})$ targets in the training set, counted with the
-same mask the likelihood uses. Every minibatch carries the same share of the
-KL. Blundell's paper also proposes a schedule that weights the KL by
-$2^{M-i}/(2^{M}-1)$ for batch $i$ of $M$, and the BLiTZ library implements
-it~\citep{esposito2020blitz}, but that schedule puts nearly all of the KL on
-the first batch of each epoch and almost none on the rest, so it is not used.
+same mask the likelihood uses. Every minibatch therefore carries the same
+share of the KL. Blundell et al.\ also propose a schedule that weights the KL
+by $2^{M-i}/(2^{M}-1)$ for batch $i$ of $M$, which the BLiTZ library
+implements~\citep{esposito2020blitz}. We do not use it, because that schedule
+places nearly all of the KL on the first batch of each epoch and almost none
+on the rest.
 
-The weight $\beta$ climbs linearly from 0 to 1 over the first 10\% of
-optimiser steps and then stays at 1. Starting at zero lets the head learn a
-sensible forecast before the prior starts pulling on it, and holding at 1
-afterwards means the trained model optimises the true ELBO, with no tempering.
+The weight $\beta$ rises linearly from 0 to 1 over the first 10\% of optimiser
+steps and then stays at 1. Starting at zero lets the head learn a sensible
+forecast before the prior begins to act on it, and holding $\beta$ at 1
+afterwards means the trained model optimises the true ELBO, without tempering.
 
 \subsection{Local reparameterization}
 \label{sec:localrep}
 
-The expectation in the ELBO is estimated by sampling. The obvious way is to draw
-one weight matrix and push the whole minibatch through it, but then every
+We estimate the expectation in the ELBO by sampling. The direct approach draws
+one weight matrix and passes the whole minibatch through it, but then every
 window in the batch shares the same noise, and the gradient estimate does not
-get better as the batch grows. The local reparameterization
+improve as the batch grows. The local reparameterization
 trick~\citep{kingma2015variational} samples the layer's output instead. For an
 input $\bm{x}$ to a layer with independent Gaussian weights, each
 pre-activation is itself Gaussian,
@@ -386,18 +395,20 @@ pre-activation is itself Gaussian,
     \sum_{i} x_{i}^{2}\,\sigma_{ji}^{2} + \sigma_{c_j}^{2}\right),
 \end{equation}
 so one standard normal draw per output element gives an exact sample, with
-independent noise for every window. The gradient variance then falls with batch
-size as it should. The training forward uses this at every layer.
+independent noise for every window. The gradient variance then decreases with
+batch size, as expected. The training forward pass uses this trick at every
+layer.
 
 \subsection{Optimiser and stopping}
 \label{sec:optim}
 
-Training uses Adam at a learning rate of $10^{-3}$, batches of 64 anchors,
-gradient clipping at 1.0, and CobbleShoal's stopping rule: the learning rate
+We trained with Adam at a learning rate of $10^{-3}$, batches of 64 anchors and
+gradient clipping at 1.0, using CobbleShoal's stopping rule: the learning rate
 halves after two epochs without improvement, and training stops after six,
-keeping the best epoch. The quantity watched is the validation negative ELBO at
-$\beta = 1$, with a fixed noise generator so the change between epochs is the
-weights and not the draw. Table~\ref{tab:history} shows the run.
+keeping the best epoch. The monitored quantity is the validation negative ELBO
+at $\beta = 1$, computed with a fixed noise generator so that the change
+between epochs reflects the weights rather than the draw.
+Table~\ref{tab:history} shows the run.
 
 \begin{table}[t]
   \centering
@@ -424,9 +435,9 @@ weights and not the draw. Table~\ref{tab:history} shows the run.
   \end{tabular}
 \end{table}
 
-The KL term never came close to dominating the loss, which was the first thing
-to rule out. Its scaled size of about 0.15 sits beside a likelihood of about
-$-2.3$.
+The first possibility we ruled out was that the KL term dominated the loss, and
+it did not come close. Its scaled size of about 0.15 sits beside a likelihood
+of about $-2.3$.
 
 \section{Prediction and Detection}
 \label{sec:detection}
@@ -437,7 +448,7 @@ $-2.3$.
 At prediction time the encoder runs once and the head runs once for each of
 $S_{\mathrm{w}} = 64$ sampled weight sets, giving a forecast $\mu_{s}$ and a
 scale $\sigma_{s}$ per sample. The predictive distribution is a mixture of 64
-Gaussians, and it is summarised by its first two moments,
+Gaussians, which we summarise by its first two moments,
 \begin{align}
   \bar{\mu} &= \frac{1}{S_{\mathrm{w}}} \sum_{s} \mu_{s}, \\
   v_{\mathrm{al}} &= \frac{1}{S_{\mathrm{w}}} \sum_{s} \sigma_{s}^{2}, \qquad
@@ -445,111 +456,114 @@ Gaussians, and it is summarised by its first two moments,
   v_{\mathrm{tot}} = v_{\mathrm{al}} + v_{\mathrm{ep}} .
 \end{align}
 This is the law of total variance. The aleatoric part is the noise each version
-of the model expects, averaged; the epistemic part is how much the versions
-disagree about the forecast itself. The variance is the population form,
-dividing by $S_{\mathrm{w}}$, because that is what the moment-matched mixture
-uses. The ratio $v_{\mathrm{ep}} / v_{\mathrm{tot}}$, the \emph{epistemic share},
-is the number the evaluation watches.
+of the model expects, averaged over versions, and the epistemic part is how
+much the versions disagree about the forecast itself. We use the population
+form of the variance, dividing by $S_{\mathrm{w}}$, because the moment-matched
+mixture uses that form. The ratio $v_{\mathrm{ep}} / v_{\mathrm{tot}}$, which
+we call the \emph{epistemic share}, is the quantity the evaluation tracks.
 
-\subsection{Sampling whole weights at prediction time}
+\subsection{Whole weight samples at prediction time}
 \label{sec:weightspace}
 
-Training samples outputs; prediction samples whole weight matrices, and the
-difference is deliberate. Local reparameterization gives every window in a
-batch its own independent noise, which is what training wants and what scoring
-cannot have: a window's score would then depend on which other windows happened
-to share its batch and where it sat in it. Drawing $S_{\mathrm{w}}$ complete
-weight sets and passing every window through the same ones removes that. For
-any single window the two schemes give exactly the same distribution, since
-each layer's weights are used once per window and are independent of the layers
-before them. A unit test checks that a window scores identically alone and
-stacked beside another.
+Training samples outputs, whereas prediction samples whole weight matrices, and
+the difference is intentional. Local reparameterization gives every window in
+a batch its own independent noise, which suits training but not scoring: a
+window's score would then depend on which other windows happened to share its
+batch and where it sat in it. Drawing $S_{\mathrm{w}}$ complete weight sets and
+passing every window through the same sets removes that dependence. For any
+single window the two schemes give the same distribution, since each layer's
+weights are used once per window and are independent of the layers before
+them. A unit test checks that a window scores identically alone and stacked
+beside another.
 
 \subsection{Fixed serving noise}
 \label{sec:crn}
 
-The 64 weight sets are drawn once, when the model is constructed, from a fixed
-seed and a private generator, and reused on every call. Two runs over the same
-window therefore give the same score to the last bit, which matters because an
-alert that appears on one run and vanishes on the next is worse than either
-answer. Drawing from a private generator leaves the global random state
-untouched, so constructing the model does not disturb anything seeded after it.
-What is stored is the standard normal noise rather than the weights themselves,
-so the same draw stays valid however training later moves $\mu$ and $\rho$.
+We draw the 64 weight sets once, when the model is constructed, from a fixed
+seed and a private generator, and reuse them on every call. Two runs over the
+same window therefore give the same score to the last bit. This matters
+because an alert that appears on one run and disappears on the next is worse
+than either consistent answer. Drawing from a private generator leaves the
+global random state untouched, so constructing the model does not disturb
+anything seeded after it. We store the standard normal noise rather than the
+weights themselves, so the same draw remains valid however training later
+moves $\mu$ and $\rho$.
 
-\subsection{Two channels, and which variance each reads}
+\subsection{Two channels and their variances}
 \label{sec:channels}
 
-FlameSkimmer has the two channels that come free with a forecast head, and the
-rule that matters most in the whole design is which variance each one reads.
+FlameSkimmer has the two channels that come with a forecast head at no extra
+cost, and the most important rule in the design is which variance each channel
+reads.
 
 \textbf{Excursion} is the standardised one-step residual against the
 \emph{total} predictive standard deviation,
 \begin{equation}
   c_{\mathrm{exc}} = \frac{|y - \bar{\mu}|}{\sqrt{v_{\mathrm{tot}}}} .
 \end{equation}
-A reading far from the forecast in conditions the model knows well should count
-for a lot. The same distance in conditions the model admits it does not know
-should count for less, and dividing by the total variance does exactly that.
+A reading far from the forecast under conditions the model knows well should
+count for a lot. The same distance under conditions the model reports it does
+not know should count for less, and dividing by the total variance has this
+effect.
 
 \textbf{Dispersion} reads the \emph{aleatoric} part only,
 \begin{equation}
   c_{\mathrm{disp}} = \max\!\left(0,\ \log \frac{\max(\sqrt{v_{\mathrm{al}}}, \varphi)}{\max(\hat{s}, \varphi)}\right),
 \end{equation}
 where $\hat{s}$ is the observed spread over the last 8 steps and
-$\varphi = 10^{-3}$ is a floor. Dispersion asks whether a sensor is flatter than
-its own noise, which is how a frozen probe gives itself away. If the epistemic
-variance were included, the expected spread would swell whenever the model was
-unsure, an ordinary sensor would then look too flat by comparison, and every
-storm would read as a stuck sensor. The functions computing both channels are
-CobbleShoal's frozen ones, called with different scales; their arithmetic is
-not touched, because the calibrated artifacts depend on it.
+$\varphi = 10^{-3}$ is a floor. Dispersion tests whether a sensor is flatter
+than its own noise, which is how a frozen probe reveals itself. If the
+epistemic variance were included, the expected spread would grow whenever the
+model was uncertain, an ordinary sensor would then look too flat by comparison,
+and every storm would read as a stuck sensor. Both channels are computed by
+CobbleShoal's frozen functions, called with different scales. We do not modify
+their arithmetic, because the calibrated artifacts depend on it.
 
 \subsection{Nulls, combination and threshold}
 \label{sec:calibration}
 
-Everything after the channels is CobbleShoal's procedure, run on FlameSkimmer's
-scores. Each channel becomes a right-tail probability against its own
-fault-free distribution, empirical below the 95th percentile and a fitted
-Generalised Pareto above it~\citep{pickands1975gpd}. The two probabilities are
-combined per node as $\Lambda = -2 \sum_{j} \log p_{j}$~\citep{fisher1925methods},
-and the threshold comes from peaks over threshold on the fault-free values of
+Every step after the channels follows CobbleShoal's procedure, run on
+FlameSkimmer's scores. We convert each channel to a right-tail probability
+against its own fault-free distribution, empirical below the 95th percentile
+and a fitted Generalised Pareto distribution above it~\citep{pickands1975gpd}.
+We combine the two probabilities per node as
+$\Lambda = -2 \sum_{j} \log p_{j}$~\citep{fisher1925methods}, and the
+threshold comes from peaks over threshold on the fault-free values of
 $\Lambda$~\citep{siffer2017spot},
 \begin{equation}
   z_{q} = u - \sigma \log\!\left(\frac{q\,n}{N_{u}}\right) \quad (\gamma = 0).
 \end{equation}
 The fit used 400 fault-free training windows, giving $n = 4{,}769$ node scores,
 an initial threshold $u = 10.135$ with $N_{u} = 96$ exceedances,
-$\sigma = 2.044$ and $\gamma = 0$, so $z_{q} = 16.271$ at $q = 10^{-3}$.
-Measured on 2{,}118 held-out validation scores the exceedance rate was
+$\sigma = 2.044$ and $\gamma = 0$, so $z_{q} = 16.271$ at $q = 10^{-3}$. On
+2{,}118 held-out validation scores, the measured exceedance rate was
 $4.7 \times 10^{-4}$.
 
-Rain is handled outside the model, as it is for CobbleShoal. The rain gate moves
-the threshold and never the score, and FlameSkimmer declares no built-in support
+As for CobbleShoal, we handle rain outside the model. The rain gate moves the
+threshold and never the score, and FlameSkimmer declares no built-in support
 behaviour. The comparison in the next section uses the ungated threshold for
 both models.
 
 \section{Evaluation}
 \label{sec:evaluation}
 
-FlameSkimmer was compared with CobbleShoal's clock model, trained by the same
+We compared FlameSkimmer with CobbleShoal's clock model, trained by the same
 script on the same split from the same seed. Every number is in the scaler's
 standardised units, and the evaluation checks that both models were scaled
-identically before comparing them. Results are reported per node; a mean across
-nodes hides the nodes where a model is worse.
+identically before comparing them. We report results per node, because a mean
+across nodes hides the nodes where a model is worse.
 
 \subsection{Forecast quality}
 \label{sec:quality}
 
-Table~\ref{tab:quality} gives the negative log likelihood, the continuous
-ranked probability score and the coverage of the central 90\% interval on the
-3{,}000 validation anchors. The CRPS uses the closed form for a
-Gaussian~\citep{gneiting2007scoring}, applied to the moment-matched predictive
-distribution, and was copied from uncertainty-toolbox~\citep{chung2021toolbox}
-rather than adding the package. The NLL here includes the
-$\tfrac{1}{2}\log 2\pi$ constant the training loss leaves out and is taken over
-the full predictive distribution, so it is not directly comparable with the
-validation NLL in Table~\ref{tab:history}.
+Table~\ref{tab:quality} gives the NLL, the continuous ranked probability score
+(CRPS) and the coverage of the central 90\% interval on the 3{,}000 validation
+anchors. The CRPS uses the closed form for a Gaussian~\citep{gneiting2007scoring},
+applied to the moment-matched predictive distribution, and we copied it from
+uncertainty-toolbox~\citep{chung2021toolbox} rather than adding the package.
+The NLL here includes the $\tfrac{1}{2}\log 2\pi$ constant that the training
+loss leaves out and is taken over the full predictive distribution, so it is
+not directly comparable with the validation NLL in Table~\ref{tab:history}.
 
 \begin{table}[t]
   \centering
@@ -583,24 +597,25 @@ validation NLL in Table~\ref{tab:history}.
   \end{tabular}
 \end{table}
 
-The picture is mixed. FlameSkimmer is better on likelihood overall and better
-on both NLL and CRPS at every conductivity node, which is the variable that is
-scored for detection. It is worse on NLL at four nodes and on CRPS at six,
-mostly temperature and stage on the south fork and at oxford, so the proposed
-bar of no node worse on either measure is not met. Its intervals are also too
-wide. The central 90\% interval covers 97.2\% of validation targets, outside
-the 85 to 95\% band that would count as honest. Wide intervals improve the
-likelihood on rough nodes and cost CRPS on smooth ones, which fits the pattern
-in the table.
+The results are mixed. FlameSkimmer is better on likelihood overall, and better
+on both NLL and CRPS at every conductivity node, which is the variable scored
+for detection. It is worse on NLL at four nodes and on CRPS at six, mostly
+temperature and stage on the south fork and at oxford, so it does not meet the
+proposed criterion that no node be worse on either measure. Its intervals are
+also too wide. The central 90\% interval covers 97.2\% of validation targets,
+outside the 85 to 95\% band that we would count as well calibrated. Wide
+intervals improve the likelihood on rough nodes and cost CRPS on smooth ones,
+which is consistent with the pattern in the table.
 
 \subsection{Epistemic behaviour}
 \label{sec:epistemic}
 
 The test the model exists to pass is whether its epistemic share rises where it
-has seen little. A step counts as rain when more than 0.1 mm fell over the
-preceding six hours, from the Open-Meteo archive. Table~\ref{tab:epistemic}
-gives the share on every supervised target, split by side and by rain, along
-with the median epistemic standard deviation in absolute terms.
+has seen little data. We count a step as rain when more than 0.1 mm fell over
+the preceding six hours, according to the Open-Meteo archive.
+Table~\ref{tab:epistemic} gives the share on every supervised target, split by
+side and by rain, together with the median epistemic standard deviation in
+absolute terms.
 
 \begin{table}[t]
   \centering
@@ -626,23 +641,23 @@ with the median epistemic standard deviation in absolute terms.
 \end{table}
 
 The share falls in rain rather than rising, on both sides of the split and in
-all three event windows. The last column says why. The absolute epistemic
+all three event windows. The last column explains why. The absolute epistemic
 standard deviation is 0.0149 or 0.0147 in every group, so the epistemic
-variance is effectively a constant. What moves in rain is the aleatoric part:
-the scale head correctly predicts a noisier sensor, the total grows, and a
-constant divided by a larger total gets smaller. The model is not saying it is
-more certain in storms. It is not saying anything with its epistemic variance
-at all.
+variance is in effect a constant. What changes in rain is the aleatoric part:
+the scale head correctly predicts a noisier sensor, the total variance grows,
+and a constant divided by a larger total becomes smaller. Thus, the model is
+not reporting greater certainty in storms. Its epistemic variance carries no
+information about conditions at all.
 
 \subsection{Detection}
 \label{sec:detectionresults}
 
 Table~\ref{tab:events} scores every labelled event in the catalogue. For each
-entry the peak combined score at the named site's conductivity node, over every
-anchor in the event window, is compared with each model's threshold at
+entry, we compared the peak combined score at the named site's conductivity
+node, over every anchor in the event window, with each model's threshold at
 $q = 10^{-3}$: 16.271 for FlameSkimmer and 29.070 for CobbleShoal. The two
 thresholds are on different scales, since one combines two channels and the
-other four.
+other combines four.
 
 \begin{table}[t]
   \centering
@@ -665,12 +680,12 @@ other four.
   \end{tabular}
 \end{table}
 
-Both models flag three of the four labelled anomalies and both miss the
+Both models flag three of the four labelled anomalies, and both miss the
 south\_fork\_2 half of the September event, FlameSkimmer by about 3\% of its
-threshold. The margins are thinner for FlameSkimmer, though. Its peaks sit 8 to
-46\% above its threshold, where CobbleShoal's sit 19 to 64\% above its own,
-which is what dropping the leave-one-out and reconstruction channels would be
-expected to cost.
+threshold. FlameSkimmer's margins are thinner, however. Its peaks sit 8 to
+46\% above its threshold, whereas CobbleShoal's sit 19 to 64\% above its own,
+which is the expected cost of dropping the leave-one-out and reconstruction
+channels.
 
 \subsection{False alarm rate}
 \label{sec:far}
@@ -695,25 +710,25 @@ crossed each model's threshold at $q = 10^{-3}$, overall and split by rain.
   \end{tabular}
 \end{table}
 
-The overall rate is close to nominal for both models, well inside the order of
-magnitude that the peaks over threshold diagnostics already treat as
-acceptable. In rain FlameSkimmer flags at about half CobbleShoal's rate. That
-looks like the payoff the model was built for, but Section~\ref{sec:epistemic}
-rules out the intended explanation, since the epistemic variance does not change
-in rain. The likelier cause is the wider total intervals of
-Section~\ref{sec:quality}, which damp the excursion channel everywhere and
-matter most where readings move most.
+The overall rate is close to nominal for both models, well within the order of
+magnitude that the peaks-over-threshold diagnostics already treat as
+acceptable. In rain, FlameSkimmer flags at about half CobbleShoal's rate. This
+resembles the benefit the model was built for, but
+Section~\ref{sec:epistemic} rules out the intended explanation, since the
+epistemic variance does not change in rain. The more likely cause is the wider
+total intervals reported in Section~\ref{sec:quality}, which damp the
+excursion channel everywhere and matter most where readings move most.
 
-\subsection{The gate, and why it failed}
+\subsection{The gate criterion}
 \label{sec:gate}
 
-The plan set one test for whether the Bayesian head is doing its job: the
-median epistemic share on validation rain steps should be at least 1.5 times
-the median on training dry steps. It is $0.027 / 0.132 = 0.20$ times.
+The plan set one test of whether the Bayesian head does its job: the median
+epistemic share on validation rain steps should be at least 1.5 times the
+median on training dry steps. The measured ratio is $0.027 / 0.132 = 0.20$.
 
-The cause is in the trained widths. Table~\ref{tab:sigma} gives the posterior
-standard deviations after training. Every one of them started at
-$\log(1 + e^{-5}) \approx 0.0067$, and they have barely moved.
+The cause lies in the trained widths. Table~\ref{tab:sigma} gives the
+posterior standard deviations after training. Every one of them started at
+$\log(1 + e^{-5}) \approx 0.0067$, and they have changed little.
 
 \begin{table}[t]
   \centering
@@ -732,70 +747,145 @@ $\log(1 + e^{-5}) \approx 0.0067$, and they have barely moved.
 \end{table}
 
 The ceiling on the first layer is not a coincidence. Adam moves each parameter
-by roughly the learning rate per step at most, and the kept epoch came after
+by at most roughly the learning rate per step, and the kept epoch came after
 about 940 steps at a learning rate of $10^{-3}$. Starting from $-5$, no
-$\rho_{w}$ could have climbed much past $-4.06$, which is
-$\sigma_{w} \approx 0.017$. The largest width actually learned is 0.016. The
-widths were limited by the optimiser and the starting point, not chosen by the
-data, and early stopping kept the epoch immediately after $\beta$ reached 1,
-before the prior had any time at full strength.
+$\rho_{w}$ could have climbed much past $-4.06$, which corresponds to
+$\sigma_{w} \approx 0.017$. The largest width learned is 0.016. Thus, the
+optimiser and the starting point limited the widths, rather than the data, and
+early stopping kept the epoch immediately after $\beta$ reached 1, before the
+prior had any time at full strength.
 
-That also explains why the epistemic variance is constant. When every width
+This also explains why the epistemic variance is constant. When every width
 sits near the same small value, the variance the head adds is roughly that
 width squared times the squared size of the activations feeding each layer, and
 after a tanh those activations have much the same size for almost every input.
-The variance that results barely depends on the window, so it cannot rise in a
+The resulting variance depends little on the window, so it cannot rise in a
 storm.
 
-None of this says that a Bayesian head cannot do the job. It says this one was
-not trained long enough, or started too narrow, for its widths to learn
-anything.
+These results do not show that a Bayesian head cannot do the job. They show
+that this head was not trained long enough, or started too narrow, for its
+widths to learn anything.
+
+\section{Deployment}
+\label{sec:deployment}
+
+\subsection{Serving}
+\label{sec:serving}
+
+Since 16 October 2026, FlameSkimmer can be switched on in the StrawberryWatch
+dashboard. It is off by default, and the dashboard shows the notice that the
+model is experimental, that only one version has been trained, and that its
+uncertainty estimate failed its own test (Section~\ref{sec:gate}). The served
+model is the checkpoint described in this report, held to its calibrated
+threshold $z_q = 16.271$ at $q = 10^{-3}$, ten times the rate CobbleShoal is
+served at.
+
+FlameSkimmer is served through CobbleShoal's detector, with the same combined
+Fisher rule, the same two day checks and the same rain gate, which is on by
+default. Two further steps reproduce how its calibration was fitted. (1)
+Readings outside the plausible ranges recorded with the calibration corpus are
+dropped. In each probe's reporting units, these are 0 to 40 for temperature, 0 to 5{,}000 for conductivity and floating
+conductivity, $-5{,}000$ to 5{,}000 for depth, and $-5$ to 200 for dissolved
+oxygen. (2) The two footbridge sensors that training never observed,
+dissolved oxygen and floating conductivity, are held offline as they were in
+every calibration window, and their scores are left blank so they can neither
+fire nor appear.
+
+\subsection{Labelled events}
+\label{sec:servedevents}
+
+On 25 October 2026 we scored the four labelled anomalies with the served model,
+at every anchor of each event, with the rain gate on. Table~\ref{tab:served}
+gives the peak combined statistic at the labelled site's conductivity node,
+beside the peaks in Table~\ref{tab:events}.
+
+\begin{table}[t]
+  \centering
+  \caption{Peak combined statistic at the labelled site's conductivity node,
+    from the evaluation in Table~\ref{tab:events} and from the served model.
+    The share is the largest fraction of its rain-gated line any anchor
+    reached in serving.}
+  \label{tab:served}
+  \begin{tabular}{llrrrl}
+    \toprule
+    Event & Site & Evaluation & Served & Share of line & Flagged \\
+    \midrule
+    June 2025 discharge      & south\_fork\_1 & 17.655 & 16.099 & 0.989 & no \\
+    September 2025 overnight & south\_fork\_1 & 23.740 & 23.740 & 1.437 & yes \\
+    September 2025 overnight & south\_fork\_2 & 15.796 & 15.796 & 0.745 & no \\
+    March 2026 hydrant       & north\_fork\_0 & 19.467 & 19.467 & 1.196 & yes \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The served model reproduced three of the four evaluation peaks exactly and
+flagged two of the four anomalies, against three in the evaluation. The
+difference is the June discharge. The dashboard floors every timestamp to its
+quarter hour before the model reads it, whereas the training corpus matched
+each reading to the nearest grid point within half a step. All 559
+south\_fork\_1 readings in the June event file are off the quarter hour, and
+under the dashboard's flooring the peak fell from 17.655 to 16.099, just below
+the line of 16.271. The same flooring applies to CobbleShoal. In the
+September event at south\_fork\_2, the rain gate raised the line, and the
+share of line fell from 0.971 without the gate to 0.745 with it.
 
 \section{Limitations and Future Work}
 \label{sec:limitations}
 
-The first thing to fix is the training of the widths. Three changes address
-Section~\ref{sec:gate} directly: start $\rho$ less negative, for example at
-$-3$, which gives $\sigma \approx 0.049$; give the $\rho$ parameters their own,
-larger learning rate; and stop early only after $\beta$ has been at 1 for
-several epochs. Each is a change to a default rather than to the design, and
-the gate should be measured again after them before anything else is built on
-the model.
+The first thing to address is the training of the widths. Three changes target
+Section~\ref{sec:gate} directly: (1) start $\rho$ less negative, for example at
+$-3$, which gives $\sigma \approx 0.049$; (2) give the $\rho$ parameters their
+own, larger learning rate; and (3) stop early only after $\beta$ has been at 1
+for several epochs. Each is a change to a default rather than to the design,
+and we recommend measuring the gate again after these changes, before anything
+else is built on the model.
 
 The plan also calls for a reference when the gate fails: a five-seed deep
-ensemble of the same trunk with CobbleShoal's deterministic scale head, reported
-beside FlameSkimmer. Ensembles match or beat approximate Bayesian networks in
-most comparisons~\citep{lakshminarayanan2017ensembles} and held up best under
-dataset shift in the largest benchmark of the question~\citep{ovadia2019shift},
-though that benchmark is classification. The ensemble is not Bayesian over
-weights, but it is the bar a Bayesian head should clear, and it has not yet
-been run. Monte Carlo dropout, the other cheap option, was the weakest of four
-methods in a rainfall-runoff LSTM benchmark~\citep{klotz2022rainfall} and is
-not planned.
+ensemble of the same trunk with CobbleShoal's deterministic scale head,
+reported beside FlameSkimmer. Ensembles match or outperform approximate
+Bayesian networks in most comparisons~\citep{lakshminarayanan2017ensembles}
+and held up best under dataset shift in the largest benchmark of the
+question~\citep{ovadia2019shift}, although that benchmark is classification.
+The ensemble is not Bayesian over weights, but it is the bar a Bayesian head
+should clear, and we have not yet run it. Monte Carlo dropout, the other
+low-cost option, was the weakest of four methods in a rainfall-runoff LSTM
+benchmark~\citep{klotz2022rainfall}, and we do not plan to use it.
 
-The chronological split was expected to put most of the rain on the validation
+We expected the chronological split to put most of the rain on the validation
 side. By anchor count it does not: 7.0\% of training anchors and 7.3\% of
 validation anchors had rain in the preceding six hours. The storms may still
 differ in size or season between the two sides, but the split is a weaker test
-of shift than it was taken to be, and a blocked split or a held-out storm would
-make a sharper one.
+of shift than we assumed, and a blocked split or a held-out storm would give a
+sharper one.
 
-Only one seed has been trained. Every result in Section~\ref{sec:evaluation}
-should be repeated across several before it is relied on, and reported per seed.
+We have trained only one seed. Every result in Section~\ref{sec:evaluation}
+should be repeated across several seeds, and reported per seed, before it is
+relied on.
 
-The event catalogue has no true negatives, no storm that the group has labelled
-as a known non-event. The rain false alarm comparison therefore rests on
-fault-free statistics alone. One labelled storm would turn it into a real case.
+The event catalogue has no true negatives, that is, no storm that the group has
+labelled as a known non-event. The rain false alarm comparison therefore rests
+on fault-free statistics alone, and one labelled storm would turn it into a
+real test case.
 
-FlameSkimmer is not served. A serving detector, its entry in the serving
-registry and updates to the README and user manual follow only once the
-evaluation is accepted. Whether the epistemic signal should ever become an
-alert type of its own is a separate decision, and nothing in this design adds
-an uncertainty rule to the alerting path.
+FlameSkimmer is served experimentally (Section~\ref{sec:deployment}),
+although the evaluation in Section~\ref{sec:evaluation} has not been accepted
+and the gate in Section~\ref{sec:gate} failed. The plan made serving
+conditional on that evaluation; serving went ahead so that the model could be
+tried in the dashboard, and it stays off by default. The README's model table
+describes FlameSkimmer, while the user manual has not yet been updated.
+Whether the epistemic signal should ever become an alert type of its own is a
+separate decision, and nothing in this design adds an uncertainty rule to the
+alerting path.
+
+The dashboard's quarter-hour flooring moved one labelled peak below its line
+(Section~\ref{sec:servedevents}). We recommend either matching readings to the
+grid in serving the way the training corpus did, or recalibrating on floored
+readings, so that the served scores are drawn from the distribution the
+threshold was fitted on.
 
 Finally, every number in this document describes one experimental checkpoint
-and the calibration fitted alongside it. They will move when the model is
-retrained, and some of them, by design, should.
+and the calibration fitted alongside it. These numbers will move when the model
+is retrained, and some of them are intended to.
 
 \bibliographystyle{unsrtnat}
 \bibliography{references}

@@ -204,6 +204,42 @@ The model is unsupervised. It is trained only to predict the next reading from
 recent history. Anything it cannot predict well is, by definition, something it
 has not seen before, which is what an anomaly is.
 
+## Workbench
+
+The StrawberryWatch Workbench is a desktop app for exploring Strawberry Creek
+readings and recalibrating the anomaly detection models on this computer,
+separate from the admin dashboard. It reads readings from the Strawberry Creek
+website, a folder of CSV files, or a MySQL database, and works offline once the
+readings are downloaded. It provides seven tabs: Home, Model tuning (Pick data,
+Explore, Recalibrate), Sensors, Events, Past calibrations, User manual and
+Settings. Recalibrating moves each model's alert line (threshold) using the
+picked data, and the model itself does not change. This first version
+recalibrates Dusk Crayfish and Cobble Shoal.
+
+Install it with its extras:
+
+```bash
+pip install -e ".[workbench]"
+```
+
+Run it in its own window, or in a browser tab:
+
+```bash
+strawberrywatch workbench
+strawberrywatch workbench --browser
+```
+
+Its window needs a pywebview backend, Qt or GTK on Linux. The `--browser` flag
+works without one.
+
+Saved calibrations, events marked in the Workbench and downloaded readings are
+stored in one folder, `platformdirs.user_data_dir("StrawberryWatch")/workbench`
+(on Linux, `~/.local/share/StrawberryWatch/workbench`). The API token and the
+MySQL password are kept in the system keychain, never in a file. The shipped
+calibrations under `checkpoints/` and the shipped events under
+`strawberrywatch/watch/events/` are never changed. A new calibration is saved
+beside them and can be switched back to the shipped one at any time.
+
 ## Learning to use StrawberryWatch
 
 Everything about installing, running and changing this system lives in the

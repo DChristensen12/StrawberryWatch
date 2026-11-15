@@ -1,7 +1,5 @@
-"""
-The local dashboard's pages through Flask's test client, against a store with
-one real replay check in it. Security first, then the build spec's steps 3 and 4.
-"""
+"""The local dashboard's pages through Flask's test client, against one real replay check."""
+# Security first, then the build spec's steps 3 and 4
 
 import csv
 import io
@@ -238,7 +236,7 @@ def test_by_hour_folds_quiet_hours_and_a_day_shows_every_hour(signed_in):
     section = page[page.index(f'/history/day/{day}"') :]
     section = section[: section.index("</section>")]
     assert len(re.findall(ROW, section)) == 1 + (hour > 0) + (hour < 23)
-    assert "– midnight" in section and "No alerts." in section
+    assert "to midnight" in section and "No alerts." in section
     hourly = client.get(f"/history/day/{day}").data.decode()
     assert len(re.findall(ROW, hourly)) == 24 and "(Dusk Crayfish)" in hourly
     today = datetime.now(view.PACIFIC).date().isoformat()
@@ -649,6 +647,8 @@ def test_a_check_emails_each_person_separately_and_only_from_live_readings(
     assert [to for _, to in FakeSMTP.sent] == [["ana@example.org"], ["ben@example.org"]]
     message = FakeSMTP.sent[0][0]
     assert message["To"] == "ana@example.org" and "ben@" not in message.as_string()
+    # Filters score a message with no Date or Message-ID, and smtplib adds neither
+    assert message["Date"] and message["Message-ID"]
     # Site names the way the website writes them, not the table name
     assert message["Subject"] == "StrawberryWatch: conductivity alert at South Fork 1"
     body = message.get_content()

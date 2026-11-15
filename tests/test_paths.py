@@ -1,8 +1,5 @@
-"""
-Guards the two ways path resolution can go wrong for a consumer who installed
-this package but has no checkout: writing into their cwd without a word, and
-doing filesystem work at import time.
-"""
+"""Guards path resolution for a consumer with the package installed but no checkout."""
+# Two ways it goes wrong: writing into their cwd without a word, and filesystem work at import
 
 import os
 import subprocess
@@ -15,17 +12,13 @@ from strawberrywatch import paths
 
 
 def _run_isolated(code, tmp_path, env_extra=None):
-    """
-    Run code in a fresh interpreter from tmp_path with no project root anywhere
-    above it. Has to be a subprocess: strawberrywatch is already imported in the
-    test process, and the modules cache paths even though project_root()
-    doesn't.
-    """
+    """Runs code in a fresh interpreter from tmp_path, with no project root above it."""
+    # A subprocess, since strawberrywatch is already imported here and the modules cache paths
+    # even though project_root() doesn't
     env = dict(os.environ)
     env.pop("STRAWBERRYWATCH_ROOT", None)
     env.pop("STRAWBERRYWATCH_CHECKPOINTS_DIR", None)
-    # The repo is on sys.path via the editable install, as a consumer would
-    # have it too.
+    # The repo is on sys.path via the editable install, as a consumer would have it too
     env.update(env_extra or {})
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(code)],
@@ -49,10 +42,8 @@ def test_env_var_wins_over_walkup(tmp_path, monkeypatch):
 
 
 def test_project_root_is_none_without_a_root(tmp_path):
-    """
-    No env var and no marker up the tree, and no right answer. Returning
-    Path.cwd() here is how files end up in a stranger's directory.
-    """
+    """No env var, no marker up the tree, and no right answer."""
+    # Returning Path.cwd() here is how files end up in a stranger's directory
     deep = tmp_path / "somewhere" / "deeper"
     deep.mkdir(parents=True)
     result = _run_isolated(
@@ -72,10 +63,7 @@ def test_project_root_is_none_without_a_root(tmp_path):
 
 
 def test_missing_root_raises_actionable_error(tmp_path):
-    """
-    The error has to name both escape hatches, or whoever hits it has to read
-    our source to find out how to fix it.
-    """
+    """The error names both escape hatches, or whoever hits it has to read our source."""
     deep = tmp_path / "no" / "root" / "here"
     deep.mkdir(parents=True)
     result = _run_isolated(
@@ -109,11 +97,8 @@ def test_missing_root_raises_actionable_error(tmp_path):
     ],
 )
 def test_import_creates_nothing(module, tmp_path):
-    """
-    Importing must not resolve a path or make a directory. A consumer with no
-    data/ or checkpoints/ should still be able to import and use the pieces
-    that do not need them.
-    """
+    """Importing resolves no path and makes no directory."""
+    # A consumer with no data/ or checkpoints/ can still import the pieces that don't need them
     work = tmp_path / "clean"
     work.mkdir()
     result = _run_isolated(f"import {module}", work)

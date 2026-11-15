@@ -1,8 +1,5 @@
-"""
-The support module framework: the registry, the kinds, stacking, the budget
-split and the audit record. What each module actually says is tested in its
-own file. Anything that needs a number uses the stubs here.
-"""
+"""The support module framework: registry, kinds, stacking, budget split and audit record."""
+# What each module says is tested in its own file. Anything that needs a number uses the stubs
 
 from __future__ import annotations
 
@@ -28,8 +25,8 @@ from strawberrywatch.support_modules.trial_bed import TrialBed
 
 BASE_THRESHOLD = 39.13047989749433
 
-# What each explainer says about the same two firings. Written out by hand, and
-# a module that changes its answer has to change this too.
+# What each explainer says about the same two firings, written out by hand. A module
+# that changes its answer has to change this too
 _VERDICTS_BY_MODULE = {
     "newtwork_run": [
         "consistent_with_transport",
@@ -136,10 +133,7 @@ def test_registry_holds_the_three_named_modules():
 
 
 def test_unknown_name_raises_and_lists_the_valid_options():
-    """
-    A typo that attached nothing would look like success. It has to raise and
-    say what would have worked.
-    """
+    """A typo that attached nothing would look like success. It raises and says what would work."""
     with pytest.raises(registry.UnknownSupportModule) as exc:
         registry.support_class("trail_bed")
     message = str(exc.value)
@@ -161,10 +155,7 @@ def test_the_same_module_twice_is_refused():
 
 
 def test_modulators_and_detectors_are_different_kinds():
-    """
-    A detector spends budget and a modulator doesn't. Without that split the
-    alarm rate creeps up unnoticed.
-    """
+    """Detectors spend budget and modulators don't, or the alarm rate creeps up unnoticed."""
     assert base.SupportModulator.kind == "modulator"
     assert base.SupportDetector.kind == "detector"
     assert base.SupportModulator.kind != base.SupportDetector.kind
@@ -180,10 +171,8 @@ def test_every_module_exposes_name_describe_and_validate():
 
 
 def test_every_module_answers_rather_than_raising():
-    """
-    Each module returns its own kind's shape for real sites. Real names, since
-    every module reads the inventory. Made-up nodes are tested further down.
-    """
+    """Each module returns its own kind's shape for real sites."""
+    # Real names, since every module reads the inventory. Made-up nodes are tested further down
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     fired = np.zeros((T, len(sites)), dtype=bool)
 
@@ -201,12 +190,9 @@ def test_every_module_answers_rather_than_raising():
 
 
 def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
-    """
-    An explainer runs after the decision and only reads it. It adds no test (not
-    a detector), moves no threshold (not a modulator) and runs after the model
-    (not a screen). Charging it budget would cost sensitivity for a module that
-    can't fire.
-    """
+    """An explainer runs after the decision and only reads it."""
+    # It adds no test (not a detector), moves no threshold (not a modulator) and runs after the
+    # model (not a screen). Charging it budget would cost sensitivity for a module that can't fire
     bed = TrialBed()
     assert bed.kind == "explainer"
     assert not isinstance(bed, base.SupportDetector)
@@ -222,17 +208,15 @@ def test_trial_bed_is_an_explainer_because_it_fits_no_other_kind():
     stack = SupportStack.load(["trial_bed"], CobbleShoal)
     assert stack.explainers == list(stack)
     assert stack.detectors == [] and stack.modulators == [] and stack.screens == []
-    # An explainer takes no budget: the primary keeps all of it.
+    # An explainer takes no budget: the primary keeps all of it
     assert stack.budget()["primary"] == pytest.approx(stack.q_total)
     assert stack.budget()["detectors"] == {}
 
 
 def test_settling_pool_is_a_screen_because_it_fits_neither_other_kind():
-    """
-    A screen runs before the model and changes its input. It adds no test (not
-    a detector) and moves no threshold (not a modulator), though cleaning the
-    input does shift what the calibration was fitted against.
-    """
+    """A screen runs before the model and changes its input."""
+    # It adds no test (not a detector) and moves no threshold (not a modulator), though cleaning
+    # the input does shift what the calibration was fitted against
     pool = SettlingPool()
     assert pool.kind == "screen"
     assert not isinstance(pool, base.SupportDetector)
@@ -246,7 +230,7 @@ def test_settling_pool_is_a_screen_because_it_fits_neither_other_kind():
     stack = SupportStack.load(["settling_pool"], CobbleShoal)
     assert stack.screens == list(stack)
     assert stack.detectors == [] and stack.modulators == []
-    # A screen takes no budget: the primary keeps all of it.
+    # A screen takes no budget: the primary keeps all of it
     assert stack.budget()["primary"] == pytest.approx(stack.q_total)
 
 
@@ -254,10 +238,8 @@ def test_settling_pool_is_a_screen_because_it_fits_neither_other_kind():
 
 
 def test_the_three_call_shapes_take_the_same_path():
-    """
-    No support, one module and two modules are the same code with a different
-    list length. The no-support stack is the identity.
-    """
+    """No support, one module and two modules are the same code with a different list length."""
+    # The no-support stack is the identity
     none_stack = SupportStack.load(None, CobbleShoal)
     empty_stack = SupportStack.load([], CobbleShoal)
     one = SupportStack.load(["trial_bed"], CobbleShoal)
@@ -268,15 +250,12 @@ def test_the_three_call_shapes_take_the_same_path():
     assert none_stack.names == empty_stack.names == []
     assert set(two.names) == {"trial_bed", "newtwork_run"}
 
-    # Modules attach as a list, not a tuple.
+    # Modules attach as a list, not a tuple
     assert isinstance(two.modules, list)
 
 
 def test_an_empty_stack_leaves_the_gate_decision_untouched():
-    """
-    With nothing attached we get the rain gate's own verdict exactly. "No
-    support" is the same code path with an empty list.
-    """
+    """With nothing attached, the verdict is exactly the rain gate's own."""
     scores = np.linspace(0.2, 2.0, T * len(NODES)).reshape(T, len(NODES)) * BASE_THRESHOLD
     s, p, rain = a_run(scores)
     gate = a_gate()
@@ -293,13 +272,9 @@ def test_an_empty_stack_leaves_the_gate_decision_untouched():
 
 @pytest.mark.parametrize("kind", ["modulator", "detector"])
 def test_order_in_the_list_does_not_change_the_result(kind):
-    """
-    Every permutation of three same-kind modules, compared bit for bit.
-
-    The stack sorts by name and combines in that order, and the floating point
-    operations come out the same whatever order the operator typed. a*b == b*a
-    holds, but (a*b)*c and (a*c)*b don't have to.
-    """
+    """Every permutation of three same-kind modules, compared bit for bit."""
+    # The stack sorts by name and combines in that order, and the floating point comes out the
+    # same whatever order was typed. a*b == b*a holds, but (a*b)*c and (a*c)*b don't have to
     if kind == "modulator":
         made = {n: StubModulator(n, f) for n, f in (("m_a", 1.7), ("m_b", 1.3), ("m_c", 2.9))}
     else:
@@ -346,11 +321,8 @@ def test_a_modulator_may_not_lower_the_bar():
 
 
 def test_budget_is_divided_not_handed_out_fresh():
-    """
-    The failure this exists to stop: primary at q, each detector at q, and the
-    real rate is about q times the number of tests while every component
-    reports q.
-    """
+    """Primary at q and each detector at q would put the real rate near q times the test count."""
+    # The failure this exists to stop, while every component reports q
     q = 1e-4
     primary_q, detector_q = allocate(q, [StubDetector("a"), StubDetector("b")])
     assert primary_q + sum(detector_q) == pytest.approx(q)
@@ -358,7 +330,7 @@ def test_budget_is_divided_not_handed_out_fresh():
     for d in detector_q:
         assert 0 < d < q
 
-    # No detectors: the primary keeps all of it.
+    # No detectors: the primary keeps all of it
     assert allocate(q, []) == (q, [])
 
 
@@ -410,10 +382,8 @@ def test_budget_shrinks_the_primary_as_detectors_are_added():
 
 
 def test_the_record_extends_the_rain_gates_own_format():
-    """
-    Every key the rain gate writes survives with its meaning, and the support
-    fields are added beside them. Two formats would mean two readers.
-    """
+    """Every key the rain gate writes keeps its meaning, with the support fields beside them."""
+    # Two formats would mean two readers
     s, p, rain = a_run()
     gate = a_gate()
     gate_keys = set(gate.decisions(s, p, rain, nodes=NODES)[0])
@@ -446,15 +416,13 @@ def test_the_record_answers_why_did_this_fire():
     for entry in record["support"]:
         assert entry["describe"].strip(), "a module ran without describing itself"
 
-    # And the modulator did move the bar it is recorded as having moved.
+    # And the modulator did move the bar it is recorded as having moved
     assert record["final_threshold"] == pytest.approx(2.0 * record["threshold"])
 
 
 def test_the_record_answers_what_changes_if_i_turn_that_off():
-    """
-    verdict_without, per module, without re-running anything. The detector is
-    the only reason this node fires, and switching it off has to clear it.
-    """
+    """verdict_without, per module, without re-running anything."""
+    # The detector is the only reason this node fires, and switching it off has to clear it
     s, p, rain = a_run()
     stack = SupportStack([StubDetector("d_a", p=1e-9), StubDetector("d_b", p=0.9)])
     record = stack.decisions(a_gate(), s, p, rain, NODES, window={})[0]
@@ -466,10 +434,8 @@ def test_the_record_answers_what_changes_if_i_turn_that_off():
 
 
 def test_an_explainer_is_in_the_record_and_changes_no_verdict():
-    """
-    Its account rides in the same record beside the modules that decided, and
-    verdict_without says in the record itself that switching it off is free.
-    """
+    """Its account rides in the same record as the modules that decided."""
+    # verdict_without says in the record that switching it off is free
     s, p, rain = a_run()
     stack = SupportStack([StubDetector("d_a", p=1e-9), StubExplainer("x_a")])
     record = stack.decisions(a_gate(), s, p, rain, NODES, window={})[0]
@@ -491,10 +457,7 @@ def test_an_explainer_is_in_the_record_and_changes_no_verdict():
 
 
 def test_an_explainer_reads_the_firings_the_rest_of_the_stack_made():
-    """
-    It gets the primary's firings at the final threshold, after the modulator
-    has moved the bar.
-    """
+    """It gets the primary's firings at the final threshold, after the modulator moved the bar."""
     scores = np.linspace(0.2, 2.0, T * len(NODES)).reshape(T, len(NODES)) * BASE_THRESHOLD
     s, p, rain = a_run(scores)
 
@@ -543,11 +506,8 @@ def test_an_unscorable_score_is_not_reported_as_clear():
 
 
 def test_the_two_firing_rules_agree():
-    """
-    base._fired works a record at a time and rain_gate.fired takes arrays, so
-    the rule is written twice. Copies like this have drifted apart here before,
-    so the two are pinned against each other.
-    """
+    """base._fired works a record at a time and rain_gate.fired takes arrays, pinned together."""
+    # Copies like this have drifted apart here before
     rng = np.random.default_rng(0)
     scores = rng.normal(BASE_THRESHOLD, 10.0, size=200)
     scores[::7] = np.nan
@@ -577,10 +537,7 @@ def test_one_record_per_timestep_per_node():
 )
 @pytest.mark.parametrize("name", ["newtwork_run", "trial_bed"])
 def test_the_same_module_reaches_both_models(model, name):
-    """
-    What the framework is for: one module, two models with different input
-    contracts, and the same answer from both.
-    """
+    """One module, two models with different input contracts, and the same answer from both."""
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     fired = np.zeros((T, len(sites)), dtype=bool)
     fired[3, 0] = True
@@ -598,10 +555,7 @@ def test_the_same_module_reaches_both_models(model, name):
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_the_explainer_reaches_both_models_too(model):
-    """
-    Trial Bed answers the same way for a sequence-contract model and a
-    nested-node one, without being told which it's attached to.
-    """
+    """Trial Bed answers alike on a sequence-contract and a nested-node model, told neither."""
     stack = SupportStack.load(["trial_bed"], model)
     fired = np.zeros((T, len(NODES)), dtype=bool)
     accounts = stack.explanations({}, NODES, fired)["trial_bed"]
@@ -617,11 +571,8 @@ def test_the_explainer_reaches_both_models_too(model):
     "model", [DuskCrayfish, CobbleShoal], ids=["dusk_crayfish", "cobble_shoal"]
 )
 def test_the_screen_reaches_both_models_too(model):
-    """
-    The screen answers for both models, and its grid is each model's FLAG_POLICY
-    applied to the same flags. Both exclude FAIL and MISSING today, and the
-    grids match.
-    """
+    """The screen's grid is each model's FLAG_POLICY applied to the same flags."""
+    # Both exclude FAIL and MISSING today, and the grids match
     sites = ["south_fork_1", "south_fork_2", "oxford"]
     index = pd.date_range("2026-03-01", periods=T, freq="15min", tz="UTC")
     window = {"raw": None, "timestamps": index, "model": model}
@@ -633,10 +584,7 @@ def test_the_screen_reaches_both_models_too(model):
 
 
 def test_the_framework_names_no_model():
-    """
-    The base classes must not import a model, name one, or branch on one.
-    Checked against the source so a future edit trips it.
-    """
+    """The base classes import, name and branch on no model, checked against the source."""
     import inspect
 
     forbidden = ("DuskCrayfish", "CobbleShoal", "Dusk_Crayfish", "Cobble_Shoal", "dusk_crayfish")
@@ -648,12 +596,9 @@ def test_the_framework_names_no_model():
 
 
 def test_models_do_not_know_which_modules_exist():
-    """
-    A model declares what it already handles and that's all. It mustn't import
-    the support package or name a module class. We read imports off the parsed
-    tree, which lets a comment mention the package. Class names are checked in
-    the raw text, since naming one anywhere couples the two.
-    """
+    """A model declares what it already handles and imports no support package or module class."""
+    # Imports are read off the parsed tree, which lets a comment mention the package. Class
+    # names are checked in the raw text, since naming one anywhere couples the two
     import ast
     import inspect
 
@@ -685,16 +630,14 @@ def test_each_model_declares_what_it_already_handles():
 
 
 def test_a_module_colliding_with_a_builtin_is_refused():
-    """
-    Dusk Crayfish applies a 2.0 rain multiplier inside anomaly_detector.py. A
-    rain modulator on top would raise the bar twice, and since each step is
-    correct on its own, no error would show it.
-    """
+    """Dusk Crayfish applies a 2.0 rain multiplier inside anomaly_detector.py."""
+    # A rain modulator on top would raise the bar twice. Each step is correct on its own, and no
+    # error would show it
     rain_module = StubModulator("rain", 2.0)
     with pytest.raises(registry.SupportCollision, match="already handles"):
         registry.check_collision(rain_module, DuskCrayfish)
 
-    # And it is allowed on the model that does not handle rain internally.
+    # And it is allowed on the model that does not handle rain internally
     registry.check_collision(rain_module, CobbleShoal)
 
 
@@ -725,10 +668,8 @@ def test_the_collision_check_runs_on_every_load():
 
 
 def test_a_module_that_needs_a_contract_is_checked_against_it():
-    """
-    validate() reads what the model declares without asking which model it is.
-    That's how one module works on both.
-    """
+    """validate() reads what the model declares without asking which model it is."""
+    # That's how one module works on both
 
     class NestedOnly(base.SupportDetector):
         name = "nested_only"
@@ -743,10 +684,7 @@ def test_a_module_that_needs_a_contract_is_checked_against_it():
 
 
 def test_no_module_names_a_model():
-    """
-    Every module attaches to both models, and none of them may name one,
-    import one, or branch on one.
-    """
+    """Every module attaches to both models and names, imports or branches on none."""
     import ast
     import inspect
 
@@ -781,8 +719,8 @@ def test_no_module_names_a_model():
                 imported.update(a.name for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module)
-        # settling_pool imports contracts for the reshape, inside the function.
-        # That's the contract layer, not a model.
+        # settling_pool imports contracts for the reshape, inside the function. That's the
+        # contract layer, not a model
         assert not any(m.startswith("strawberrywatch.models.") for m in imported), (
             f"{module.__name__} imports a model module: {sorted(imported)}"
         )

@@ -1,7 +1,4 @@
-"""
-The website's load safeguards. A model check can fail, but it mustn't take
-Night Heron's own alerts down with it.
-"""
+"""The website's load safeguards. A failing model check mustn't take Night Heron's alerts down."""
 
 import json
 import subprocess
@@ -228,12 +225,13 @@ def test_one_check_in_its_own_process_records_each_models_cost(store, monkeypatc
     # StrawberryWatch sent its own emails, one per person with their own unsubscribe link
     assert sorted(to for _, to in sent) == [["ana@example.org"], ["ben@example.org"]]
     tokens = {p["email"]: p["unsubscribe_token"] for p in store.recipients()}
-    for message, (to,) in sent:
-        assert message["From"] == "StrawberryWatch <watch@example.org>"
-        assert message["List-Unsubscribe"] == f"<{ws.website_address()}/unsubscribe/{tokens[to]}>"
-        html = message.get_body(("html",)).get_content()
-        assert tokens[to] in html and "cid:emblem" in html and "cid:sponsors" in html
-        assert {part.get("Content-ID") for part in message.walk()} >= {"<emblem>", "<sponsors>"}
+    for email, (to,) in sent:
+        assert email["from"] == {"address": "watch@example.org", "name": "StrawberryWatch"}
+        link = f"<{ws.website_address()}/unsubscribe/{tokens[to]}>"
+        assert email["headers"] == {"List-Unsubscribe": link}
+        assert tokens[to] in email["html"] and tokens[to] in email["text"]
+        assert "cid:emblem" in email["html"] and "cid:sponsors" in email["html"]
+        assert {a["content_id"] for a in email["attachments"]} == {"emblem", "sponsors"}
     assert store.emails()[0]["ok"] == 1
     durations = store.last_check()["durations"]
     assert "dusk_crayfish" in durations and durations["memory_mb"]["dusk_crayfish"] >= 0
@@ -242,41 +240,41 @@ def test_one_check_in_its_own_process_records_each_models_cost(store, monkeypatc
     assert all(a["values"] for a in result["alerts"])
 
 
-def _fake_mail(monkeypatch):
-    """A mail server that keeps what it's sent, and the account settings to reach it."""
-    import smtplib
+def _fake_mail(monkeypatch, answer=None):
+    """Cloudflare's email API, kept to what it's sent, and the account settings to reach it."""
+    # answer(email) gives (status, body), or raises, for each request
+    import requests
 
     from strawberrywatch.dashboard import mail
 
-    sent = []
+    class Sent(list):
+        """(email, to) for each request, and .seen_by with (url, Authorization header)."""
 
-    class FakeSMTP:
-        def __init__(self, *args, **kwargs):
-            pass
+    sent = Sent()
+    sent.seen_by = []
 
-        def __enter__(self):
-            return self
+    class Answer:
+        def __init__(self, status, body):
+            self.status_code, self.ok, self.body = status, status < 400, body
 
-        def __exit__(self, *exc):
-            return False
+        def json(self):
+            return self.body
 
-        def starttls(self, context=None):
-            pass
-
-        def login(self, user, secret):
-            pass
-
-        def send_message(self, message, from_addr=None, to_addrs=None):
-            sent.append((message, to_addrs))
+    def post(session, url, json=None, timeout=None, **kwargs):
+        sent.append((json, json["to"]))
+        sent.seen_by.append((url, session.headers.get("Authorization")))
+        if answer is not None:
+            return Answer(*answer(json))
+        result = {"delivered": json["to"], "queued": [], "permanent_bounces": []}
+        return Answer(200, {"success": True, "errors": [], "messages": [], "result": result})
 
     for name, value in {
-        "ALERT_EMAIL_SENDER": "watch@example.org",
-        "ALERT_EMAIL_PASSWORD": "not-a-real-one",
-        "SMTP_SERVER": "smtp.example.org",
-        "SMTP_PORT": "587",
+        "CLOUDFLARE_ACCOUNT_ID": "account-for-tests",
+        "CLOUDFLARE_EMAIL_API_TOKEN": "token-for-tests",
+        "FROM_EMAIL": "watch@example.org",
     }.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(requests.Session, "post", post)
     monkeypatch.setattr(mail, "load_dotenv", lambda *a, **k: None)
     return sent
 

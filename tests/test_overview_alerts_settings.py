@@ -1,7 +1,4 @@
-"""
-The models line, hourly reporting marks, Alert examples, the settings rows, and
-recipient labels on the website.
-"""
+"""The models line, reporting marks, Alert examples, settings rows and website recipient labels."""
 
 import re
 from datetime import datetime
@@ -393,13 +390,17 @@ def test_the_html_email_has_both_logos_and_an_unsubscribe_link():
         "Subject", "New alert in Strawberry Creek.", [], "https://x/unsubscribe/t"
     )
     assert "unsubscribe: https://x/unsubscribe/t" in text
-    message = mail.html_message(
+    email = mail.cloudflare_email(
         "watch@example.org", "ana@example.org", "Subject", text, html, "https://x/unsubscribe/t"
     )
-    cids = {
-        part.get("Content-ID") for part in message.walk() if part.get_content_maintype() == "image"
-    }
-    assert cids == {"<emblem>", "<sponsors>"}
+    assert {a["content_id"] for a in email["attachments"]} == {"emblem", "sponsors"}
+    assert all(a["disposition"] == "inline" and a["content"] for a in email["attachments"])
+    assert email["headers"] == {"List-Unsubscribe": "<https://x/unsubscribe/t>"}
+    # Cloudflare turns down a whole email over an http:// unsubscribe link
+    plain = mail.cloudflare_email(
+        "watch@example.org", "ana@example.org", "S", text, html, "http://x/u"
+    )
+    assert "headers" not in plain
 
 
 @pytest.mark.parametrize("store_kind", ["sqlite", "prefixed"])

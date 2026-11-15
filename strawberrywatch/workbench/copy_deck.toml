@@ -1,0 +1,470 @@
+# StrawberryWatch Workbench copy deck, version 0.2
+#
+# Every word the Workbench shows comes from this file. Each section names the
+# file its strings must appear in, word for word.
+#
+# strings      text from the mockup, checked against the file's visible text
+# new_strings  text the mockup did not show, drafted in the same voice
+# attrs        exact attribute text (aria-label, placeholder), checked in the raw file
+#
+# In templates, {{ name }} is a Jinja variable holding an already formatted
+# string. In .py and .md files, strings are checked as written.
+
+[base]
+file = "templates/base.html"
+strings = [
+  "StrawberryWatch",
+  "Workbench",
+  "Home",
+  "Model tuning",
+  "Sensors",
+  "Events",
+  "Past calibrations",
+  "User manual",
+  "Settings",
+  "Runs on this computer.",
+  "Pick data",
+  "Explore",
+  "Recalibrate",
+]
+attrs = [
+  'aria-label="Sections"',
+  'aria-label="Steps"',
+]
+
+[home]
+file = "templates/home.html"
+strings = [
+  "Explore Strawberry Creek readings and recalibrate the anomaly detection models on this computer.",
+  "The creek right now",
+  "See every sensor",
+  "{{ reporting }} of {{ total }} sites are reporting.",
+  "{{ quiet_sites }} have sent no readings in the last 60 minutes.",
+  "Filled dots are reporting. Empty dots have sent no readings in the last 60 minutes.",
+  "Unfinished tuning",
+  "{{ model }} on {{ sites }}, {{ dates_long }}. Stopped at step {{ step }}, {{ step_name }}.",
+  "Continue",
+  "Models and drift",
+  "The drift check compares the last 30 days at each site with the data each calibration was made from.",
+  "Using the calibration it shipped with.",
+  "Drift found: {{ drifted }} has moved away from the calibration data.",
+  "See the drift check",
+  "No drift found.",
+  "Other models appear here once they are ready.",
+  "The user manual explains each tab. We recommend reading it before the first recalibration.",
+  "Model tuning",
+  "Pick data, explore it, then recalibrate. Models change only after you save.",
+  "Start model tuning",
+]
+new_strings = [
+  "{{ quiet_sites }} has sent no readings in the last 60 minutes.",
+  "Using the calibration saved {{ saved_date }}.",
+  "No drift check yet. The data this calibration was made from is not on this computer.",
+]
+attrs = [
+  'aria-label="Creek map. Every site is reporting except {{ quiet_sites }}."',
+  'aria-label="Creek map. Every site is reporting."',
+]
+
+[tuning_pick]
+file = "templates/tuning_pick.html"
+strings = [
+  "Model tuning",
+  "Step 1: Pick data",
+  "Choose where readings come from and which part of the creek to look at. Models change only after you save in step 3.",
+  "Where should readings come from?",
+  "The Strawberry Creek website",
+  "Uses the API token saved on this computer.",
+  "A folder of CSV files",
+  "Pick a folder on this computer.",
+  "A MySQL database",
+  "Sign in with a database username and password.",
+  "Which sites?",
+  "Click a dot to tick it, or tick the sites a model needs:",
+  "Which readings?",
+  "Dissolved oxygen and pH are only measured at some sites.",
+  "Which dates?",
+  "From",
+  "To",
+  "Or:",
+  "Last 7 days",
+  "Last 30 days",
+  "Around a past event",
+  "Leave anything out?",
+  "Known events from the event list",
+  "Recalibrating on a spill raises the alert line, so similar spills become harder to catch.",
+  "Rainy hours",
+  "Rain changes most readings. We recommend leaving this ticked unless you are studying storms.",
+  "{{ days }}, {{ sites }}, {{ readings }} each: {{ total }} before anything is left out.",
+  "Load and explore",
+]
+new_strings = [
+  "Past event",
+  "Loading readings. This may take a few minutes.",
+  "Could not load readings from {{ source_name }}. {{ reason }}",
+  "No readings were found for these sites and dates.",
+  "Set up this data source in Settings first.",
+]
+attrs = [
+  'aria-label="What you picked"',
+  'aria-label="Creek map. Ticked: {{ ticked_sites }}."',
+]
+
+[tuning_explore]
+file = "templates/tuning_explore.html"
+strings = [
+  "Model tuning",
+  "Step 2: Explore",
+  "{{ site }}, {{ dates_long }}. Before recalibrating, look for anything unusual in the picked data.",
+  "Site",
+  "Export readings (CSV)",
+  "Export charts (PNG)",
+  "Your notes",
+  "Saved with the calibration.",
+  "A typical day",
+  "The line is the middle (median) reading for each hour. The shaded band covers the middle half of the days (25th to 75th percentiles).",
+  "How readings spread",
+  "The number of readings in each {{ bin }} range.",
+  "Data checks",
+  "Missing readings",
+  "{{ missing }} of {{ expected }} expected",
+  "Stuck at one value",
+  "Far from the rest",
+  "Show them on the chart",
+  "Before you recalibrate",
+  "Recalibrating on this data counts its patterns as normal, so the models become less likely to flag them. To change the dates, go back to step 1.",
+  "Next: recalibrate",
+]
+new_strings = [
+  "Exported to {{ path }}.",
+]
+attrs = [
+  'aria-label="Reading to show"',
+  'aria-label="Line chart of {{ reading }} at {{ site }}, {{ dates_long }}."',
+  'aria-label="Typical day of {{ reading }} at {{ site }}: the median for each hour, with the 25th to 75th percentiles shaded."',
+  'aria-label="Histogram of {{ reading }} at {{ site }} in {{ bin }} ranges."',
+]
+
+[tuning_recalibrate]
+file = "templates/tuning_recalibrate.html"
+strings = [
+  "Model tuning",
+  "Step 3: Recalibrate",
+  "Recalibrating moves the alert line that each model's score must cross, using the picked data. The model itself does not change.",
+  "Which model?",
+  "It uses {{ model_sites }}, and the picked data includes all {{ n_model_sites }}.",
+  "Models that are not ready yet do not appear here.",
+  "How many false alarms are acceptable?",
+  "Counted on data like the picked data. Fewer false alarms may let small spills go unnoticed.",
+  "Check against past events",
+  "Before saving, check whether the new alert line still catches known spills and stays quiet during events that should not alert. The events come from the Events tab.",
+  "Past events",
+  "Event",
+  "Should a model alert?",
+  "Now",
+  "After recalibrating",
+  "Run the check",
+  "The check also counts alerts on the picked data, before and after recalibrating.",
+  "Models change only after you save",
+  "The current calibration stays in Past calibrations, so you can switch back at any time.",
+  "Save new calibration",
+  "Run the check first.",
+]
+new_strings = [
+  "It uses {{ model_sites }}. Add {{ missing_sites }} in step 1.",
+  "Running the check. This may take a few minutes.",
+  "Alerts on the picked data: {{ before }} now, {{ after }} after recalibrating.",
+  "Saved and in use. The previous calibration is in Past calibrations.",
+]
+
+[sensors]
+file = "templates/sensors.html"
+strings = [
+  "Sensors",
+  "Every sensor at every site, and when it last sent a reading. A sensor counts as quiet after 60 minutes with no readings.",
+  "{{ reporting }} of {{ total }} sites are reporting.",
+  "{{ n_quiet }} are quiet.",
+  "All sites",
+  "Quiet sites only",
+  "Export sensor status (CSV)",
+  "Sensors at each site",
+  "Site",
+  "Last reading",
+  "Last reading at {{ time }}, about {{ ago }}.",
+  "Last 24 hours",
+  "One mark per hour. A full mark means all 4 readings arrived, a half mark means 1 to 3 arrived, and an empty mark means none did.",
+  "A quiet site likely means the logger lost its cellular signal or its battery is low. We recommend telling the field team.",
+  "Before model tuning",
+  "We recommend leaving quiet sites out when picking data, since gaps can shift the new alert line.",
+  "Start model tuning",
+]
+new_strings = [
+  "1 is quiet.",
+]
+attrs = [
+  'aria-label="Which sites to show"',
+  'aria-label="Last 24 hours: {{ n_full }} full, {{ n_half }} half and {{ n_empty }} empty"',
+]
+
+[events]
+file = "templates/events.html"
+strings = [
+  "Events",
+  "Every known event in the creek data, including spills, rain, sensor problems and field visits.",
+  "Mark a new event",
+  "Export event list (CSV)",
+  "Kind",
+  "All kinds",
+  "Known events",
+  "Event",
+  "Sites",
+  "Dates",
+  "Should a model alert?",
+  "Source",
+  "Shipped with StrawberryWatch. Changes are saved on this computer only.",
+  "{{ site }}, {{ reading_label }}",
+  "Drag across the chart to change where the event starts and ends.",
+  "Starts",
+  "Ends",
+  "Should a model alert on this?",
+  "Note",
+  "Save changes",
+  "Cancel",
+  "Log sensor cleanings and swaps as field visits. Readings can shift after a cleaning, and that shift should stay out of calibration data.",
+  "How model tuning uses events",
+  "Step 1 leaves these events out of the picked data, and step 3 checks each new calibration against them.",
+  "Start model tuning",
+]
+new_strings = [
+  "New event",
+  "Name",
+  "Added on this computer.",
+  "Delete event",
+  "Delete this event? This cannot be undone.",
+  "Pick at least 1 site and a start and end time.",
+]
+attrs = [
+  'aria-label="Reading to show"',
+  'aria-label="Line chart of {{ reading }} at {{ site }}. The marked range runs from {{ start }} to {{ end }}."',
+]
+
+[calibrations]
+file = "templates/calibrations.html"
+strings = [
+  "Past calibrations",
+  "Every calibration saved on this computer, grouped by model. Switching takes effect immediately and deletes nothing. Each exported summary is a 1-page PDF for sharing with Environment, Health & Safety (EH&S).",
+  "Shipped with the model",
+  "In use",
+  "Not in use",
+  "Made from the model's training data when it was built.",
+  "Saved {{ saved_date }}",
+  "Data",
+  "{{ sites }}, {{ dates_short }}, from {{ source_name }}",
+  "Left out",
+  "False alarms",
+  "Past events",
+  "See the check results",
+  '"{{ note }}"',
+  "Use this one",
+  "Compare with the one in use",
+  "Export summary (PDF)",
+  "No saved calibrations yet. Tune {{ model }} to make one.",
+  "The shipped calibration stays available",
+  "Each model keeps the calibration it shipped with, so you can return to it at any time.",
+]
+new_strings = [
+  "Now in use.",
+]
+
+[compare]
+file = "templates/compare.html"
+strings = [
+  "Past calibrations",
+  "Compare with the one in use",
+  "See the check results",
+  "Event",
+  "Should a model alert?",
+  "Now",
+  "After recalibrating",
+]
+new_strings = [
+  "{{ model }}, saved {{ saved_date }}",
+  "In use",
+  "This one",
+  "These results were saved with the calibration on {{ saved_date }}.",
+  "Back to Past calibrations",
+]
+
+[manual]
+file = "templates/manual.html"
+strings = [
+  "User manual",
+  "Search the manual",
+  "Previous: {{ prev_title }}",
+  "Next: {{ next_title }}",
+]
+new_strings = [
+  "No pages match {{ query }}.",
+]
+attrs = [
+  'placeholder="For example: false alarms"',
+  'aria-label="Manual contents"',
+]
+
+[manual_recalibrating]
+file = "manual/what-recalibrating-does.md"
+strings = [
+  "What recalibrating does",
+  "Each model turns the latest readings into a score. When the score crosses the alert line (threshold), the model raises an alert. Recalibrating moves the alert line using data you pick. The model itself does not change.",
+  "The new alert line is set so that, on the picked data, alerts occur about as often as the false alarm choice allows. The picked data therefore matters. If a spill is present in it, the alert line rises, and the model becomes less likely to catch similar spills. For this reason, step 1 leaves out known events by default.",
+  "Choosing how many false alarms are acceptable",
+  "Fewer false alarms raise the alert line, and a higher alert line may also let small, real changes go unnoticed. When unsure, we recommend (1) choosing about 1 false alarm a week, and (2) checking the past events before saving.",
+  "Before recalibrating, we recommend looking over the picked data in Explore. An unexpected rise or drop in the readings is a reason to pick different dates.",
+]
+
+[settings]
+file = "templates/settings.html"
+strings = [
+  "Settings",
+  "Set up each data source once. Model tuning then uses it without asking again.",
+  "Data sources",
+  "The Strawberry Creek website",
+  "API token saved in this computer's keychain.",
+  "Replace token",
+  "Test connection",
+  "A MySQL database",
+  "The password is kept in this computer's keychain, never in a file.",
+  "Host",
+  "Database",
+  "Username",
+  "Password",
+  "Save",
+  "A folder of CSV files",
+  "No folder chosen yet.",
+  "Choose folder",
+  "Text size",
+  "Normal",
+  "Larger",
+  "Colors",
+  "Match this computer",
+  "Light",
+  "Dark",
+  "Files on this computer",
+  "Saved calibrations, events marked here and downloaded readings are stored in one folder.",
+  "Open folder",
+  "Clear downloaded readings",
+  "Clearing removes downloaded readings only. They download again when needed. Saved calibrations and events stay.",
+]
+new_strings = [
+  "No API token saved yet.",
+  "Add token",
+  "API token",
+  "Connected.",
+  "Could not connect: {{ reason }}",
+  "Saved.",
+  "Downloaded readings cleared.",
+]
+attrs = [
+  'placeholder="Database name"',
+]
+
+[text_py]
+file = "text.py"
+strings = [
+  # step statuses
+  "In progress",
+  "Done",
+  "Not started",
+  "Cannot start yet",
+  # readings, as buttons and table headers
+  "Conductivity",
+  "Depth",
+  "Temperature",
+  "Dissolved oxygen",
+  "pH",
+  # chart titles
+  "Conductivity (µS/cm)",
+  # sensor status words
+  "Live",
+  "Quiet",
+  "None",
+  # event kinds, alert answers and sources
+  "Spill or leak",
+  "Rain",
+  "Sensor problem",
+  "Field visit",
+  "Other",
+  "Yes",
+  "No",
+  "Shipped",
+  "Added here",
+  # false alarm choices
+  "About 1 a month",
+  "About 1 a week",
+  "About 1 a day",
+  # what was left out
+  "Known events and rainy hours",
+  # past events results
+  "Not run yet",
+  # model descriptions
+  "Learns how the creek behaves as a whole and notices when readings stop matching.",
+  "Scores each sensor on its own, so it can point to the sensor that changed.",
+  # source names inside sentences
+  "the Strawberry Creek website",
+  # manual pages, in order
+  "Getting started",
+  "The creek and its sensors",
+  "Picking data",
+  "Reading the Explore charts",
+  "What recalibrating does",
+  "Past calibrations",
+  "Events",
+  "Drift check",
+  "Exporting",
+  "When something looks wrong",
+  "Glossary",
+]
+new_strings = [
+  "Depth (mm)",
+  "Temperature (°C)",
+  "Dissolved oxygen (mg/L)",
+  "conductivity (µS/cm)",
+  "depth (mm)",
+  "temperature (°C)",
+  "dissolved oxygen (mg/L)",
+  "Known events",
+  "Rainy hours",
+  "Nothing",
+  "a folder of CSV files",
+  "a MySQL database",
+  "Caught",
+  "Missed",
+  "Stayed quiet",
+  "Alerted",
+  "Not enough data",
+  "{first} and 1 other site",
+  "{first} and {n} other sites",
+  "{n} min ago",
+  "1 hour ago",
+  "{n} hours ago",
+  "1 day ago",
+  "{n} days ago",
+]
+
+[export_py]
+file = "export.py"
+new_strings = [
+  "StrawberryWatch calibration summary",
+  "Model",
+  "Saved",
+  "Data",
+  "Left out",
+  "False alarms",
+  "Notes",
+  "Past events",
+  "Event",
+  "Should a model alert?",
+  "Now",
+  "After recalibrating",
+  "Made with the StrawberryWatch Workbench on {date}.",
+]

@@ -205,7 +205,7 @@ def test_github_reads_every_file_at_one_commit(monkeypatch):
 
 @pytest.mark.parametrize("url", ["file:///etc/hostname", "http://example.invalid/x.pt"])
 def test_only_https_is_opened(url):
-    # Refused before any connection, so this never touches the network
+    # Refused before any connection, and the test stays off the network
     with pytest.raises(urllib.error.URLError, match="unknown url type"):
         mu._open(urllib.request.Request(url), timeout=1)
     with pytest.raises(mu.UpdateError, match="couldn't reach GitHub"):

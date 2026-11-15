@@ -1,14 +1,7 @@
-"""
-Synthetic creek generator with known ground truth, for measuring detection
-where no label exists. It generates data and makes no assertions. The
-labelled events in tests/events.yaml are the real evidence, and this is the
-controlled complement.
-
-Faults: stuck, stale, partial, drift, spike, decouple, slow_all.
-
-The window pipeline comes from preprocessing/node_windows.py and the graph from
-the model. A synthetic window is built exactly like a real one.
-"""
+"""Synthetic creek generator with known ground truth, for measuring detection without labels."""
+# It makes no assertions. The labelled events in tests/events.yaml are the real evidence
+# Faults: stuck, stale, partial, drift, spike, decouple, slow_all
+# Windows come from preprocessing/node_windows.py and the graph from the model, like real ones
 
 from __future__ import annotations
 
@@ -33,11 +26,11 @@ from strawberrywatch.preprocessing.node_windows import (
 
 EPOCH = pd.Timestamp("2026-01-01 00:00:00", tz="UTC")
 
-# Steps of travel per flow edge. One hop is an hour at a 15 minute grid.
+# Steps of travel per flow edge, an hour at a 15 minute grid
 TRAVEL_STEPS = 4
 
-# Per site baseline, roughly the levels the real network sits at. Gives the
-# scaler something site-specific to find.
+# Per site baseline near the real network's levels. Gives the scaler something
+# site-specific to find
 BASELINE = {
     "north_fork_0": {
         "conductivity": 600.0,
@@ -91,7 +84,7 @@ NOISE_SD = {
     "float_cond": 1.8,
 }
 
-# Raw-unit fault sizes per variable, scaled by the sweep multipliers.
+# Raw-unit fault sizes per variable, scaled by the sweep multipliers
 BASE_MAG = {
     "conductivity": 120.0,
     "depth_dev": 60.0,
@@ -101,19 +94,19 @@ BASE_MAG = {
 }
 MULTS = (0.5, 1.0, 2.0)
 
-# Residual-noise fractions for the partial-freeze sweep, as a fraction of the
-# node's own normal variance over the fault window.
+# Residual-noise fractions for the partial-freeze sweep, of the node's own normal
+# variance over the fault window
 PARTIAL_FRACS = (0.0, 0.05, 0.10, 0.20, 0.30, 0.50, 1.00)
 
 SHAPES = ("stuck", "stale", "partial", "drift", "spike", "decouple", "slow_all")
 
-# Fault window and the anchor step scored inside it. The scored window is
-# [anchor - WIN, anchor), which sits strictly inside [F_LO, F_HI).
+# Fault window and the anchor step scored inside it. The scored window
+# [anchor - WIN, anchor) sits strictly inside [F_LO, F_HI)
 F_LO, F_HI, F_ANCHOR = 300, 360, 340
 
 
 def flow_weights(edges=FLOW_EDGES):
-    """Edge weights for the generator. A site fed by several upstreams splits evenly between them."""
+    """Edge weights. A site fed by several upstreams splits evenly between them."""
     inflow = {}
     for _src, dst in edges:
         inflow[dst] = inflow.get(dst, 0) + 1
@@ -121,11 +114,8 @@ def flow_weights(edges=FLOW_EDGES):
 
 
 def downstream_paths(source, edges=FLOW_EDGES):
-    """
-    Every site reachable downstream of source, with the product of the edge
-    weights along the way and the hop count. Sites with no flow path aren't in
-    the result. The isolation test relies on that.
-    """
+    """Every site downstream of source, with the edge weights' product and the hop count."""
+    # Sites with no flow path are left out, and the isolation test relies on that
     w = flow_weights(edges)
     out, frontier = {}, [(source, 1.0, 0)]
     while frontier:
@@ -175,8 +165,8 @@ def _series(site, var, times, rng, spill, rain):
 
     if rain and var in ("conductivity", "float_cond"):
         lo, hi = rain["start"], rain["start"] + rain["duration"]
-        # No lag or attenuation, rain hits the creek all at once. The model has
-        # no weather channels and sees this as a network-wide event.
+        # No lag or attenuation, rain hits the creek all at once. The model has no weather
+        # channels and sees it as a network-wide event
         v = v + np.where((steps >= lo) & (steps < hi), rain["magnitude"], 0.0)
 
     return v
@@ -209,17 +199,11 @@ def make_synthetic_creek(
     cadence=None,
     scaler=None,
 ):
-    """
-    Build one fault-free window with known ground truth.
-
-    spill:   {"site": str, "start": int, "duration": int, "magnitude": float}
-    rain:    {"start": int, "duration": int, "magnitude": float}
-    dropout: {site or "site.var": [(start, end), ...]} in grid steps
-    cadence: {site: minutes between observations}, default 15 and on-grid
-
-    Returns build_window's dict plus "truth". The context is only the two clock
-    features, no weather.
-    """
+    """Builds one fault-free window with known ground truth: build_window's dict plus "truth"."""
+    # spill {site, start, duration, magnitude}, rain {start, duration, magnitude}
+    # dropout {site or "site.var": [(start, end), ...]} in grid steps
+    # cadence {site: minutes between observations}, default 15 and on-grid
+    # The context is only the two clock features, no weather
     sites = list(sites or SITE_ORDER)
     inventory = inventory or SITE_INVENTORY
     dropout = dropout or {}
@@ -279,15 +263,9 @@ def node_magnitude(win, node_index, mult=1.0):
 
 
 def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, anchor=F_ANCHOR):
-    """
-    Fault one node (or, for slow_all, every node) over [lo, hi) of a fault-free
-    window. Returns (values, target, truth) where values is the full modified
-    (T, N) scaled series, target is the modified (N,) observation at the anchor
-    step, and truth names what was done.
-
-    This doesn't read the model. Scoring may compare against the returned truth
-    and only that.
-    """
+    """Faults one node (all of them for slow_all) over [lo, hi). Returns (values, target, truth)."""
+    # values is the full modified (T, N) scaled series, target the (N,) anchor observation
+    # Doesn't read the model. Scoring may compare against the returned truth and only that
     v = win["values"].copy()
     t = win["target_val"][anchor].copy()
     rng = np.random.default_rng(seed)
@@ -299,7 +277,7 @@ def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, 
     elif shape == "stale":
         v[lo:hi, node_index] = v[lo, node_index]
     elif shape == "partial":
-        # The node's own normal variance over this stretch, before freezing it.
+        # The node's own normal variance over this stretch, before freezing it
         sd = float(np.std(win["values"][lo:hi, node_index]))
         noise = rng.normal(0.0, sd * frac, size=hi - lo)
         v[lo:hi, node_index] = v[lo, node_index] + noise
@@ -309,21 +287,21 @@ def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, 
         v[lo:hi, node_index] += ramp
         t[node_index] += ramp[anchor - lo]
     elif shape == "spike":
-        # Onset at the anchor: the window the model conditions on is clean and
-        # the step change lands on the observation being predicted.
+        # Onset at the anchor. The window the model conditions on is clean, and the step
+        # lands on the observation being predicted
         v[anchor:hi, node_index] += mag
         t[node_index] += mag
     elif shape == "decouple":
-        # Reflect about the window mean. Mean and variance stay exactly the same
-        # and only the correlation with the node's siblings flips, which is the
-        # case reconstruction should catch and the other channels can't.
+        # Reflect about the window mean. Mean and variance stay exactly the same and only the
+        # correlation with the siblings flips, the case reconstruction should catch and the
+        # other channels can't
         seg = v[lo:hi, node_index]
         v[lo:hi, node_index] = 2.0 * seg.mean() - seg
         t[node_index] = v[anchor, node_index]
     elif shape == "slow_all":
-        # All nodes drift together. The forecast sees a tiny per-step delta
-        # and the leave-one-out channel sees neighbours that agree. Both
-        # should be weak; only the window shape changed.
+        # All nodes drift together. The forecast sees a tiny per-step delta and the
+        # leave-one-out channel sees agreeing neighbours. Both should be weak; only the window
+        # shape changed
         faulted = list(range(v.shape[1]))
         for i in faulted:
             ramp = np.linspace(0.0, node_magnitude(win, i, mag), hi - lo)
@@ -345,12 +323,7 @@ def inject(win, node_index, shape, mag=0.0, frac=0.0, seed=0, lo=F_LO, hi=F_HI, 
 
 
 def fault_cases(win, shapes=SHAPES, mults=MULTS, fracs=PARTIAL_FRACS, seed=0):
-    """
-    Every fault case in the sweep: shape, node, magnitude where applicable.
-
-    Yields (values, target, truth). slow_all is emitted once per magnitude,
-    not once per node, since it faults all nodes at once.
-    """
+    """Every sweep case as (values, target, truth). slow_all comes once per magnitude."""
     n = win["values"].shape[1]
     for shape in shapes:
         if shape == "slow_all":

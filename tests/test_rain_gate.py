@@ -1,14 +1,8 @@
-"""
-Rain gate: it adjusts the threshold, not the score.
-
-The gate raises the alerting bar during and after rain. POT calibrated z_q
-against the fault-free score distribution. Scaling a score would invalidate
-that fit and every p-value under it, while scaling the threshold leaves both
-alone. The no-contamination test at the bottom checks this.
-
-The numbers behind the design are in the rain_gate module docstring. The
-corpus they came from is gone, and they can't be recomputed here.
-"""
+"""Rain gate: it adjusts the threshold, not the score."""
+# POT calibrated z_q against the fault-free score distribution. Scaling a score would
+# invalidate that fit and every p-value under it, and scaling the threshold leaves both
+# alone. The no-contamination test at the bottom checks this. The numbers behind the design
+# are in the rain_gate module docstring, from a corpus that is gone
 
 import numpy as np
 import pytest
@@ -31,11 +25,8 @@ def z_q():
 
 @pytest.fixture(scope="module")
 def combined_null():
-    """
-    A fault-free null for the combined score. The audit trail's p-values come
-    from the same distribution as the threshold. Fitted here because this is a
-    test. Production loads its nulls from the calibration file.
-    """
+    """A fault-free null for the combined score, the same distribution as the threshold."""
+    # Fitted here because this is a test. Production loads its nulls from the calibration file
     rng = np.random.default_rng(0)
     return scoring.ChannelNull().fit(rng.gamma(shape=4.0, scale=2.0, size=20000))
 
@@ -70,13 +61,9 @@ def test_off_mode_reproduces_the_ungated_decision(z_q, combined_null):
 
 
 def test_step_matches_a_hand_computation(z_q):
-    """
-    multiplier 2.0, lookback 12 h, wet_mm 0.1, hourly samples. Rain of
-    0.5 mm/h at hours 5, 6 and 7 only.
-
-    The window at hour t covers [t-12, t]. The last hour whose window still
-    holds hour 7 is t = 19. The bar is doubled for hours 5 to 19 inclusive.
-    """
+    """multiplier 2.0, lookback 12 h, wet_mm 0.1, hourly samples, 0.5 mm/h at hours 5 to 7."""
+    # The window at hour t covers [t-12, t], and the last one holding hour 7 is t = 19. The
+    # bar is doubled for hours 5 to 19 inclusive
     n = 40
     rain = np.zeros(n)
     rain[5:8] = 0.5
@@ -94,11 +81,9 @@ def test_step_matches_a_hand_computation(z_q):
 
 
 def test_deployed_mode_matches_the_production_formula(z_q):
-    """
-    "deployed" reproduces anomaly_detector._rain_multipliers: hold the full
-    multiplier while the lookback total is wet, then taper over decay_hours
-    measured from when the lookback window closes.
-    """
+    """The "deployed" mode reproduces anomaly_detector._rain_multipliers."""
+    # The full multiplier holds while the lookback total is wet, then tapers over decay_hours
+    # from when the lookback window closes
     n = 80
     rain = np.zeros(n)
     rain[5:8] = 0.5
@@ -208,12 +193,9 @@ def test_per_node_multiplier_only_moves_the_named_node(z_q):
 
 
 def test_delayed_first_flush_separates_the_modes(z_q):
-    """
-    Rain, then a conductivity pulse 21 h after it stops: outside the 12 h
-    lookback, inside the 36 h decay. step is back at base by then and flags the
-    pulse at any magnitude; decay and deployed still hold the bar up. Neither
-    is asserted correct. We only check that they differ.
-    """
+    """A pulse 21 h after rain stops, outside the 12 h lookback and inside the 36 h decay."""
+    # step is back at base and flags the pulse at any magnitude, while decay and deployed still
+    # hold the bar up. Neither is asserted correct, only that they differ
     n, pulse_t = 80, 36
     rain = np.zeros(n)
     rain[10:16] = 1.2
@@ -240,10 +222,8 @@ def test_delayed_first_flush_separates_the_modes(z_q):
 
 
 def test_scores_and_pvalues_are_identical_across_modes(z_q, combined_null):
-    """
-    The gate may move the threshold and only the threshold. Bit-identical,
-    because "close enough" here would mean the detector was being touched.
-    """
+    """The gate moves the threshold and only the threshold, checked bit for bit."""
+    # "Close enough" would mean the detector was being touched
     rng = np.random.default_rng(2)
     scores = rng.gamma(shape=4.0, scale=2.0, size=(300, 17)) * 4.0
     rain = synthetic_rain(300)

@@ -79,46 +79,50 @@
 
 \begin{abstract}
 Support modules are optional layers that attach to a detection run. They are
-not models, they have no weights of their own, and one module attaches to any
-model that declares the input contract it needs. The design problem they solve
-is narrower than it looks: attaching a second test to a detector calibrated at
-a false alarm rate $q$ produces a system alerting at roughly $2q$, and every
-component reports $q$ while it happens. Nothing in the arithmetic complains.
-This document sets out the taxonomy that makes the false alarm budget
-divisible, the algebra that divides it, the audit record that says which module
-caused which alert, and the mathematics of Trial Bed, the first module
-implemented. Trial Bed is an explainer: it names the disturbance a firing looks
-like by matching the direction each channel moved against a signature table,
-and it declines to answer when the channels a signature needs are not
-measured.
+not models and have no weights of their own, and one module attaches to any
+model that declares the input contract it needs. The design problem they
+address is narrower than it may appear. Attaching a second test to a detector
+calibrated at a false alarm rate $q$ produces a system that alerts at roughly
+$2q$, while every component still reports $q$ and nothing in the arithmetic
+signals the change. Here, we set out (1) the taxonomy that makes the false
+alarm budget divisible, (2) the algebra that divides it, (3) the audit record
+that states which module caused which alert, and (4) the mathematics of Trial
+Bed, the first module we implemented. Trial Bed is an explainer. It names the
+disturbance a firing resembles by matching the direction each channel moved
+against a signature table, and it declines to answer when the channels a
+signature needs are not measured. Since the first version of this report, we
+have built Newtwork Run as a second explainer, which reads the order in which
+sites fired along the flow graph, and Settling Pool as a screen, which flags
+readings that are not measurements. All three can be attached to a model in
+the StrawberryWatch dashboard.
 \end{abstract}
 
 \section{Introduction}
 \label{sec:introduction}
 
-A detector is calibrated once, against a fault-free distribution, at a false
-alarm rate chosen in advance. That calibration is the only thing standing
-between an operator and an alert stream nobody reads, and it is fragile in a
-specific way: it describes one test. Add a second test beside it and the
-guarantee is gone, silently, because both tests are individually correct.
+We calibrate a detector once, against a fault-free distribution, at a false
+alarm rate chosen in advance. That calibration is what keeps the alert stream
+small enough for an operator to read, and it has a specific weakness: it
+describes one test. Adding a second test beside it removes the guarantee
+without any warning, because each test is individually correct.
 
-This is the failure the support layer is built around. If a primary detector
-fires with probability $q$ under the null and a second detector fires with
+We built the support layer around this failure. If a primary detector fires
+with probability $q$ under the null and a second detector fires with
 probability $q$ under the null, the system fires with probability up to $2q$.
-Both components report $q$ when asked. No exception is raised, no number looks
-wrong, and the alarm rate has doubled.
+Both components report $q$ when asked. No exception is raised and no number
+looks wrong, yet the alarm rate has doubled.
 
-The consequence is that a false alarm budget is a quantity to be divided, never
-handed out fresh per module. Everything else in this document follows from
-taking that seriously.
+Thus, a false alarm budget is a quantity to be divided, and it is never handed
+out afresh to each module. The rest of this document follows from this
+principle.
 
-\section{Four Kinds}
+\section{Module Kinds}
 \label{sec:kinds}
 
-Not everything that attaches to a run costs budget, and collapsing the ones
-that do with the ones that do not is what makes the budget indivisible. The
-layer therefore has four kinds, and a module must be exactly one of them.
-Reading them in order reads the pipeline in order.
+Not every module that attaches to a run costs budget, and treating the modules
+that do in the same way as those that do not would make the budget
+indivisible. The layer therefore has four kinds, and each module is exactly one
+of them. Taken in order, the kinds follow the order of the pipeline.
 
 \begin{table}[t]
   \centering
@@ -137,39 +141,37 @@ Reading them in order reads the pipeline in order.
 \end{table}
 
 A \textbf{modulator} moves the alerting threshold and never touches the score.
-That direction is not a stylistic preference. The threshold was fitted against
-the fault-free distribution of the score, so a score scaled by any factor is no
+This direction has a statistical basis. The threshold was fitted against the
+fault-free distribution of the score, so a score scaled by any factor is no
 longer a draw from the distribution the fit was made on, and every probability
-under it quietly stops meaning what it says. Multiplying the threshold instead
-leaves the score, its probability and the calibration exactly where they were,
-and turns the adjustment into a stated alerting decision that can be read off
-the record.
+computed under it loses its meaning. Multiplying the threshold instead leaves
+the score, its probability and the calibration unchanged, and it makes the
+adjustment a stated alerting decision that can be read from the record.
 
-A \textbf{detector} adds a score, therefore a test, therefore a second tail to
-pay for. It is the only kind that spends budget, and separating it from the
-modulator is precisely what makes the budget divisible. One class with a flag
-would leave nothing to stop three modules running at $q$ each while the real
-rate went to $3q$.
+A \textbf{detector} adds a score, and therefore a test and a second tail to pay
+for. It is the only kind that spends budget, and separating it from the
+modulator is what makes the budget divisible. With one class and a flag,
+nothing would prevent three modules from each running at $q$ while the real
+rate rose to $3q$.
 
 A \textbf{screen} runs before the model and decides which readings are fit to
-consume. It adds no test, so it is not a detector and takes no budget; it moves
-no threshold, so it is not a modulator. What it changes is the model's input,
-and that carries a consequence neither other kind does: the null and the
-threshold were fitted on unscreened windows, so screening moves the
-distribution the score is drawn from and the existing calibration no longer
-describes it. A screen therefore cannot be switched on without refitting the
-primary.
+use. It adds no test, so it is not a detector and takes no budget, and it moves
+no threshold, so it is not a modulator. It changes the model's input, which has
+a consequence that neither of the other kinds has. The null and the threshold
+were fitted on unscreened windows, so screening moves the distribution the
+score is drawn from, and the existing calibration no longer describes it. A
+screen therefore cannot be switched on without refitting the primary.
 
 An \textbf{explainer} runs after the decision has been made and reads it. It
-adds no test, moves no threshold, and changes nothing the decision was made
-from. It is a separate kind rather than a detector precisely because charging
-it budget would cost the primary sensitivity in exchange for a module that can
-never fire.
+adds no test, moves no threshold and changes nothing the decision was made
+from. It is a separate kind rather than a detector because charging it budget
+would cost the primary sensitivity in exchange for a module that can never
+fire.
 
-\section{The Budget}
+\section{The False Alarm Budget}
 \label{sec:budget}
 
-\subsection{Dividing $q$}
+\subsection{Division of $q$}
 
 Let $q$ be the total false alarm rate for the whole run, and let there be $n$
 attached detectors with weights $w_{1}, \dots, w_{n}$. The split is
@@ -181,47 +183,49 @@ attached detectors with weights $w_{1}, \dots, w_{n}$. The split is
 
 This is a union bound. The probability that at least one of the tests fires
 under the null is at most the sum of the individual rates, so allocating shares
-that sum to $q$ puts the combined rate at or below $q$ rather than on it. It is
-the same correction used whenever a family of tests has to hold a joint error
-rate~\citep{dunn1961multiple}, applied here to a family that grows whenever an
-operator adds a module on the command line.
+that sum to $q$ keeps the combined rate at or below $q$ rather than at $q$. It
+is the same correction used whenever a family of tests has to hold a joint
+error rate~\citep{dunn1961multiple}, applied here to a family that grows
+whenever an operator adds a module on the command line.
 
 The default is an even split. With $n$ detectors there are $n+1$ shares, so
-each weight is $1/(n+1)$ and the sum is $n/(n+1)$, which is below one for every
-$n$. Even is the honest default: weighting one detector above another is a
-claim about which test is more likely to fire, and nothing has measured that.
+each weight is $1/(n+1)$ and the weights sum to $n/(n+1)$, which is below one
+for every $n$. We make the even split the default because weighting one
+detector above another is a claim about which test is more likely to fire, and
+nothing has measured that.
 
-\subsection{Why the weights must sum below one}
+\subsection{The requirement that weights sum below one}
 
-The weights are required to sum strictly below one, and both boundary cases
-raise rather than clamp. At a sum of exactly one the primary is left a budget
-of zero, which is a threshold at infinity and a primary that can never fire.
-Above one the primary's budget is negative, which is not a rate at all.
+We require the weights to sum strictly below one, and both boundary cases raise
+an error rather than being clamped. At a sum of exactly one, the primary is
+left a budget of zero, which is a threshold at infinity and a primary that can
+never fire. Above one, the primary's budget is negative, which is not a rate.
 
-Clamping either case would produce a run that looks like it worked, reports a
-plausible split, and has silently switched the primary detector off. Raising is
-the only safe behaviour, because the failure is otherwise invisible in exactly
-the way the whole layer exists to prevent.
+Clamping either case would produce a run that appears to have worked, reports a
+plausible split, and has switched the primary detector off without notice.
+Raising is the only safe behaviour, because otherwise the failure is invisible
+in the way this layer exists to prevent.
 
-Modulators, screens and explainers are absent from this arithmetic entirely.
-They add no test, so $n$ counts detectors only, and a stack containing nothing
-but modulators leaves the primary the whole budget.
+Modulators, screens and explainers do not enter this arithmetic. They add no
+test, so $n$ counts detectors only, and a stack of modulators alone leaves the
+primary the whole budget. At present no detector module is registered, so
+every stack leaves the primary the whole budget.
 
-\subsection{Firing on the probability, not the score}
+\subsection{Firing on the probability}
 
 Each detector fires when its right-tail probability falls below its own share,
 $p_{i} < q_{i}$, and never on the raw score. Raw scores from different
-detectors are not comparable, which is the same reason a multi-channel detector
-converts each channel before combining. Comparing on the probability keeps the
-budget meaning the same thing for every module regardless of what units its
-score happens to be in.
+detectors are not comparable, for the same reason that a multi-channel detector
+converts each channel before combining them. Comparing on the probability keeps
+the meaning of the budget the same for every module, whatever units its score
+is in.
 
-A detector's null is fitted at calibration time and loaded from an artifact. It
-is never fitted here. A detector that fits its null on the window it is judging
-does not have a null; it has a description of the data it just saw. Where a
-detector's null is a fitted tail, it is the same peaks-over-threshold
-construction the primary uses~\citep{siffer2017spot,pickands1975gpd}, and where
-several probabilities have to become one number it is the same combination
+We fit a detector's null at calibration time and load it from an artifact; the
+support layer never fits it. A detector that fits its null on the window it is
+judging does not have a null; it has a description of the data it just saw.
+Where a detector's null is a fitted tail, it uses the same peaks-over-threshold
+construction as the primary~\citep{siffer2017spot,pickands1975gpd}, and where
+several probabilities have to become one number, it uses the same combination
 rule~\citep{fisher1925methods}.
 
 \section{Composition}
@@ -229,11 +233,11 @@ rule~\citep{fisher1925methods}.
 
 \subsection{The stack}
 
-The modules attached to one run form a stack, built through a loader so that
-name resolution, contract validation, collision against a model's built-in
-behaviour, and the budget split all happen before anything runs. A stack that
-exists is a stack that has already been checked, and a module that cannot
-attach must not turn up halfway through a detection.
+The modules attached to one run form a stack. A loader builds the stack, so
+that name resolution, contract validation, collision checks against a model's
+built-in behaviour and the budget split all happen before anything runs. Thus,
+a stack that exists has already been checked, and a module that cannot attach
+never appears partway through a detection.
 
 Screens intersect. A reading is admitted only if every screen admits it, and an
 empty screen list admits everything, which is the identity.
@@ -243,62 +247,64 @@ Modulator multipliers compose by product,
   M_{t,j} = \prod_{m} M^{(m)}_{t,j},
   \qquad M^{(m)}_{t,j} \ge 1 ,
 \end{equation}
-and every multiplier is required to be at least one and finite. This layer
-raises the alerting bar and never lowers it, so a factor below one is refused
-rather than applied. A timestep with no reading behind it contributes exactly
-one, so an uninformed modulator is inert rather than suppressing.
+and every multiplier must be finite and at least one. This layer raises the
+alerting bar and never lowers it, so a factor below one is refused rather than
+applied. A timestep with no reading behind it contributes exactly one, so a
+modulator without information is inert rather than suppressing alerts.
 
 \subsection{Ordering}
 
-Modules are sorted by name before composition, so the order an operator typed
-them in cannot reach anything downstream. Sorting rather than trusting
-commutativity is deliberate. Multiplication commutes, so $ab = ba$ holds, but
-floating point association does not: $(ab)c$ and $(ac)b$ need not be
-bit-identical, and three modulators is enough to reach that. An empty stack is
-the identity with no special case, so zero modules walk the same code as three.
+We sort modules by name before composition, so the order in which an operator
+typed them cannot affect anything downstream. We sort rather than rely on
+commutativity for a specific reason. Multiplication commutes, so $ab = ba$
+holds, but floating point association does not: $(ab)c$ and $(ac)b$ need not
+be bit-identical, and three modulators are enough to reach that case. An empty
+stack is the identity with no special case, so zero modules follow the same
+code path as three.
 
 \section{The Audit Record}
 \label{sec:record}
 
-The record answers two questions an operator actually asks: why did this fire,
-and what changes if I turn that off.
+The record answers two questions an operator asks: why an alert fired, and
+what would change if a given module were turned off.
 
-\subsection{Three verdicts, not two}
+\subsection{Three verdicts}
 
-Every node at every timestep resolves to one of three verdicts. It fired, it
-was clear, or it was not scorable. The third exists because a score that could
-not be computed is not the same answer as a score that did not exceed, and
-collapsing them is how an unscorable node reaches an operator as a quiet
-all-clear. A non-finite score never fires, and where nothing was scorable the
-record says so.
+Every node at every timestep resolves to one of three verdicts: it fired, it
+was clear, or it was not scorable. The third verdict exists because a score
+that could not be computed is a different answer from a score that did not
+exceed the threshold, and merging the two would let an unscorable node reach an
+operator as an all-clear. A non-finite score never fires, and where nothing
+was scorable the record says so.
 
 \subsection{Counterfactuals}
 
-For each attached module the record carries the verdict that would have been
+For each attached module, the record carries the verdict that would have been
 reached with that module switched off, computed without re-running anything. A
-modulator drops out by dividing its multiplier back out of the threshold; a
+modulator drops out by dividing its multiplier back out of the threshold, and a
 detector drops out by removing its vote. An explainer's entry is written too,
-and it always equals the actual verdict, which is how the record states in its
-own contents that the explainer cost nothing.
+and it always equals the actual verdict, so the record itself shows that the
+explainer cost nothing.
 
 The record extends the primary's own format rather than replacing it. Every
-field the primary wrote keeps its meaning and the support fields sit alongside,
-because two formats would mean two readers, and the reader who has to act at
-two in the morning should not have to know which one they are holding.
+field the primary wrote keeps its meaning, and the support fields sit
+alongside them. Two formats would require two readers, and an operator who has
+to act on an alert at two in the morning should not have to work out which
+format they are reading.
 
 \section{Trial Bed}
 \label{sec:trialbed}
 
-Trial Bed is the first module implemented, and it is an explainer. Given a
-firing it names the disturbance the event looks like, the evidence behind that
+Trial Bed is the first module we implemented, and it is an explainer. Given a
+firing, it names the disturbance the event resembles, the evidence behind that
 name, and how much confidence the reporting channels support.
 
-\subsection{Directions, not magnitudes}
+\subsection{Directions rather than magnitudes}
 
-For each parameter the module compares the readings at the timesteps that fired
-against the readings at the timesteps that did not, and reduces the comparison
-to a direction. Writing $\bar{b}$ and $s_{b}$ for the baseline mean and
-standard deviation and $\bar{e}$ for the event mean,
+For each parameter, the module compares the readings at the timesteps that
+fired against the readings at the timesteps that did not, and reduces the
+comparison to a direction. Writing $\bar{b}$ and $s_{b}$ for the baseline mean
+and standard deviation and $\bar{e}$ for the event mean,
 \begin{equation}
   \text{direction} =
   \begin{cases}
@@ -309,20 +315,20 @@ standard deviation and $\bar{e}$ for the event mean,
   \qquad \kappa = 1 .
 \end{equation}
 
-Using the baseline's own spread as the yardstick is what lets one rule serve
-parameters on wildly different scales. A one degree move in temperature and a
-one degree move in conductivity are not comparable in absolute units; both are
+Using the baseline's own spread as the unit lets one rule serve parameters on
+very different scales. A move of one unit in temperature and a move of one
+unit in conductivity are not comparable in absolute terms, but both are
 comparable in units of how much that parameter normally varies at that node.
-Where the baseline has no spread at all the comparison falls back to a relative
-change with a five percent band, and where there is too little data the
-direction is undefined rather than guessed.
+Where the baseline has no spread at all, the comparison falls back to a
+relative change with a five percent band, and where there is too little data,
+the direction is left undefined rather than guessed.
 
 \subsection{The signature table}
 
-Table~\ref{tab:signatures} is the deployed table. Each cell is the direction a
-disturbance is expected to push a parameter, and \textsc{indet} marks a parameter
-that does not discriminate for that disturbance and is therefore skipped without
-reward or penalty.
+Table~\ref{tab:signatures} shows the deployed table. Each cell is the direction
+a disturbance is expected to push a parameter, and \textsc{indet} marks a
+parameter that does not discriminate for that disturbance and is therefore
+skipped, with neither reward nor penalty.
 
 \begin{table}[t]
   \centering
@@ -344,95 +350,160 @@ reward or penalty.
   \end{tabular}
 \end{table}
 
-A row is scored by the fraction of its non-\textsc{indet} parameters whose
-observed direction agrees,
+Each cell also carries the mechanism behind its direction, for example that
+oil is a poor conductor for the oil row's conductivity cell, and every
+per-parameter comparison in an account quotes it. A row is scored by the
+fraction of its non-\textsc{indet} parameters whose observed direction agrees,
 \begin{equation}
   \mathrm{score}(P) = \frac{|\{v \in R(P) : d_{v} = \sigma_{P,v}\}|}{|R(P)|},
 \end{equation}
-where $R(P)$ is the set of parameters row $P$ asserts a direction for. A row
-scoring below one half is a poor fit and is reported as a possible new type
-rather than as a name, as is a tie at the top: if the reporting channels did
-not separate two candidates, naming one of them would be inventing the
-separation.
+where $R(P)$ is the set of parameters for which row $P$ asserts a direction. A
+row scoring below one half is a poor fit and is reported as a possible new type
+rather than as a name. A tie at the top is reported the same way, since if the
+reporting channels did not separate two candidates, naming one of them would
+invent the separation.
+
+The potable water row is also checked against numbers rather than directions
+alone. A move down is weaker evidence than a mean of about 13 degrees Celsius
+when the creek already runs near 13 degrees, so the module compares the event
+means with Berkeley potable water, about 13.0 degrees Celsius and pH 9.4, and
+reports a match within 1.5 degrees and 0.5 pH units. This check is reported
+beside the row's score and does not change it.
 
 \subsection{Declining to answer}
 
-The property that matters most is what happens when the channels a row needs
-are not measured. A row is evaluated only if every parameter it asserts a
-direction for has an observed direction behind it. Otherwise it is reported as
-unevaluable, naming the parameters that were absent.
+The most important property of the module is its behaviour when the channels a
+row needs are not measured. A row is evaluated only if every parameter it
+asserts a direction for has an observed direction behind it. Otherwise, the row
+is reported as unevaluable, together with the names of the absent parameters
+and, from the inventory, the reason each one is absent: a probe that was never
+installed at the site, a probe that is installed but reporting nothing, or a
+probe with no readings in the window. The first two look identical in the data
+and are different problems for whoever receives the alert.
 
 The alternative, scoring a row on whichever of its parameters happen to be
-present, produces a number that looks exactly like a full match and is not one.
-A partial signature scored as if it were whole is how a guess reaches an
-operator wearing the clothes of a diagnosis.
+present, produces a number that looks like a full match and is not one. A
+partial signature scored as if it were complete would present a guess to an
+operator as a diagnosis.
 
-This is not a hypothetical concern for this network. The deployed sites measure
-conductivity, depth and temperature. Depth is not in the table at all, and
-every row in Table~\ref{tab:signatures} requires both dissolved oxygen and
-floating conductivity, with four of the five also requiring pH. On the deployed
-channels, therefore, \emph{no} row is evaluable, and Trial Bed's honest output
-at every node is that it cannot evaluate, together with the list of channels
-that would let it.
+This concern applies directly to this network. Depth is not in the table at
+all, every row in Table~\ref{tab:signatures} requires both dissolved oxygen
+and floating conductivity, and four of the five rows also require pH. Of the
+11 sites in the inventory, 9 measure only conductivity, depth and temperature,
+and no row is evaluable there. Footbridge and south\_fork\_3 also carry
+dissolved oxygen and floating conductivity probes, so the sewage and
+fertilizer rows, which do not depend on pH, can be evaluated at those two
+sites. No site has a pH probe, so the rain, potable water and oil rows are
+evaluable nowhere. The four sites DuskCrayfish scores are among the nine, so
+when Trial Bed is attached to DuskCrayfish its output at every node is that it
+cannot evaluate, together with the list of channels that would let it do so.
 
 \subsection{The output}
 
-An account names the likely cause, the evidence and the confidence, in a form
-an operator can act on rather than a label. Where a diagnosis is possible it
-reads, for example, \emph{consistent with sewage: temperature up, dissolved
-oxygen down, pH not measured, conductivity up, floating conductivity up}.
-Where it is not, the same sentence structure carries the refusal and the
-missing channels. Confidence is reported from how many of the discriminating
-channels were populated, not from the score, because a perfect match on two
-channels is not strong evidence.
+An account states the likely cause, the evidence and the confidence, in a form
+an operator can act on rather than as a bare label. Where a diagnosis is
+possible, it reads, for example, \emph{consistent with sewage: temperature up,
+dissolved oxygen down, pH never installed here, conductivity up, floating
+conductivity up}. Where it is not, the same sentence structure carries the refusal and the
+missing channels. We report confidence from how many of the discriminating
+channels were populated rather than from the score, because a perfect match on
+two channels is not strong evidence.
 
-\section{The Modules Not Yet Built}
+\section{Newtwork Run and Settling Pool}
 \label{sec:pending}
 
-Two further modules are specified and registered but not implemented, and both
-raise from their required method rather than returning a default. Reaching the
-raise proves the call arrived.
+When the first version of this report was written, both modules were
+registered placeholders. Newtwork Run was planned as a detector, which would
+score agreement along the flow edges against a fitted null and spend a share
+of the budget, and Settling Pool was planned as a screen. Both are now built.
 
-\textbf{Newtwork Run} is a detector. It will score whether a flagged event
-travelled the way water does: a real discharge appears downstream after the travel
-lag and a failing sensor does not, so agreement along the flow edges separates
-the two. Being a detector, it will spend its share of the budget.
+\subsection{Newtwork Run}
 
-\textbf{Settling Pool} is a screen. It will withhold readings a sensor produced
-while it was settling, purging, or otherwise not measuring the creek, so the
-model is never asked to explain a reading that was never a measurement. It
-takes no budget, but as a screen it moves the distribution the primary was
-calibrated against, so switching it on means recalibrating the primary on
-screened windows.
+We built \textbf{Newtwork Run} as an explainer rather than a detector. A real
+discharge appears at a downstream site after it appears upstream, while a
+catchment-wide cause such as rain moves every site at once, and the order in
+which sites first fired already separates the two without a fitted null or a
+measured travel time. For each node that fired, the module compares its first
+firing with those of its upstream and downstream neighbours in the inventory's
+flow graph and returns one of four readings. (1) A site upstream fired
+earlier, or a site downstream fired later, which is consistent with transport.
+(2) Other sites fired at the same timestep with no upstream lead, which is what
+a catchment-wide cause looks like. (3) No neighbour fired before or after it along
+the flow graph and no site fired at the same timestep, so nothing suggests the
+event moved through the creek. (4) Codornices, which is not connected to
+Strawberry Creek by flow, fired at the same timestep, so nothing carried the
+event between them. The table of travel times per edge is left empty, because
+nobody has measured one, and every account states that its confidence rests
+on ordering alone. As an explainer, the module spends no budget and cannot
+change what fired.
+
+\subsection{Settling Pool}
+
+\textbf{Settling Pool} is a screen. It runs eight tests on every site and
+variable, with thresholds per site from the inventory: (1) gross range,
+(2) flat line, (3) attenuated signal, (4) spike, (5) rate of change,
+(6) sentinel values such as $-9999$, (7) a duplicate feed, where a site reports
+another site's numbers, and (8) staleness. Each reading receives the worst flag
+any test gave it, on five levels numbered as in the QARTOD quality control
+manuals: 1 good, 2 not evaluated, 3 suspect, 4 fail and 9 missing. The
+inventory's record of each sensor outranks the tests where it says a reading
+was not a measurement, so a probe that was not installed is not evaluated
+rather than tested, and a site taken out of service is withheld whatever its
+flags say. Settling Pool flags readings and does not correct them. What a
+model does with each level is that model's flag policy, and the default policy
+refuses fail and missing.
+
+In the dashboard, an operator can attach Settling Pool to a model. Readings
+flagged suspect or fail are then blanked before the model reads them, and the
+model's account reports how many readings were held back at each site. As
+Section~\ref{sec:kinds} sets out, a screen moves the distribution the primary
+was calibrated against, so switching it on still calls for recalibrating the
+primary on screened windows.
 
 \section{Limitations and Future Work}
 \label{sec:limitations}
 
 The budget split is a union bound, which is conservative. The real combined
-rate lands below $q$ rather than on it, and how far below depends on how
-correlated the tests are. Nothing has measured that correlation for this
-system, so the amount of sensitivity given away is currently unknown.
+rate falls below $q$ rather than at $q$, and how far below depends on how
+correlated the tests are. Nothing has yet measured that correlation for this
+system, so the amount of sensitivity given up is currently unknown.
 
-The even default split is an admission of ignorance rather than a finding. It
-is the right default only until something measures which test is more likely to
-fire.
+The even default split reflects the absence of a measurement rather than a
+finding. It is the appropriate default only until something measures which
+test is more likely to fire. With no detector module registered, the split is
+currently unused.
 
-Within Table~\ref{tab:signatures}, floating conductivity carries the same
-direction as conductivity in all five rows. It is nonetheless counted as a
-discriminating channel, and one discriminating channel is currently enough to
-unlock a named diagnosis. It also means conductivity's evidence is counted
-twice in every row's score. Whether that is intended is a question about the
-table, and the table belongs to the Water Quality team.
+No model has yet been recalibrated on screened windows. Attaching Settling Pool
+in the dashboard therefore scores screened readings against thresholds fitted
+on unscreened ones. In addition, the dashboard blanks readings flagged suspect
+or fail, while the default flag policy that models declare refuses fail and
+missing. The two should be brought into agreement.
 
-No cell in the table carries its own source. The table is attributed as a whole
-and two cells assert measurable quantities, the local potable water temperature and
-its pH, with nothing recorded behind them. Depth is measured at every deployed
-site and appears nowhere in the table, which is part of why no row is currently
-evaluable.
+Within Table~\ref{tab:signatures}, floating conductivity has the same direction
+as conductivity in all five rows. It nonetheless counts as a discriminating
+channel, and one discriminating channel is currently enough to unlock a named
+diagnosis. It also means that conductivity's evidence is counted twice in every
+row's score. Whether this is intended is a question about the table, and the
+table belongs to the Water Quality team.
+
+Every cell now states the mechanism behind its direction, but no cell cites
+a measurement or a publication. The table is attributed as a whole, and the
+two measurable quantities it relies on, the local potable water temperature
+of 13.0 degrees Celsius and pH of 9.4, have nothing recorded behind them.
+One labelled event also contradicts a row. In the March 2026 hydrant break,
+water from a fire hydrant ran down Euclid Avenue into a storm drain and into
+the north fork, and north\_fork\_0 saw conductivity fall and depth rise with
+no meaningful change in temperature, where the potable water row expects
+temperature to fall. Either street runoff warms on the way in, or the row is
+wrong for water delivered through a drain. We recorded the event as a known
+exception beside the table and left the row as sourced, since the question
+belongs to the group. Depth is measured
+at every deployed site and appears nowhere in the table, which is part of why
+no row is currently evaluable.
 
 Finally, Trial Bed reduces a window to one direction per parameter, which
 discards magnitude and timing entirely. A signature table that distinguished a
-large move from a small one, or an abrupt one from a gradual one, would need
+large move from a small one, or an abrupt move from a gradual one, would need
 both a richer table and a matcher that reads it, and neither exists yet.
 
 \bibliographystyle{unsrtnat}
