@@ -117,8 +117,9 @@ def fetch(folder, kind, sites, start, end, again=False):
 def readings(folder, kind, sites, start, end, columns=STORED):
     """{site: frame} on the 15 minute grid, UTC index, one column per reading."""
     with store.connect(folder) as db:
+        # Only a ? per site goes into the string, and the sites go in as values
         rows = db.execute(
-            f"SELECT site, reading, time_utc, value FROM readings WHERE source = ? "
+            f"SELECT site, reading, time_utc, value FROM readings WHERE source = ? "  # nosec B608
             f"AND site IN ({', '.join('?' for _ in sites)}) AND time_utc >= ? AND time_utc <= ?",
             [kind, *sites, _stamp(start), _stamp(end)],
         ).fetchall()

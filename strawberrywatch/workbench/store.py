@@ -130,8 +130,9 @@ def new_session(folder, **fields):
             fields[key] = json.dumps(list(fields[key]))
     names = [k for k in fields if k in SESSION_FIELDS]
     with connect(folder) as db:
+        # names are only ones in SESSION_FIELDS, and the values go in as ?
         cursor = db.execute(
-            f"INSERT INTO sessions ({', '.join(names)}, updated_utc) "
+            f"INSERT INTO sessions ({', '.join(names)}, updated_utc) "  # nosec B608
             f"VALUES ({', '.join('?' for _ in names)}, ?)",
             [fields[k] for k in names] + [now_utc()],
         )
@@ -155,8 +156,9 @@ def update_session(folder, session_id, **fields):
     if not names:
         return
     with connect(folder) as db:
+        # names are only ones in SESSION_FIELDS, and the values go in as ?
         db.execute(
-            f"UPDATE sessions SET {', '.join(f'{k} = ?' for k in names)}, updated_utc = ? "
+            f"UPDATE sessions SET {', '.join(f'{k} = ?' for k in names)}, updated_utc = ? "  # nosec B608
             "WHERE id = ?",
             [fields[k] for k in names] + [now_utc(), session_id],
         )

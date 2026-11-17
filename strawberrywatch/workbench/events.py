@@ -104,11 +104,12 @@ def save(folder, event_id, fields):
         fields.get("note", ""),
         store.now_utc(),
     )
-    columns = "name, kind, sites, start_utc, end_utc, should_alert, note, updated_utc"
     with store.connect(folder) as db:
         if event_id is None:
             cursor = db.execute(
-                f"INSERT INTO events ({columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", values
+                "INSERT INTO events (name, kind, sites, start_utc, end_utc, should_alert, note, "
+                "updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                values,
             )
             return str(cursor.lastrowid)
         current = one(folder, event_id)
@@ -118,7 +119,8 @@ def save(folder, event_id, fields):
             row = db.execute("SELECT id FROM events WHERE shipped_id = ?", (event_id,)).fetchone()
             if row is None:
                 db.execute(
-                    f"INSERT INTO events (shipped_id, {columns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO events (shipped_id, name, kind, sites, start_utc, end_utc, "
+                    "should_alert, note, updated_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (event_id, *values),
                 )
                 return event_id

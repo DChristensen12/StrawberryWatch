@@ -643,11 +643,13 @@ class Store:
         """The sensor problems still going on, oldest first. cleared=True gives the ended ones."""
         if not self.has_levels():
             return []
-        where = "cleared_at IS NOT NULL" if cleared else "cleared_at IS NULL"
+        sql = (
+            "SELECT * FROM sensor_alerts WHERE cleared_at IS NOT NULL ORDER BY first_at, site, col"
+            if cleared
+            else "SELECT * FROM sensor_alerts WHERE cleared_at IS NULL ORDER BY first_at, site, col"
+        )
         with self.db() as db:
-            rows = db.execute(
-                f"SELECT * FROM sensor_alerts WHERE {where} ORDER BY first_at, site, col"
-            ).fetchall()
+            rows = db.execute(sql).fetchall()
         return [dict(r) for r in rows]
 
     def clear_problems(self, rows, now):
@@ -660,12 +662,13 @@ class Store:
 
     def mark_problems_sent(self, rows, now, cleared=False):
         """Records that the email about these problems starting, or clearing, went."""
-        column = "cleared_sent_at" if cleared else "sent_at"
+        sql = (
+            "UPDATE sensor_alerts SET cleared_sent_at = ? WHERE site = ? AND col = ? AND kind = ?"
+            if cleared
+            else "UPDATE sensor_alerts SET sent_at = ? WHERE site = ? AND col = ? AND kind = ?"
+        )
         with self.db() as db:
-            db.executemany(
-                f"UPDATE sensor_alerts SET {column} = ? WHERE site = ? AND col = ? AND kind = ?",
-                [(now, r["site"], r["col"], r["kind"]) for r in rows],
-            )
+            db.executemany(sql, [(now, r["site"], r["col"], r["kind"]) for r in rows])
 
     def last_ingest(self, ok=None):
         """The newest finished ingest pass, or None. ok=True is the newest that got readings."""
