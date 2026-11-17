@@ -24,6 +24,7 @@ import os
 import pandas as pd
 
 from strawberrywatch import paths
+from strawberrywatch.ingest import fixtures
 
 RAW_DATA_DIR = paths.raw_data_dir()
 RAIN_CACHE_DIR = paths.rain_cache_dir()
@@ -45,9 +46,6 @@ _RAW_FILENAME_OVERRIDES = {
 }
 
 _TIME_CANDIDATES = ["DateTimeUTC", "timestamp", "datetime"]
-
-# same cadence the weather merge in data_loader.py assumes for the 15-min grid
-_ROWS_PER_HOUR = 4
 
 
 def _raw_path_for_site(site):
@@ -154,9 +152,9 @@ def _find_covering_rain_cache(start, end):
     return None
 
 
-def _get_weather_hourly(start, end):
+def _get_weather(start, end):
     """
-    Returns hourly air_temp_c, rain_mm, shortwave_radiation for [start, end].
+    Returns 15-minute air_temp_c, rain_mm, shortwave_radiation for [start, end].
     Rain reuses data/rain_cache/ when a cache file already covers the range.
     air_temp_c/shortwave_radiation have no cache of their own and always
     come straight from Open-Meteo. If rain wasn't cached, this fetch supplies
@@ -198,16 +196,15 @@ def rebuild(site, folder, output_path, exclude_from_window=None):
         f"  {len(in_window)}/{len(raw)} raw rows fall in the event window, kept in raw_data's native order"
     )
 
-    weather_hourly = _get_weather_hourly(start, end).copy()
-    # accumulated rain gets split evenly across the sub-hourly rows it covers,
-    # same disaggregation data_loader._merge_weather does
-    weather_hourly["rain_mm"] = weather_hourly["rain_mm"] / _ROWS_PER_HOUR
+    # Open-Meteo's rain is the mm that fell in each quarter hour, as live checks
+    # read it. Joined on the quarter hour, with nothing split or divided
+    weather = _get_weather(start, end)
 
     # merge preserves in_window's row order (its native, unsorted order), it
     # only ever adds columns onto the left side
-    in_window["_hour_key"] = in_window["DateTimeUTC"].dt.floor("h")
-    out = in_window.merge(weather_hourly, how="left", left_on="_hour_key", right_index=True)
-    out = out.drop(columns=["_hour_key"])
+    in_window["_quarter_key"] = in_window["DateTimeUTC"].dt.floor("15min")
+    out = in_window.merge(weather, how="left", left_on="_quarter_key", right_index=True)
+    out = out.drop(columns=["_quarter_key"])
 
     out["DateTimeUTC"] = out["DateTimeUTC"].dt.tz_localize(None)
     out = out[FIXTURE_COLUMNS]
@@ -217,6 +214,10 @@ def rebuild(site, folder, output_path, exclude_from_window=None):
         os.makedirs(out_dir, exist_ok=True)
     out.to_csv(output_path, index=False)
     print(f"  wrote {len(out)} rows to {output_path}")
+
+    # A fixture written into data/anomalies gets its new fingerprint recorded
+    for name in fixtures.record():
+        print(f"  recorded fingerprint for {name}")
     return out
 
 

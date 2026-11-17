@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -28,11 +29,58 @@ _OPEN_METEO_VARIABLES = [
 ]
 
 
+def cached_session(folder, expire_after=3600, retries=5, backoff_factor=0.2):
+    """A session that keeps each answer for an hour and retries a failed request."""
+    # Cache and retry setup from the openmeteo-requests README (MIT). The
+    # retries are urllib3's own Retry, mounted the way requests documents
+    # https://github.com/open-meteo/python-requests/blob/main/README.md
+    from requests.adapters import HTTPAdapter
+    from urllib3.util import Retry
+
+    try:
+        import requests_cache
+
+        session = requests_cache.CachedSession(
+            str(Path(folder) / ".cache"), expire_after=expire_after
+        )
+    except ImportError:
+        # an install from before requests-cache was a dependency
+        session = requests.Session()
+    retry = Retry(
+        total=retries, backoff_factor=backoff_factor, status_forcelist=(500, 502, 503, 504)
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    session.mount("http://", HTTPAdapter(max_retries=retry))
+    return session
+
+
+_shared = None
+
+
+def shared_session():
+    """One cached_session() for the process, kept in the user's cache folder."""
+    global _shared
+    if _shared is None:
+        import tempfile
+
+        try:
+            import platformdirs
+
+            folder = Path(platformdirs.user_cache_dir("strawberrywatch", appauthor=False))
+        except ImportError:
+            folder = Path(tempfile.gettempdir()) / "strawberrywatch"
+        folder.mkdir(parents=True, exist_ok=True)
+        _shared = cached_session(folder)
+    return _shared
+
+
 def fetch_open_meteo_weather(
     start_time,
     end_time,
     latitude: float | None = None,
     longitude: float | None = None,
+    session=None,
+    timeout=60,
 ) -> pd.DataFrame:
     """
     Fetch native 15-minute weather from Open-Meteo's Historical Forecast API
@@ -45,7 +93,8 @@ def fetch_open_meteo_weather(
     disaggregation needed downstream.
 
     start_time/end_time can be datetime objects or ISO-8601 strings.
-    Latitude/longitude default to central Berkeley if not given.
+    Latitude/longitude default to central Berkeley if not given. session is
+    a cached_session() when the caller wants the cache and retries.
     """
     lat = latitude if latitude is not None else _BERKELEY_LAT
     lon = longitude if longitude is not None else _BERKELEY_LON
@@ -70,7 +119,7 @@ def fetch_open_meteo_weather(
     }
 
     try:
-        resp = requests.get(_OPEN_METEO_URL, params=params, timeout=60)
+        resp = (session or requests).get(_OPEN_METEO_URL, params=params, timeout=timeout)
     except requests.exceptions.RequestException as e:
         logger.error(f"Open-Meteo request failed: {e}")
         return pd.DataFrame()

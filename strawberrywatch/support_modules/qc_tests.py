@@ -8,6 +8,8 @@ callers know where the arrays came from.
 
 from __future__ import annotations
 
+import time
+
 import numpy as np
 
 # Flag values
@@ -128,11 +130,27 @@ def spike(values, threshold, fail_threshold=None):
     return flags
 
 
-def rate_of_change(values, threshold, window):
+def window_count(timestamps, seconds, default):
+    """How many readings span this many seconds, at the series' own median spacing."""
+    # The conversion ioos_qc's flat_line_test makes from its time thresholds,
+    # rounded to the nearest reading
+    # https://github.com/ioos/ioos_qc/blob/53246ba5c3d1c06ece3b74c5a5c9e9a0c1f655bc/ioos_qc/qartod.py
+    t = np.asarray(timestamps, dtype=float)
+    t = t[~np.isnan(t)]
+    if t.size < 2:
+        return default
+    interval = np.median(np.diff(t))
+    if not interval > 0:
+        return default
+    return max(1, int(round(seconds / interval)))
+
+
+def rate_of_change(values, threshold, window, timestamps=None, span=None):
     """Flag change sustained across a window faster than the creek can move."""
     v, flags = _base(values)
     n = len(v)
     ok = ~np.isnan(v)
+    t = None if timestamps is None or span is None else np.asarray(timestamps, dtype=float)
 
     for i in range(n):
         if not ok[i] or i < window:
@@ -140,7 +158,12 @@ def rate_of_change(values, threshold, window):
         prior = v[i - window]
         if np.isnan(prior):
             continue
-        if abs(v[i] - prior) > threshold:
+        # threshold is the change allowed over span seconds, held to the same rate
+        # for readings further apart or closer, as ioos_qc's test does
+        limit = threshold
+        if t is not None and t[i] - t[i - window] != span:
+            limit = threshold * (t[i] - t[i - window]) / span
+        if abs(v[i] - prior) > limit:
             flags[i] = SUSPECT
 
     flags[ok & (flags == UNKNOWN)] = GOOD
@@ -223,6 +246,64 @@ def staleness(timestamps, present, max_gap_seconds):
     return flags
 
 
+# The three time tests are adapted from ioos_qc (Apache 2.0), on epoch seconds
+# https://github.com/ioos/ioos_qc/blob/53246ba5c3d1c06ece3b74c5a5c9e9a0c1f655bc/ioos_qc/qartod.py
+
+
+def _time_base(timestamps):
+    """Start every stamp at GOOD, with the unreadable ones marked MISSING."""
+    t = np.asarray(timestamps, dtype=float)
+    flags = np.full(t.shape, GOOD, dtype=np.uint8)
+    valid = ~np.isnan(t)
+    flags[~valid] = MISSING
+    return t, flags, valid
+
+
+def impossible_date(timestamps, fail_span=None, now=None):
+    """Flag stamps in the future, or outside fail_span when one is given."""
+    t, flags, valid = _time_base(timestamps)
+    now = time.time() if now is None else now
+
+    # Check for time travelers
+    flags[valid & (t > now)] = FAIL
+
+    if fail_span is not None:
+        low, high = fail_span
+        flags[valid & ((t < low) | (t > high))] = FAIL
+    return flags
+
+
+def data_reception(timestamps, fail_span=6, from_time=None):
+    """Flag stamps more than fail_span hours older than from_time, which defaults to now."""
+    t, flags, valid = _time_base(timestamps)
+    from_time = time.time() if from_time is None else from_time
+
+    flags[valid & (from_time - t > fail_span * 3600)] = FAIL
+    return flags
+
+
+def time_gap(timestamps, fail_span=2):
+    """Flag the reading that follows a gap longer than fail_span hours."""
+    t, flags, valid = _time_base(timestamps)
+    if t.size < 2:
+        return flags
+
+    diff = np.zeros(t.shape)
+    diff[1:] = t[1:] - t[:-1]
+
+    # the previous stamp has to be readable too
+    pair_valid = valid & np.r_[False, valid[:-1]]
+    flags[pair_valid & (diff > fail_span * 3600)] = FAIL
+    flags[valid & np.isnan(diff)] = UNKNOWN
+
+    # The first point takes the second's flag, unless the second is unreadable
+    if not valid[1] and valid[0]:
+        flags[0] = UNKNOWN
+    else:
+        flags[0] = flags[1]
+    return flags
+
+
 def worst(*flag_arrays):
     """
     Combine flags by severity, not by value. UNKNOWN loses to any real verdict.
@@ -254,12 +335,16 @@ __all__ = [
     "SUSPECT",
     "UNKNOWN",
     "attenuated_signal",
+    "data_reception",
     "duplicate_feed",
     "flat_line",
     "gross_range",
+    "impossible_date",
     "rate_of_change",
     "sentinel",
     "spike",
     "staleness",
+    "time_gap",
+    "window_count",
     "worst",
 ]

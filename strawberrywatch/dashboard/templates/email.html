@@ -31,7 +31,7 @@
 </div>
 
 <h2>Recipients</h2>
-{% if in_env %}<p class="small muted">Saved on the <code>ALERT_EMAIL_RECIPIENTS</code> line of <code>.env</code>.</p>{% endif %}
+{% if in_env %}<p class="small muted">Saved in StrawberryWatch's own data on this computer. <code>.env</code> keeps only the email account.</p>{% endif %}
 {% if labels %}
   {#- Filter and sort by label, the way Home Assistant's users table does with its
       group column (src/panels/config/users/ha-config-users.ts, Apache-2.0) -#}

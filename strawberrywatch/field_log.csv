@@ -1,0 +1,4 @@
+date,time,site,sensor,event,end,note,who,confirmed,value_before,value_after
+2025-11-20,,south_fork_0,ctd,stolen,,"from memory, unconfirmed; south_fork_3's July 2025 silence is the other candidate",,no,,
+2026-02-09,16:03:00-08:00,south_fork_0,conductivity,bad,2026-04-28T23:59:00-07:00,"Flat after an 81 day gap: daily range 3 to 8 uS/cm on most days, against a median of 52 before the gap. Worked out from the data.",,no,,
+2026-04-01,14:07:00-07:00,south_fork_3,dissolved_oxygen,units_changed,,"Daily median 71 to 126 up to 5 Mar 2026 (percent saturation scale), 8 to 15 from the first reading after a 27 day gap (mg/L scale). Readings after it are left out until a conversion is recorded. Worked out from the data.",,no,,

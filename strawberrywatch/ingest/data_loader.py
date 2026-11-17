@@ -2,11 +2,11 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 
-import numpy as np
 import pandas as pd
 
 from strawberrywatch.config import Config
 from strawberrywatch.ingest.api_client import fetch_network_snapshot
+from strawberrywatch.serving.windows import add_time_features
 
 # Numeric columns that aren't creek measurements and shouldn't be model features.
 # EnviroDIY_Mayfly_Batt is sensor health telemetry; 'valid' is the QC mask (becomes
@@ -73,11 +73,36 @@ def _load_wide_corpus(file_path):
     return long_df
 
 
+def _leveled(df, level):
+    """The long frame at the "screened" or "reviewed" level. The cache file keeps raw readings."""
+    from strawberrywatch import field_log
+    from strawberrywatch import inventory as inv
+    from strawberrywatch.ingest import levels
+
+    inventory = inv.load()
+    log = field_log.load(inventory=inventory) if level == "reviewed" else field_log._frame([])
+    out = df.copy()
+    taken = 0
+    for site in out["location"].dropna().unique():
+        rows = (out["location"] == site).to_numpy()
+        kept, why = levels.reviewed(
+            {site: out.loc[rows].drop(columns=["location"])}, inventory, log
+        )
+        if site not in why:
+            continue
+        cols = list(why[site].columns)
+        out.loc[rows, cols] = kept[site][cols].to_numpy()
+        taken += int((why[site] != 0).to_numpy().sum())
+    print(f"{level} level left out {taken:,} readings")
+    return out
+
+
 def load_and_preprocess_data(
     file_path=None,
     force_download=False,
     days=30,
     data_source="api",
+    level=None,
 ):
     """
     Load creek data from the cache CSV, fetching fresh if the cache is missing
@@ -97,6 +122,10 @@ def load_and_preprocess_data(
 
     file_path defaults to the rolling cache, resolved here and not in the
     signature. Importing this module doesn't need a project root.
+
+    level="screened" hands back a pull at the screened level, which live
+    checks read, and level="reviewed" at the reviewed level, which training
+    reads. A wide corpus was built at the reviewed level already.
     """
     if file_path is None:
         file_path = Config.data_file()
@@ -164,6 +193,8 @@ def load_and_preprocess_data(
         df = pd.read_csv(file_path)
         df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df = df.set_index("datetime").sort_index()
+        if level is not None:
+            df = _leveled(df, level)
 
     print("data loaded:")
     print(f"Rows: {df.shape[0]:,}")
@@ -193,16 +224,8 @@ def load_and_preprocess_data(
     carry_cols = [c for c in ("valid",) if c in df.columns]
     df_featured = df[["location"] + feature_cols + carry_cols].copy()
 
-    # Sin/cos pairs for hour and day-of-year. Raw numbers make 11pm and midnight
-    # look far apart; circular encoding keeps the wrap smooth. Can't be NaN,
-    # since they come from the index and not sensors.
-    idx = df_featured.index
-    hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
-    doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0
-    df_featured["hour_sin"] = np.sin(hour_angle)
-    df_featured["hour_cos"] = np.cos(hour_angle)
-    df_featured["dayofyear_sin"] = np.sin(doy_angle)
-    df_featured["dayofyear_cos"] = np.cos(doy_angle)
+    # The four clock features, from the one function serving uses
+    df_featured = add_time_features(df_featured)
 
     time_feature_cols = ["hour_sin", "hour_cos", "dayofyear_sin", "dayofyear_cos"]
     feature_cols = feature_cols + time_feature_cols

@@ -46,13 +46,15 @@ MIN_CLEAN_DAYS = 14
 
 
 def load(start, end):
-    """The archive's tables under inventory names, out-of-range readings dropped, and the rain."""
+    """The archive's tables at the reviewed level, out-of-range readings dropped, and the rain."""
+    from strawberrywatch import field_log
     from strawberrywatch import inventory as inv
-    from strawberrywatch.ingest import weather_archive
+    from strawberrywatch.ingest import levels, weather_archive
     from strawberrywatch.ingest.raw_data_loader import load_archive_by_table
 
     inventory = inv.load()
     tables = load_archive_by_table(earliest=inventory.earliest_plausible_reading)
+    tables, _ = levels.reviewed(tables, inventory, field_log.load(inventory=inventory))
     tables, _ = drop_implausible(tables)
     rain = weather_archive.load_weather(start, end)["rain_mm"]
     return inventory, tables, pd.to_numeric(rain, errors="coerce").resample("15min").sum()

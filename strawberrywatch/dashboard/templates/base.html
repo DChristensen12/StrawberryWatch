@@ -46,6 +46,7 @@
       {% if paused %}
         <div class="sw-banner" role="region" aria-labelledby="sw-paused-title">
           <h2 class="sw-banner__title" id="sw-paused-title">Model checks paused after 3 failed checks.{% if not profile.checks_here %} Night Heron's threshold alerts still work.{% endif %}</h2>
+          {% if collecting %}<p>Readings are still being collected. Last collected {{ collecting }}.</p>{% endif %}
           {% if can_edit %}
             <form method="post" action="{{ url_for('main.resume_checks') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

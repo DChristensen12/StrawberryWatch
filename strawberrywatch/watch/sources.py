@@ -101,15 +101,22 @@ class Source:
         """(start, end) of the readings a check reads, as UTC Timestamps."""
         raise NotImplementedError
 
-    def tables(self, names, start, end):
+    def raw_tables(self, names, start, end):
+        """Each site's readings as fetched, at their own stamps. The raw level keeps these."""
         raise NotImplementedError
+
+    def tables(self, names, start, end):
+        """The same readings on the quarter hour grid, which the models read."""
+        return {name: on_grid(frame) for name, frame in self.raw_tables(names, start, end).items()}
 
     def weather(self, start, end):
         """Open-Meteo weather for the window, same as the models trained on. None if unavailable."""
         try:
-            from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
+            from strawberrywatch.ingest import historical_weather_client as client
 
-            frame = fetch_open_meteo_weather(start.to_pydatetime(), end.to_pydatetime())
+            frame = client.fetch_open_meteo_weather(
+                start.to_pydatetime(), end.to_pydatetime(), session=client.shared_session()
+            )
         except Exception as exc:
             logger.warning("weather fetch failed (%s), checking without it", type(exc).__name__)
             return None
@@ -135,7 +142,7 @@ class ApiSource(Source):
         end = pd.Timestamp.now(tz="UTC").floor("15min")
         return end - lookback, end
 
-    def tables(self, names, start, end):
+    def raw_tables(self, names, start, end):
         from strawberrywatch import inventory as inv
         from strawberrywatch.ingest.api_client import fetch_creek_data
 
@@ -160,7 +167,7 @@ class ApiSource(Source):
             frame = frame.drop(
                 columns=[c for c in ("station_id", "uuid", "site_code") if c in frame.columns]
             )
-            out[name] = on_grid(_indexed(frame, f"The API's answer for {name}"))
+            out[name] = _indexed(frame, f"The API's answer for {name}")
         return out
 
 
@@ -231,13 +238,13 @@ class CsvSource(Source):
         end = max(f.index.max() for f in frames).floor("15min")
         return end - lookback, end
 
-    def tables(self, names, start, end):
+    def raw_tables(self, names, start, end):
         out = {}
         for name, frame in self._read(names).items():
             part = frame[(frame.index >= start) & (frame.index <= end)]
             part = part.drop(columns=[c for c in WEATHER_COLUMNS if c in part.columns])
             if len(part):
-                out[name] = on_grid(part)
+                out[name] = part
         return out
 
     def weather(self, start, end):
@@ -269,8 +276,8 @@ class ReplaySource(Source):
         end = max(f.index.max() for f in frames).floor("15min")
         return start, end
 
-    def tables(self, names, start, end):
-        return self._csv.tables(names, start, end)
+    def raw_tables(self, names, start, end):
+        return self._csv.raw_tables(names, start, end)
 
     def weather(self, start, end):
         return _carried_weather(self._csv._all(), start, end)
@@ -297,7 +304,7 @@ class SqlSource(Source):
         end = pd.Timestamp.now(tz="UTC").floor("15min")
         return end - lookback, end
 
-    def tables(self, names, start, end):
+    def raw_tables(self, names, start, end):
         from strawberrywatch.ingest import sql_client
 
         try:
@@ -314,7 +321,7 @@ class SqlSource(Source):
             frame = frame.drop(
                 columns=[c for c in ("station_id", "uuid", "site_code") if c in frame.columns]
             )
-            out[name] = on_grid(_indexed(frame, f"The table for {name}"))
+            out[name] = _indexed(frame, f"The table for {name}")
         return out
 
 
@@ -328,7 +335,8 @@ class WithBackup(Source):
     def __init__(self, primary, backup):
         self.primary, self.backup = primary, backup
         self.used = primary
-        self._tables = None
+        # The primary's answer for one window, kept so a check reads it once
+        self._tables, self._window = None, None
 
     @property
     def kind(self):
@@ -346,17 +354,18 @@ class WithBackup(Source):
 
         start, end = self.primary.window(lookback)
         try:
-            self._tables = self.primary.tables(list(inv.load().sites), start, end)
+            self._tables = self.primary.raw_tables(list(inv.load().sites), start, end)
+            self._window = (start, end)
         except Exception as exc:
             logger.warning("%s, reading the API instead", _plain(exc))
             self.used = self.backup
             return self.backup.window(lookback)
         return start, end
 
-    def tables(self, names, start, end):
-        if self.used is self.primary and self._tables is not None:
+    def raw_tables(self, names, start, end):
+        if self.used is self.primary and self._window == (start, end):
             return {name: frame for name, frame in self._tables.items() if name in names}
-        return self.used.tables(names, start, end)
+        return self.used.raw_tables(names, start, end)
 
     def weather(self, start, end):
         return self.used.weather(start, end)

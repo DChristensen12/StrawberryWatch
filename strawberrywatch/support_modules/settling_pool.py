@@ -25,9 +25,14 @@ STATE_FLAGS = {
     inv.MISSING: qc.MISSING,
 }
 
+# The posting interval the inventory's step counts are written for
+STEP_SECONDS = 900
+# The reading whose span floor says a probe is out of the water
+OUT_OF_WATER_VARIABLE = "depth"
+
 # Which failure mode each test names, for the report and the audit record.
 TEST_CAUSES = {
-    "gross_range": "reading outside the range this site has ever produced",
+    "gross_range": "reading outside what the probe can report, or outside this site's own range",
     "flat_line": "sensor has stopped changing",
     "attenuated_signal": "variability collapsed, probe likely fouled or wrapped in debris",
     "spike": "single step excursion",
@@ -35,6 +40,7 @@ TEST_CAUSES = {
     "sentinel": "wrong SDI-12 channel address, field fixable",
     "duplicate_feed": "this site is reporting another site's numbers",
     "staleness": "no reading within the allowed gap",
+    "out_of_water": "depth below the probe's floor, possibly out of the water",
 }
 
 
@@ -61,22 +67,44 @@ def flag_one(values, timestamps, site, variable, inventory, other=None):
     entry = inventory.site(site)
     values = np.asarray(values, dtype=float)
     per_test = {}
+    epoch = pd.DatetimeIndex(timestamps).as_unit("ns").asi8 / 1e9
 
-    fail_range = entry.threshold(variable, "fail_range")
-    suspect_range = entry.threshold(variable, "suspect_range")
-    if fail_range or suspect_range:
-        per_test["gross_range"] = qc.gross_range(values, fail_range, suspect_range)
+    def steps(count):
+        # the inventory counts 15 minute steps. As time, then as readings at this series' spacing
+        return qc.window_count(epoch, count * STEP_SECONDS, count)
+
+    # QARTOD's split: fail outside what the probe can report, suspect outside
+    # what this site has produced. Both of a site's own ranges are the second kind
+    span = inventory.span(site, variable)
+    usual = entry.threshold(variable, "suspect_range") or entry.threshold(variable, "fail_range")
+    # Only a probe with a span has a floor. Balance Hydrologics stage has neither
+    floor = inventory.out_of_water_depth if variable == OUT_OF_WATER_VARIABLE and span else None
+    if floor is not None:
+        # Between the span's floor and this one the probe is possibly out of the
+        # water. Under the span's floor the range test fails it instead
+        dry = qc.gross_range(values, suspect_range=(floor, np.inf))
+        dry[values < span[0]] = qc.GOOD
+        per_test["out_of_water"] = dry
+    if span or usual:
+        per_test["gross_range"] = qc.gross_range(values, span, usual)
+        if floor is not None:
+            # within the probe's accuracy of zero is an ordinary reading
+            near_zero = (values >= floor) & (values < 0)
+            calm = per_test["gross_range"] == qc.SUSPECT
+            per_test["gross_range"][near_zero & calm] = qc.GOOD
 
     per_test["sentinel"] = qc.sentinel(values, inventory.sentinel_values)
 
     per_test["flat_line"] = qc.flat_line(
-        values, inventory.flat_line_suspect_count, inventory.flat_line_fail_count
+        values,
+        steps(inventory.flat_line_suspect_count),
+        steps(inventory.flat_line_fail_count),
     )
 
     attenuation = entry.threshold(variable, "attenuation_std")
     if attenuation is not None:
         per_test["attenuated_signal"] = qc.attenuated_signal(
-            values, inventory.window_steps, min_std=attenuation
+            values, steps(inventory.window_steps), min_std=attenuation
         )
 
     spike = entry.threshold(variable, "spike")
@@ -85,14 +113,19 @@ def flag_one(values, timestamps, site, variable, inventory, other=None):
 
     roc = entry.threshold(variable, "rate_of_change")
     if roc is not None:
-        per_test["rate_of_change"] = qc.rate_of_change(values, roc, inventory.window_steps)
+        per_test["rate_of_change"] = qc.rate_of_change(
+            values,
+            roc,
+            steps(inventory.window_steps),
+            epoch,
+            inventory.window_steps * STEP_SECONDS,
+        )
 
     if other is not None:
         per_test["duplicate_feed"] = qc.duplicate_feed(
             values, other, inventory.duplicate_match_fraction
         )
 
-    epoch = pd.DatetimeIndex(timestamps).as_unit("ns").asi8 / 1e9
     per_test["staleness"] = qc.staleness(epoch, ~np.isnan(values), inventory.staleness_hours * 3600)
 
     combined = qc.worst(*per_test.values())

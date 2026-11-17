@@ -13,11 +13,12 @@ cache.
 import glob
 import os
 
-import numpy as np
 import pandas as pd
 
-from strawberrywatch import paths
+from strawberrywatch import field_log, paths
+from strawberrywatch import inventory as inv
 from strawberrywatch.config import Config
+from strawberrywatch.ingest import levels
 from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
 from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
@@ -25,6 +26,7 @@ from strawberrywatch.ingest.quality_control import (
     sentinel_check,
 )
 from strawberrywatch.ingest.raw_data_loader import load_all_raw_sites
+from strawberrywatch.serving.windows import add_time_features
 
 ANOMALIES_DIR = os.path.join("data", "anomalies")
 RAIN_CACHE_DIR = paths.rain_cache_dir()
@@ -38,6 +40,9 @@ ANOMALY_PAD = pd.Timedelta(hours=12)
 _KEEP_IN_TRAINING = "anomaly_2026_01_botanical_actuator"
 
 SENSOR_COLS = ["conductivity", "depth", "temperature"]
+
+# The corpus's site names that aren't the inventory's
+SITE_TO_TABLE = {"footbridge": "scnf010"}
 
 
 # Anomaly windows
@@ -78,6 +83,20 @@ def _anomaly_windows():
         windows.append((name, start, end))
 
     return windows
+
+
+# Reviewed level
+
+
+def _reviewed(all_raw):
+    """(frames under the corpus's site names, what the reviewed level took and why)."""
+    inventory = inv.load()
+    by_table = {SITE_TO_TABLE.get(site, site): frame for site, frame in all_raw.items()}
+    kept, why = levels.reviewed(by_table, inventory, field_log.load(inventory=inventory))
+    back = {table: site for site, table in SITE_TO_TABLE.items()}
+    removed = levels.removed_by(why)
+    removed["site"] = removed["site"].replace(back)
+    return {back.get(table, table): frame for table, frame in kept.items()}, removed
 
 
 # Grid + per-site resampling
@@ -186,6 +205,11 @@ def main():
     if missing:
         raise RuntimeError(f"no raw_data file found for graph node(s): {missing}")
 
+    all_raw, removed = _reviewed(all_raw)
+    print("readings the reviewed level leaves out (line -1 is the screen, others the field log):")
+    print(removed[removed["site"].isin(node_names)].to_string(index=False) or "  (none)")
+    print()
+
     # The stretch where oxford duplicated university_house
     if "university_house" in all_raw:
         dup_df = pd.concat(
@@ -258,14 +282,8 @@ def main():
     n_with_weather = corpus["air_temp_c"].notna().sum()
     print(f"weather merged: {n_with_weather:,}/{len(corpus):,} rows have weather\n")
 
-    # Time encoding, exactly as data_loader.py does it
-    idx = corpus.index
-    hour_angle = 2 * np.pi * (idx.hour + idx.minute / 60.0) / 24.0
-    doy_angle = 2 * np.pi * (idx.dayofyear - 1) / 365.0
-    corpus["hour_sin"] = np.sin(hour_angle)
-    corpus["hour_cos"] = np.cos(hour_angle)
-    corpus["dayofyear_sin"] = np.sin(doy_angle)
-    corpus["dayofyear_cos"] = np.cos(doy_angle)
+    # Time encoding, from the one function serving and the loader use
+    corpus = add_time_features(corpus)
 
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     corpus.to_csv(OUTPUT_PATH, index_label="datetime")

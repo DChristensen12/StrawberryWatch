@@ -179,6 +179,8 @@ p { margin: 0 0 0.8rem; }
 .sw-square--late { background: var(--late); }
 .sw-square--flagged { background: var(--flag); }
 .sw-square--muted { background: var(--mute); }
+/* Readings arriving, no model judging them. Striped, so it doesn't read as Alerts off */
+.sw-square--unknown { background: repeating-linear-gradient(45deg, var(--mute) 0 2px, transparent 2px 4px); }
 
 /* Flash messages and the unsaved changes reminder */
 .sw-message { margin: 0 0 1.25rem; padding: 0.75rem 1rem; border-left: 4px solid var(--ok); background: var(--note-bg); color: var(--heading); font-weight: 700; }
@@ -230,6 +232,7 @@ p { margin: 0 0 0.8rem; }
 .sw-map__node.sw-square--late { fill: var(--late); }
 .sw-map__node.sw-square--flagged { fill: var(--flag); }
 .sw-map__node.sw-square--muted { fill: var(--mute); }
+.sw-map__node.sw-square--unknown { fill: var(--mute); fill-opacity: 0.4; }
 .sw-map__node--watched { fill: var(--watched); }
 .sw-map__node--unwatched { fill: var(--unwatched); stroke: var(--muted); }
 .sw-legend { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0 0 1rem; padding: 0; list-style: none; font-size: 0.9rem; }

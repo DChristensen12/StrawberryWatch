@@ -15,6 +15,17 @@
 {% endfor %}
 <p class="muted small">{{ status.models }} <a href="{{ url_for('main.models') }}">See all models</a></p>
 
+<h2>Data health</h2>
+{% if health.problems %}
+  <p>Sensor problems, not creek alerts. Each one is emailed{% if not profile.email_in_env %} to Admin and SCMG{% endif %} when it starts and when it clears.</p>
+  <ul>
+    {% for p in health.problems %}<li>{{ p.message }}. Since {{ p.since }}.</li>{% endfor %}
+  </ul>
+{% else %}
+  <p>No sensor problems.</p>
+{% endif %}
+{% if health.checked %}<p class="muted small">Sensors last checked {{ health.checked }}.</p>{% endif %}
+
 <h2>Site map</h2>
 <p>Sites in order of flow, upstream on the left.</p>
 <div class="sw-map-scroll">{{ sw.creek_map(map, "Creek map. " ~ (map.nodes | map(attribute='text') | join('. '))) }}</div>
@@ -23,6 +34,7 @@
   <li>{{ sw.status('late', 'No recent data') }}</li>
   <li>{{ sw.status('flagged', 'Alert') }}</li>
   <li>{{ sw.status('muted', 'Alerts off') }}</li>
+  <li>{{ sw.status('unknown', 'Unknown, checks paused') }}</li>
 </ul>
 {% if travelled %}
   <p class="small">Red arrows show the order the change reached each site.</p>

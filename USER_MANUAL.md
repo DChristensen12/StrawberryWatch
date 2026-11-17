@@ -943,6 +943,62 @@ INSTALL DATES, so you can see what still needs an answer.
 The file marks one entry as the most likely wrong, at the top of scnf010's block.
 Fix that one first if you can find out the answer.
 
+### Data levels, the field log and sensor alerts
+
+StrawberryWatch keeps three levels of the same sensor data. The raw level is
+each reading as fetched, and nothing edits or deletes it. The screened level is
+raw plus a flag for each reading and for each test that judged it, in the codes
+of the Quality Assurance / Quality Control of Real-Time Oceanographic Data
+(QARTOD) program. The
+reviewed level is the screened data minus the periods recorded in the field
+log. The ingest job writes raw and screened every 15 minutes, apart from the
+model checks. Live checks read screened, and training, calibration and the
+tests read reviewed.
+
+The field log is `strawberrywatch/field_log.csv`, beside the inventory. Each
+line records one thing someone saw or did at a sensor:
+
+```
+date,time,site,sensor,event,end,note,who,confirmed,value_before,value_after
+2026-06-01,09:30:00-07:00,south_fork_0,ctd,cleaned,,wiped the cell,Ana,yes,412.5,398.0
+```
+
+| Column | What it holds |
+| --- | --- |
+| `date` | Year-month-day |
+| `time` | RFC 3339 with its offset from Coordinated Universal Time (UTC): `-07:00` in summer, `-08:00` in winter, or `Z`. Left empty, the line covers the whole Pacific day |
+| `site` | The site's table name, as in the inventory |
+| `sensor` | A probe (`ctd`, `do`, `fc`), one of its readings (`conductivity`), or `all` |
+| `event` | One of cleaned, calibrated, swapped, installed, removed, stolen, fouled, out_of_water, buried, units_changed, bad or visit_ok |
+| `end` | For events that last, such as `2026-04-28T16:00:00-07:00`, or a date alone for the end of that day |
+| `note`, `who` | Free text. The file is public with the code, and we recommend initials in `who` |
+| `confirmed` | yes when someone saw it at the creek, and no when it was worked out from the data |
+| `value_before`, `value_after` | The readings either side of a cleaning or calibration, for a drift correction later |
+
+Readings inside a bad, fouled, out_of_water or buried period leave the
+reviewed level, as do readings after a units_changed date. A visit_ok line
+records that someone checked the sensor and it was fine, which gives the tests
+their true negatives. An entry in `tests/events.yaml` can cite field log lines
+as evidence under `field_log:`, written as `date site sensor event`. We check
+an edit with:
+
+    python -m strawberrywatch.field_log
+
+A wrong line is named with its line number and the fix, the same way the
+inventory's errors are.
+
+A sensor alert means a probe needs attention, not that the creek changed. The
+data checks raise one in five cases: (1) a reading the screen failed, such as a
+-9999 or a reading outside what the probe can report, (2) a depth between -25
+and -250 mm, where the probe is possibly out of the water, (3) a feed with no
+reading for longer than `staleness_hours`, (4) a level that moved by a factor
+of 3 or more against the sensor's reviewed history, as a unit change or
+recalibration would, and (5) two days in a row with a daily range far below its
+normal, as a fouled or stuck probe would give. Sensor alerts appear under Data
+health on the Overview page while they last, and they are emailed when they
+start and when they clear. On the website, sensor emails go only to people
+labelled Admin or SCMG. Creek alerts come only from the models.
+
 ---
 
 ## 7. Making a change to the code

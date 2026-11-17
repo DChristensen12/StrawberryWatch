@@ -237,6 +237,8 @@ def _run_pass(now):
     One scoring pass, on the worker thread. Doesn't raise. A daemon that's been
     up for months shouldn't fall over because a model had a bad day.
     """
+    if DASHBOARD:
+        _ingest_in_child()
     try:
         found = _check_in_child(now) if DASHBOARD else _score(now)
     except Exception:
@@ -317,6 +319,31 @@ def _alert(model, finding, now, emails, phones):
 
 
 # The dashboard's way: each check in a child process, under the website's limits
+
+
+def _ingest_in_child(run=subprocess.run):
+    """One ingest pass in its own process, ahead of the check, paused or not."""
+    from strawberrywatch.watch import settings as ws
+
+    minutes = ws.website_limits()["check_timeout_minutes"]
+    try:
+        done = run(
+            [sys.executable, "-m", "strawberrywatch.watch.ingest_once"],
+            capture_output=True,
+            text=True,
+            timeout=minutes * 60,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("gnn: ingest took longer than %g minutes and was stopped", minutes)
+        return False
+    except Exception:
+        logger.exception("gnn: ingest couldn't start")
+        return False
+    if done.returncode != 0:
+        logger.warning(
+            "gnn: ingest exited %s: %s", done.returncode, (done.stderr or done.stdout or "")[-500:]
+        )
+    return done.returncode == 0
 
 
 def _check_in_child(now, store=None, run=subprocess.run):

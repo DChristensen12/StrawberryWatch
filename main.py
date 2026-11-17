@@ -387,14 +387,22 @@ def main(
         print("Dry run:        alerts get printed, nothing is emailed")
 
     if mode == "inference":
-        # Pull only 2 days for speed during live monitoring
+        # Pull only 2 days for speed during live monitoring, at the screened level
         df_featured, df_original, locations = load_and_preprocess_data(
-            file_path=file_path, force_download=True, days=2, data_source=data_source
+            file_path=file_path,
+            force_download=True,
+            days=2,
+            data_source=data_source,
+            level="screened",
         )
     else:
-        # Pull 30 days for training/updating
+        # Pull 30 days for training/updating, at the reviewed level
         df_featured, df_original, locations = load_and_preprocess_data(
-            file_path=file_path, force_download=True, days=30, data_source=data_source
+            file_path=file_path,
+            force_download=True,
+            days=30,
+            data_source=data_source,
+            level="reviewed",
         )
 
     edge_index, _, location_to_idx = create_graph_topology()

@@ -137,6 +137,16 @@ def weather(folder, kind, start, end):
     return None if frame is None or frame.empty else frame
 
 
+def reviewed(tables):
+    """The cached readings at the reviewed level, which a re-fit reads."""
+    from strawberrywatch import field_log
+    from strawberrywatch import inventory as inv
+    from strawberrywatch.ingest import levels
+
+    inventory = inv.load()
+    return levels.reviewed(tables, inventory, field_log.load(inventory=inventory))[0]
+
+
 def raw_tables(tables):
     """The cached readings under the logger's own column names, which the models read."""
     back = sources._raw_columns()

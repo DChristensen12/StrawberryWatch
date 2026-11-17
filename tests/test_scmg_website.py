@@ -120,6 +120,37 @@ def exercise(store):
     store.save_readings([("oxford", 900.0, 1.0, 2.0, 3.0, None, None, 4.1)])
     assert store.last_readings(live=True)["oxford"]["battery"] == 4.1
     store.save_weather([(900.0, 0.2)])
+    store.save_weather([(1800.0, 0.4, 11.0, 0.0)], fetched_at=1900.0)
+    assert store.weather_fetched_at() == 1900.0 and len(store.weather_rows(0.0, 3600.0)) == 2
+    assert store.has_levels()
+    raw = [("oxford", "Meter_Hydros21_Cond", 900.0, 350.0)]
+    assert store.save_raw(raw, "sql", 1000.0) == raw and store.save_raw(raw, "sql", 1100.0) == []
+    store.save_raw([("oxford", "Meter_Hydros21_Cond", 900.0, 351.0)], "sql", 1200.0)
+    assert [v["value"] for v in store.raw_versions("oxford", "Meter_Hydros21_Cond", 900.0)] == [
+        350.0,
+        351.0,
+    ]
+    assert store.raw("oxford")[0]["value"] == 351.0 and store.raw_last() == {"oxford": 900.0}
+    store.save_screened("oxford", 0.0, 3600.0, [("Meter_Hydros21_Cond", 900.0, 1, None, 1200.0)])
+    assert store.screened("oxford")[0]["flag"] == 1
+    run = store.start_ingest(1000.0)
+    store.finish_ingest(run, True, "", 1, 1001.0)
+    assert store.last_ingest(ok=True)["rows_new"] == 1
+    problem = {
+        "site": "oxford",
+        "col": "Meter_Hydros21_Cond",
+        "kind": "reading",
+        "message": "Sensor problem at Oxford Street conductivity: reading of -9999",
+        "value": -9999.0,
+    }
+    store.note_problems([problem], 1000.0)
+    store.mark_problems_sent(store.sensor_problems(), 1000.0)
+    store.clear_problems(store.sensor_problems(), 2000.0)
+    store.mark_problems_sent(store.sensor_problems(cleared=True), 2000.0, cleared=True)
+    assert (
+        store.sensor_problems() == []
+        and store.sensor_problems(cleared=True)[0]["sent_at"] == 1000.0
+    )
     item = store.add_noticed(
         check,
         {

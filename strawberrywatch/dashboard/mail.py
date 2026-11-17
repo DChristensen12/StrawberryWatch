@@ -21,7 +21,7 @@ import ssl
 import tempfile
 import time
 from email.message import EmailMessage
-from email.utils import formataddr, formatdate, getaddresses, make_msgid
+from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
 
 import requests
@@ -131,7 +131,7 @@ def _parse(line):
 
 
 class EnvList:
-    """The local list, one line of .env."""
+    """The old local list, one line of .env. Read once, moved into the store, then taken out."""
 
     def __init__(self, path=None):
         self.path = Path(path) if path else env_path()
@@ -141,63 +141,53 @@ class EnvList:
             return []
         return _parse(dotenv_values(self.path).get(LIST_KEY))
 
-    def add(self, email, name=None):
-        """Returns False if the address is already on the list, ignoring case."""
-        people = self.people()
-        if any(p["email"].lower() == email.lower() for p in people):
+    def drop(self):
+        """Takes the ALERT_EMAIL_RECIPIENTS line out of .env and keeps a private .env.bak."""
+        if not self.path.exists():
             return False
-        self._write([*people, {"email": email, "name": name or None}])
-        return True
-
-    def remove(self, email):
-        people = self.people()
-        kept = [p for p in people if p["email"].lower() != email.lower()]
-        if len(kept) == len(people):
-            return False
-        self._write(kept)
-        return True
-
-    def _write(self, people):
-        """
-        Rewrites only the ALERT_EMAIL_RECIPIENTS line. Writes a temp file and
-        renames it over .env, and a crash can't leave half a file. The old one is
-        kept as .env.bak, and both are owner-only since .env has the email password.
-        """
-        value = ", ".join(formataddr((p["name"] or "", p["email"])) for p in people)
-        line = f"{LIST_KEY}='{value}'"
-        old = self.path.read_text() if self.path.exists() else ""
+        old = self.path.read_text()
         lines = old.splitlines(keepends=True)
         pattern = re.compile(rf"^\s*(export\s+)?{LIST_KEY}\s*=")
-        ending = "\r\n" if old.endswith("\r\n") else "\n"
-        found = False
-        for i, existing in enumerate(lines):
-            if pattern.match(existing):
-                newline = existing[len(existing.rstrip("\r\n")) :] or ending
-                lines[i] = line + newline
-                found = True
-                break
-        if not found:
-            if lines and not lines[-1].endswith(("\n", "\r")):
-                lines[-1] += ending
-            lines.append(line + ending)
-        if self.path.exists():
-            backup = self.path.with_name(self.path.name + ".bak")
-            shutil.copyfile(self.path, backup)
-            sources_private(backup)
+        kept = [line for line in lines if not pattern.match(line)]
+        if len(kept) == len(lines):
+            return False
+        backup = self.path.with_name(self.path.name + ".bak")
+        shutil.copyfile(self.path, backup)
+        sources_private(backup)
+        # A temp file renamed over .env, and a crash can't leave half a file
         handle, temp = tempfile.mkstemp(dir=self.path.parent, prefix=".env.", suffix=".tmp")
         try:
             with os.fdopen(handle, "w") as f:
-                f.write("".join(lines))
+                f.write("".join(kept))
             sources_private(temp)
             os.replace(temp, self.path)
         except BaseException:
             Path(temp).unlink(missing_ok=True)
             raise
         sources_private(self.path)
+        return True
+
+
+# Who gets sensor emails on the website. They ask someone to go look at a probe
+SENSOR_LABELS = ("Admin", "SCMG")
+
+# Set once the people on .env's old list line are in the store
+MOVED = "recipients_moved_from_env"
+
+
+def move_env_list(store, path=None):
+    """Moves .env's ALERT_EMAIL_RECIPIENTS line into the store once. Returns how many were added."""
+    if store.pref(MOVED) == "yes":
+        return 0
+    book = EnvList(path)
+    added = sum(1 for p in book.people() if store.add_recipient(p["email"], p["name"]))
+    book.drop()
+    store.set_pref(MOVED, "yes")
+    return added
 
 
 class StoreList:
-    """The website's list, a database table StrawberryWatch sends to."""
+    """The list, a table in the store that StrawberryWatch sends to."""
 
     def __init__(self, store):
         self.store = store
@@ -222,20 +212,9 @@ def sources_private(path):
     private(path)
 
 
-def mailing_list(store, in_env=True):
-    """
-    The list for this profile. Locally that's .env, and anyone left on the old
-    SQLite list gets moved over.
-    """
-    if not in_env:
-        return StoreList(store)
-    book = EnvList()
-    leftover = store.recipients()
-    if leftover:
-        for person in leftover:
-            book.add(person["email"], person["name"])
-        store.clear_recipients()
-    return book
+def mailing_list(store):
+    """The store's recipients table. The local app moves .env's old list in at start."""
+    return StoreList(store)
 
 
 # Sending
@@ -493,6 +472,73 @@ def after_check(store, inventory, check_id):
         _record(store, "alert", people, results, subject, check_id)
     except Exception:
         logger.exception("emailing after check %s failed", check_id)
+
+
+def health_subject(started, cleared):
+    """StrawberryWatch: 2 new sensor problems, 1 cleared."""
+    parts = []
+    if started:
+        parts.append(f"{len(started)} new sensor problem{'s' if len(started) != 1 else ''}")
+    if cleared:
+        noun = "" if started else f" sensor problem{'s' if len(cleared) != 1 else ''}"
+        parts.append(f"{len(cleared)}{noun} cleared")
+    return "StrawberryWatch: " + ", ".join(parts)
+
+
+def health_summary(store, started, cleared=(), website=False):
+    """Emails the problems that started and cleared. Returns whether it went, and doesn't raise."""
+    try:
+        if not is_on(store) or not (started or cleared):
+            return False
+        now = time.time()
+        subject = health_subject(started, cleared)
+        opener = "Sensor problems in Strawberry Creek. These aren't creek alerts."
+        blocks = [
+            {
+                "heading": p["message"] + ".",
+                "sentence": f"Started {view.when_words(p['first_at'], now).lower()}.",
+                "extras": [],
+            }
+            for p in started
+        ] + [
+            {
+                "heading": f"Cleared: {p['message']}.",
+                "sentence": f"Last seen {view.when_words(p['last_at'], now).lower()}.",
+                "extras": [],
+            }
+            for p in cleared
+        ]
+        if website:
+            from strawberrywatch.watch import settings as ws
+
+            address = ws.website_address()
+            labels = {lb["id"] for lb in store.labels() if lb["name"] in SENSOR_LABELS}
+            people = [
+                p
+                for p in store.recipients()
+                if p.get("label_id") in labels and not paused(p, time.time())
+            ]
+            if not people:
+                return False
+
+            def build(sender_address, person):
+                link = unsubscribe_link(address, person["unsubscribe_token"])
+                text, html = alert_email(subject, opener, blocks, link)
+                return cloudflare_email(sender_address, person["email"], subject, text, html, link)
+
+            results = deliver_cloudflare(people, build)
+        else:
+            people = mailing_list(store).people()
+            if not people:
+                return False
+            results = send(subject, as_text(opener, blocks, FOOTER), people)
+        return _record(store, "health", people, results, subject) > 0
+    except MailError as exc:
+        store.log_email("health", 0, False, str(exc))
+        logger.warning("data health email didn't go: %s", exc)
+    except Exception:
+        logger.exception("the data health email failed")
+    return False
 
 
 def chosen(people, only):

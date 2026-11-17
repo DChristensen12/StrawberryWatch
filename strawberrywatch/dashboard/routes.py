@@ -179,6 +179,7 @@ def common():
         "can_edit": security.can_edit(),
         "readings": None if g.get("error_page") else _readings_line(),
         "paused": not g.get("error_page") and ctx().store.pref("checks_paused") == "yes",
+        "collecting": None if g.get("error_page") else _collecting(),
         "model_updates": ctx().updater is not None,
         # The site's own sign-out page on the website, ours locally
         "sign_out": current_app.config.get("SIGN_OUT_URL")
@@ -186,6 +187,12 @@ def common():
         # The other dashboard the site mounts, as {text, href}. None locally
         "other_dashboard": current_app.config.get("OTHER_DASHBOARD"),
     }
+
+
+def _collecting():
+    """The time ingest last got readings, for the paused banner. None when it isn't keeping up."""
+    when = view.collecting(ctx().store, now())
+    return None if when is None else view.clock(when)
 
 
 def _readings_line():
@@ -265,6 +272,7 @@ def overview():
         waiting=view.first_check_pending(store),
         stale=stale,
         stale_text=_stale_text(stale),
+        health=view.data_health(store, ref),
         status=_status_line(store, models, current),
         flagged=flagged,
         late=late,
@@ -1300,7 +1308,7 @@ def apply():
 
 
 def _mailing_list():
-    return mail.mailing_list(ctx().store, ctx().profile.email_in_env)
+    return mail.mailing_list(ctx().store)
 
 
 def _address():

@@ -8,6 +8,11 @@ data/processed_data/
 !data/normal/*.csv
 # The dashboard's replay events, copies of data/anomalies that ship in the package
 !strawberrywatch/watch/events/**/*.csv
+# The field log, edited by hand
+!strawberrywatch/field_log.csv
+# The data levels design note, kept out until phase 2 settles its numbers
+documents/Data-Levels/
+documents/Data_Levels_and_Quality_Control.pdf
 # The baseline tables, small and worth reading in a diff
 !baselines/tables/*.csv
 *.ipynb_checkpoints

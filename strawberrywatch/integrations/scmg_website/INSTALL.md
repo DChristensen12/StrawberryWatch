@@ -10,7 +10,7 @@ We install StrawberryWatch into the site's environment without letting pip repla
 
 Every library StrawberryWatch adds goes in with `--only-binary=:all:`, since the server cannot build newer packages from source. The dashboard needs the libraries below, which make up the `dashboard` extra in `pyproject.toml`:
 
-    pip install --only-binary=:all: flask flask-wtf wtforms email-validator platformdirs
+    pip install --only-binary=:all: flask flask-wtf wtforms email-validator platformdirs requests-cache pandera
 
 ## Creating the tables
 
@@ -20,6 +20,21 @@ StrawberryWatch keeps its own data in sw_ tables on the website's database, crea
     python -m strawberrywatch.integrations.scmg_website.setup_tables
 
 We recommend running it again after every update. It adds any new tables and columns and leaves the existing ones as they are.
+
+The data levels add four tables to the earlier ones: `sw_raw_readings` (every reading as fetched, never edited), `sw_screened` (each reading's quality flag and the tests behind it), `sw_ingest_runs` (one row per ingest pass) and `sw_sensor_alerts` (the Data health section's sensor problems). `sw_weather` gains air temperature, shortwave radiation and the fetch time. An install that has not run `setup_tables` since the update keeps checking the old way until it does.
+
+## Collecting readings
+
+The ingest job fetches the sensor tables every 15 minutes, saves them to `sw_raw_readings`, flags them into `sw_screened`, saves the weather and runs the data checks. It runs apart from the model checks, so a paused or failed check does not stop it. With `GNN_DASHBOARD=1`, Night Heron's `email_alerts` runs it as a process of its own, ahead of each check:
+
+    python -m strawberrywatch.watch.ingest_once
+
+Once, after the update, we copy the readings already in the archive and the store into the raw level:
+
+    cd ~/notifications_frontend
+    python -m strawberrywatch.watch.ingest_once --backfill
+
+The backfill reads `data/raw_data` from the StrawberryWatch checkout and does not change it. Run a second time, it adds nothing. After an outage, `--days 30` lets one pass reach further back than its usual two days.
 
 ## Mounting the dashboard
 
@@ -53,7 +68,7 @@ StrawberryWatch sends email through Night Heron's email API account, using the a
 
 ## Recipients and pauses
 
-The unsubscribe links in the alert emails are open to everyone, and the pages behind them do not show anyone else's address. There is no public sign-up, since Environment, Health & Safety (EH&S) asked that only people added on Settings > Email alerts receive the alerts. Each person's name on that page opens their alert settings: (1) which models they receive alerts from, and (2) a pause of 1 day, 1 week, 30 days, until a date, or until turned back on. The unsubscribe page also lets people pause their own alerts for 1 week.
+Sensor alerts from the data checks are emailed only to people labelled Admin or SCMG, since they ask someone to visit a sensor. The unsubscribe links in the alert emails are open to everyone, and the pages behind them do not show anyone else's address. There is no public sign-up, since Environment, Health & Safety (EH&S) asked that only people added on Settings > Email alerts receive the alerts. Each person's name on that page opens their alert settings: (1) which models they receive alerts from, and (2) a pause of 1 day, 1 week, 30 days, until a date, or until turned back on. The unsubscribe page also lets people pause their own alerts for 1 week.
 
 ## Model files
 
@@ -66,6 +81,10 @@ Finally, we restart both `notifications_frontend` and `email_alerts`, then check
     journalctl --user -u email_alerts
 
 The dashboard's cookie is named `strawberrywatch` and is limited to the `/strawberrywatch` path, which keeps it apart from Django's `sessionid` and `csrftoken` cookies.
+
+## Updating to the data levels
+
+We apply the update in an order that keeps the alerts running at every step: (1) install the new commit and the two new libraries, as in Installing the package, (2) run `setup_tables`, which adds the four new tables, (3) run `ingest_once --backfill` once, from the site's folder, (4) restart `email_alerts` and `notifications_frontend`, and (5) confirm on the Overview page that "Readings are still being collected" appears while the checks are paused, then press Restart checks and confirm that the Data health section shows a "Sensors last checked" line within a day. Only after step 5 do we rely on the screened level and the sensor alerts.
 
 ## Moving between the two dashboards
 

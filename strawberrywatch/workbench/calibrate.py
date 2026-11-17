@@ -424,7 +424,7 @@ def run_check(folder, session, model, choice):
     kind = session["source"]
     start, end = data.utc(session["start_date"]), data.utc(session["end_date"], end=True)
     names = model_sites(model)
-    tables = data.raw_tables(data.readings(folder, kind, names, start, end))
+    tables = data.raw_tables(tables_tidy(folder, kind, names, start, end))
     weather = data.weather(folder, kind, start, end)
     rain = weather["rain_mm"] if weather is not None and "rain_mm" in weather else None
     every = events.every(folder)
@@ -462,7 +462,8 @@ def run_check(folder, session, model, choice):
 
 
 def tables_tidy(folder, kind, names, start, end):
-    return data.readings(folder, kind, names, start, end)
+    """The picked readings at the reviewed level. The re-fit and its drift reference read these."""
+    return data.reviewed(data.readings(folder, kind, names, start, end))
 
 
 def reference_from(tables, every, rain, session):

@@ -256,9 +256,14 @@ def env(monkeypatch, tmp_path):
     return path
 
 
-def test_a_recipient_lands_on_one_env_line_and_nothing_else_changes(models, tmp_path, env):
+def _emails(store):
+    return [p["email"] for p in store.recipients()]
+
+
+def test_a_recipient_is_saved_in_the_store_and_env_is_left_alone(models, tmp_path, env):
     store = _store(tmp_path / "s", models)
     client = _client(store, models)
+    before = env.read_text()
     assert (
         _post(
             client, "/settings/email", {"email": "ana@example.org", "name": "Ana Lee"}
@@ -266,30 +271,27 @@ def test_a_recipient_lands_on_one_env_line_and_nothing_else_changes(models, tmp_
         == 302
     )
     assert _post(client, "/settings/email", {"email": "ben@example.org"}).status_code == 302
-    lines = env.read_text().splitlines()
-    assert lines[:3] == ["# my settings", "ALERT_EMAIL_SENDER=watch@example.org", "OTHER=1"]
-    assert lines[3] == "ALERT_EMAIL_RECIPIENTS='Ana Lee <ana@example.org>, ben@example.org'"
-    assert len(lines) == 4
-    assert env.stat().st_mode & 0o777 == 0o600
-    backup = env.with_name(".env.bak")
-    assert backup.exists() and backup.stat().st_mode & 0o777 == 0o600
-    assert "ALERT_EMAIL_RECIPIENTS='Ana Lee <ana@example.org>'" in backup.read_text()
-    # The list leaves no trace in the SQLite file
-    assert store.recipients() == []
+    assert [(p["email"], p["name"]) for p in store.recipients()] == [
+        ("ana@example.org", "Ana Lee"),
+        ("ben@example.org", None),
+    ]
+    assert env.read_text() == before and not env.with_name(".env.bak").exists()
+    assert ".env</code> keeps only the email account" in client.get("/settings/email").data.decode()
 
 
 def test_addresses_are_checked_and_explained_plainly(models, tmp_path, env):
-    client = _client(_store(tmp_path / "s", models), models)
+    store = _store(tmp_path / "s", models)
+    client = _client(store, models)
     assert (
         "Enter an email address with an @"
         in _post(client, "/settings/email", {"email": "ana.example.org"}).data.decode()
     )
     page = _post(client, "/settings/email", {"email": "dan@berkely.edu"}).data.decode()
     assert "berkely.edu doesn&#39;t exist. Check the spelling after the @" in page
-    assert "berkely.edu" not in env.read_text()
+    assert "dan@berkely.edu" not in _emails(store)
     # A lookup that can't run still saves, with a note
     _post(client, "/settings/email", {"email": "eve@slow.example"})
-    assert "eve@slow.example" in env.read_text()
+    assert _emails(store) == ["eve@slow.example"]
     assert (
         "Couldn&#39;t confirm that slow.example accepts email"
         in client.get("/settings/email").data.decode()
@@ -300,12 +302,31 @@ def test_addresses_are_checked_and_explained_plainly(models, tmp_path, env):
     )
 
 
-def test_people_on_the_old_list_move_to_env_once(models, tmp_path, env):
+def test_the_old_env_list_moves_into_the_store_once(models, tmp_path, env):
+    from strawberrywatch.dashboard import mail
+
+    env.write_text(
+        "# my settings\nALERT_EMAIL_SENDER=watch@example.org\n"
+        "ALERT_EMAIL_RECIPIENTS='Old Friend <old@example.org>, new@example.org'\nOTHER=1\n"
+    )
+    env.chmod(0o600)
     store = _store(tmp_path / "s", models)
-    store.add_recipient("old@example.org", "Old Friend")
+    store.add_recipient("new@example.org")
+    assert mail.move_env_list(store) == 1
+    assert [(p["email"], p["name"]) for p in store.recipients()] == [
+        ("new@example.org", None),
+        ("old@example.org", "Old Friend"),
+    ]
+    # every other line stays, and the old file is kept beside it
+    assert env.read_text() == "# my settings\nALERT_EMAIL_SENDER=watch@example.org\nOTHER=1\n"
+    backup = env.with_name(".env.bak")
+    assert "ALERT_EMAIL_RECIPIENTS" in backup.read_text()
+    assert env.stat().st_mode & 0o777 == 0o600 and backup.stat().st_mode & 0o777 == 0o600
+    # once
+    env.write_text(env.read_text() + "ALERT_EMAIL_RECIPIENTS='late@example.org'\n")
+    assert mail.move_env_list(store) == 0 and "late@example.org" in env.read_text()
     page = _client(store, models).get("/settings/email").data.decode()
-    assert "old@example.org" in page
-    assert "Old Friend <old@example.org>" in env.read_text() and store.recipients() == []
+    assert "old@example.org" in page and "late@example.org" not in page
 
 
 def _database_down(monkeypatch):
@@ -465,10 +486,7 @@ def test_a_check_without_weather_says_so_on_the_item(models, tmp_path, monkeypat
         1.0,
     )
     item = store.noticed(flagged=True)[0]
-    assert (
-        "No weather data for this check, so rain wasn't allowed for."
-        in view.item_view(store, item, NOW)["extras"]
-    )
+    assert "Rain data unavailable for this check." in view.item_view(store, item, NOW)["extras"]
 
 
 def test_a_csv_without_sensor_columns_is_refused_plainly(tmp_path):

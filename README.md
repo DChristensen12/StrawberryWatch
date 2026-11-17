@@ -135,6 +135,26 @@ so switching one on makes the model slightly less sensitive elsewhere).
 </table>
 
 
+## Data
+
+StrawberryWatch keeps three levels of the same sensor data, following Campbell et al. (2013). Raw readings are never edited or deleted, and every later level is computed from raw plus recorded decisions. The flags follow the codes of the Quality Assurance / Quality Control of Real-Time Oceanographic Data (QARTOD) program.
+
+| Level | What it is | Written by | Read by |
+|---|---|---|---|
+| Raw | Each reading as fetched, with its source and fetch time | the ingest job, every 15 minutes | the levels below, and audits |
+| Screened | Raw plus a QARTOD flag for each reading and for each test | the ingest job, right after each fetch | live checks, for every model |
+| Reviewed | Screened minus the periods recorded in the field log | people, through `strawberrywatch/field_log.csv` | training, calibration and tests |
+
+The ingest job runs apart from the model checks. Thus, readings are still collected while checks are paused. Readings flagged FAIL or MISSING never reach a model, while SUSPECT readings stay in with their flag recorded.
+
+To record what someone saw or did at a sensor, we add one line to the field log and check it:
+
+    2026-06-01,09:30:00-07:00,south_fork_0,ctd,cleaned,,wiped the cell,Ana,yes,412.5,398.0
+
+    python -m strawberrywatch.field_log
+
+A sensor alert says that a probe needs attention (e.g., a reading of -9999, a feed that stopped, a probe possibly out of the water, a level that moved like a unit change, or a daily range far below its normal). Sensor alerts appear under Data health on the Overview page and are emailed when they start and when they clear, on the website only to people labelled Admin or SCMG. They are not creek alerts, which come only from the models.
+
 ## What is deployed
 
 **Dusk Crayfish** is the model currently running, as of 2026-08-20. Update the

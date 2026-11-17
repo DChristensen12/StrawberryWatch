@@ -1,6 +1,6 @@
 """
 The SQLite file: settings versions and drafts, checks, the scores and readings
-they saw, and the alerts.
+they saw, the alerts, and the raw and screened data levels.
 
 Every query is parameterized, and tokens and passwords stay out of here. The
 SQL sticks to what SQLite and MySQL both understand (REPLACE INTO, backticks
@@ -51,7 +51,23 @@ CREATE TABLE IF NOT EXISTS readings (
     site TEXT NOT NULL, time REAL NOT NULL, conductivity REAL, depth REAL,
     temperature REAL, dissolved_oxygen REAL, floating_conductivity REAL, battery REAL,
     live INTEGER, PRIMARY KEY (site, time));
-CREATE TABLE IF NOT EXISTS weather (time REAL PRIMARY KEY, rain_mm REAL);
+CREATE TABLE IF NOT EXISTS weather (
+    time REAL PRIMARY KEY, rain_mm REAL, air_temp_c REAL, shortwave_radiation REAL,
+    fetched_at REAL);
+CREATE TABLE IF NOT EXISTS raw_readings (
+    site TEXT NOT NULL, col TEXT NOT NULL, time REAL NOT NULL, fetched_at REAL NOT NULL,
+    value REAL NOT NULL, source TEXT NOT NULL, PRIMARY KEY (site, col, time, fetched_at));
+CREATE TABLE IF NOT EXISTS screened (
+    site TEXT NOT NULL, col TEXT NOT NULL, time REAL NOT NULL, flag INTEGER NOT NULL,
+    tests TEXT, raw_fetched_at REAL, screened_at REAL NOT NULL,
+    PRIMARY KEY (site, col, time));
+CREATE TABLE IF NOT EXISTS ingest_runs (
+    id INTEGER PRIMARY KEY, started_at REAL NOT NULL, finished_at REAL, ok INTEGER,
+    message TEXT, rows_new INTEGER);
+CREATE TABLE IF NOT EXISTS sensor_alerts (
+    site TEXT NOT NULL, col TEXT NOT NULL, kind TEXT NOT NULL, message TEXT NOT NULL,
+    value REAL, first_at REAL NOT NULL, last_at REAL NOT NULL, sent_at REAL,
+    cleared_at REAL, cleared_sent_at REAL, PRIMARY KEY (site, col, kind));
 CREATE TABLE IF NOT EXISTS notes (
     id INTEGER PRIMARY KEY, noticed_id INTEGER NOT NULL, written_at REAL NOT NULL,
     author TEXT, text TEXT NOT NULL);
@@ -87,6 +103,9 @@ ADDED_COLUMNS = (
     ("recipients", "models", "TEXT"),
     ("recipients", "paused_at", "REAL"),
     ("recipients", "paused_until", "REAL"),
+    ("weather", "air_temp_c", "REAL"),
+    ("weather", "shortwave_radiation", "REAL"),
+    ("weather", "fetched_at", "REAL"),
 )
 
 # Recipient labels, website only. They're for telling people apart and don't grant access.
@@ -105,6 +124,11 @@ READING_COLUMNS = (
 
 # The draft's owner locally, where nobody signs in by name
 LOCAL = "local"
+
+# Where a raw reading came from
+RAW_SOURCES = ("sql", "api", "archive", "store")
+# Stand-ins for no bound, since MySQL won't take an infinite DOUBLE
+EARLIEST, LATEST = -1e12, 1e12
 
 
 class Conflict(RuntimeError):
@@ -447,9 +471,19 @@ class Store:
             ).fetchall()
         return {r["site"]: dict(r) for r in rows}
 
-    def save_weather(self, rows):
+    def save_weather(self, rows, fetched_at=None):
+        """rows: (time, rain_mm), or (time, rain_mm, air_temp_c, shortwave_radiation)."""
         with self.db() as db:
-            db.executemany("REPLACE INTO weather (time, rain_mm) VALUES (?, ?)", rows)
+            if not self.has_levels():
+                db.executemany(
+                    "REPLACE INTO weather (time, rain_mm) VALUES (?, ?)", [r[:2] for r in rows]
+                )
+                return
+            db.executemany(
+                "REPLACE INTO weather (time, rain_mm, air_temp_c, shortwave_radiation, "
+                "fetched_at) VALUES (?, ?, ?, ?, ?)",
+                [(*(*row, None, None)[:4], fetched_at) for row in rows],
+            )
 
     def weather(self, since, until):
         with self.db() as db:
@@ -457,6 +491,192 @@ class Store:
                 "SELECT * FROM weather WHERE time >= ? AND time <= ? ORDER BY time", (since, until)
             ).fetchall()
         return [(r["time"], r["rain_mm"]) for r in rows]
+
+    def weather_rows(self, since, until):
+        """Every saved weather column over [since, until], oldest first."""
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT * FROM weather WHERE time >= ? AND time <= ? ORDER BY time", (since, until)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def weather_fetched_at(self):
+        """When ingest last got weather, or None."""
+        with self.db() as db:
+            row = db.execute("SELECT MAX(fetched_at) AS t FROM weather").fetchone()
+        return row["t"] if row else None
+
+    # The raw and screened levels
+
+    def has_levels(self):
+        """False on an install from before the data levels, until its tables are set up again."""
+        if not getattr(self, "_levels", False):
+            try:
+                with self.db() as db:
+                    db.execute("SELECT fetched_at FROM raw_readings LIMIT 1").fetchall()
+                    db.execute("SELECT flag FROM screened LIMIT 1").fetchall()
+                    db.execute("SELECT id FROM ingest_runs LIMIT 1").fetchall()
+                    db.execute("SELECT fetched_at FROM weather LIMIT 1").fetchall()
+                    db.execute("SELECT cleared_at FROM sensor_alerts LIMIT 1").fetchall()
+            except Exception:
+                return False
+            self._levels = True
+        return True
+
+    _RAW_NEWEST = (
+        "SELECT r.col, r.time, r.value, r.fetched_at, r.source FROM raw_readings r JOIN ("
+        "SELECT col, time, MAX(fetched_at) AS f FROM raw_readings "
+        "WHERE site = ? AND time >= ? AND time <= ? GROUP BY col, time) m "
+        "ON r.col = m.col AND r.time = m.time AND r.fetched_at = m.f "
+        "WHERE r.site = ? ORDER BY r.time"
+    )
+
+    def save_raw(self, rows, source, fetched_at=None):
+        """Appends the (site, col, time, value) rows that are new or changed, and returns them."""
+        fetched_at = fetched_at or time.time()
+        by_site = {}
+        for site, col, when, value in rows:
+            by_site.setdefault(site, {}).setdefault((col, when), value)
+        added = []
+        with self.db() as db:
+            for site, mine in by_site.items():
+                times = [when for _, when in mine]
+                saved = db.execute(self._RAW_NEWEST, (site, min(times), max(times), site))
+                have = {(r["col"], r["time"]): r["value"] for r in saved.fetchall()}
+                new = [
+                    (col, when, v) for (col, when), v in mine.items() if have.get((col, when)) != v
+                ]
+                db.executemany(
+                    "INSERT INTO raw_readings (site, col, time, fetched_at, value, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    [(site, col, when, fetched_at, v, source) for col, when, v in new],
+                )
+                added += [(site, col, when, v) for col, when, v in new]
+        return added
+
+    def raw(self, site, since=EARLIEST, until=LATEST):
+        """The newest saved value of each raw reading at a site, oldest first."""
+        with self.db() as db:
+            rows = db.execute(self._RAW_NEWEST, (site, since, until, site)).fetchall()
+        return [dict(r) for r in rows]
+
+    def raw_versions(self, site, col, when):
+        """Every value saved for one raw reading, oldest fetch first."""
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT * FROM raw_readings WHERE site = ? AND col = ? AND time = ? "
+                "ORDER BY fetched_at",
+                (site, col, when),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def raw_last(self):
+        """{site: time of its newest raw reading}."""
+        with self.db() as db:
+            rows = db.execute("SELECT site, MAX(time) AS t FROM raw_readings GROUP BY site")
+            return {r["site"]: r["t"] for r in rows.fetchall()}
+
+    def save_screened(self, site, since, until, rows, screened_at=None):
+        """Replaces a site's flags over [since, until]. Raw isn't touched."""
+        screened_at = screened_at or time.time()
+        with self.db() as db:
+            db.execute(
+                "DELETE FROM screened WHERE site = ? AND time >= ? AND time <= ?",
+                (site, since, until),
+            )
+            db.executemany(
+                "REPLACE INTO screened (site, col, time, flag, tests, raw_fetched_at, "
+                "screened_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(site, *row, screened_at) for row in rows],
+            )
+
+    def screened(self, site, since=EARLIEST, until=LATEST):
+        with self.db() as db:
+            rows = db.execute(
+                "SELECT col, time, flag, tests FROM screened WHERE site = ? AND time >= ? "
+                "AND time <= ? ORDER BY time",
+                (site, since, until),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def start_ingest(self, started_at=None):
+        with self.db() as db:
+            cur = db.execute(
+                "INSERT INTO ingest_runs (started_at) VALUES (?)", (started_at or time.time(),)
+            )
+            return cur.lastrowid
+
+    def finish_ingest(self, ingest_id, ok, message, rows_new, finished_at=None):
+        with self.db() as db:
+            db.execute(
+                "UPDATE ingest_runs SET finished_at = ?, ok = ?, message = ?, rows_new = ? "
+                "WHERE id = ?",
+                (finished_at or time.time(), int(ok), message, rows_new, ingest_id),
+            )
+
+    # Sensor alerts, from the data health checks
+
+    def note_problems(self, rows, now):
+        """Records the health checks' findings. One seen again after it cleared starts over."""
+        with self.db() as db:
+            for row in rows:
+                key = (row["site"], row["col"], row["kind"])
+                old = db.execute(
+                    "SELECT * FROM sensor_alerts WHERE site = ? AND col = ? AND kind = ?", key
+                ).fetchone()
+                fresh = old is None or old["cleared_at"] is not None
+                db.execute(
+                    "REPLACE INTO sensor_alerts (site, col, kind, message, value, first_at, "
+                    "last_at, sent_at, cleared_at, cleared_sent_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)",
+                    (
+                        *key,
+                        row["message"],
+                        row.get("value"),
+                        now if fresh else old["first_at"],
+                        now,
+                        None if fresh else old["sent_at"],
+                    ),
+                )
+
+    def sensor_problems(self, cleared=False):
+        """The sensor problems still going on, oldest first. cleared=True gives the ended ones."""
+        if not self.has_levels():
+            return []
+        where = "cleared_at IS NOT NULL" if cleared else "cleared_at IS NULL"
+        with self.db() as db:
+            rows = db.execute(
+                f"SELECT * FROM sensor_alerts WHERE {where} ORDER BY first_at, site, col"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_problems(self, rows, now):
+        """Marks these problems as ended."""
+        with self.db() as db:
+            db.executemany(
+                "UPDATE sensor_alerts SET cleared_at = ? WHERE site = ? AND col = ? AND kind = ?",
+                [(now, r["site"], r["col"], r["kind"]) for r in rows],
+            )
+
+    def mark_problems_sent(self, rows, now, cleared=False):
+        """Records that the email about these problems starting, or clearing, went."""
+        column = "cleared_sent_at" if cleared else "sent_at"
+        with self.db() as db:
+            db.executemany(
+                f"UPDATE sensor_alerts SET {column} = ? WHERE site = ? AND col = ? AND kind = ?",
+                [(now, r["site"], r["col"], r["kind"]) for r in rows],
+            )
+
+    def last_ingest(self, ok=None):
+        """The newest finished ingest pass, or None. ok=True is the newest that got readings."""
+        if not self.has_levels():
+            return None
+        sql = "SELECT * FROM ingest_runs WHERE finished_at IS NOT NULL"
+        if ok is not None:
+            sql += f" AND ok = {int(ok)}"
+        with self.db() as db:
+            row = db.execute(sql + " ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
 
     # Alerts
 
@@ -787,6 +1007,11 @@ class Store:
             db.execute("DELETE FROM scores WHERE time < ?", (now - SCORE_DAYS * 86400,))
             db.execute("DELETE FROM readings WHERE time < ?", (now - READING_DAYS * 86400,))
             db.execute("DELETE FROM weather WHERE time < ?", (now - SCORE_DAYS * 86400,))
+            if self.has_levels():
+                # Raw and screened readings are kept. Only the run log is trimmed
+                db.execute(
+                    "DELETE FROM ingest_runs WHERE started_at < ?", (now - SCORE_DAYS * 86400,)
+                )
 
     def prune_daily(self, now=None):
         """Prune at most once a day, whatever the check interval."""

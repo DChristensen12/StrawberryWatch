@@ -297,6 +297,9 @@ class Inventory:
         self.window_steps = int(raw.get("window_steps", 24))
         self.sensor_variables = dict(raw.get("sensor_variables") or {})
         self.sensor_columns = dict(raw.get("sensor_columns") or {})
+        self.sensor_span = self._read_spans(raw.get("sensor_span") or {}, path)
+        depth = raw.get("out_of_water_depth")
+        self.out_of_water_depth = None if depth is None else float(depth)
         self.sites = {}
 
         if not self.sensor_variables:
@@ -339,6 +342,33 @@ class Inventory:
             raise _problem(path, None, "the inventory describes no sites", "")
 
         self._validate_topology(path)
+
+    def _read_spans(self, spans, path):
+        """{probe: {variable: (low, high)}}, each checked to be a pair in order."""
+        out = {}
+        for probe, ranges in spans.items():
+            for variable, pair in (ranges or {}).items():
+                try:
+                    low, high = (float(v) for v in pair)
+                    ordered = low < high
+                except (TypeError, ValueError):
+                    ordered = False
+                if not ordered:
+                    raise _problem(
+                        path,
+                        _line_of(self.marks, ("sensor_span", probe, variable)),
+                        f"sensor_span for {probe} {variable} is {pair!r}, which is not a low and "
+                        f"a high limit",
+                        "Write the lowest and highest reading the probe can report, for example:\n"
+                        "    conductivity: [0, 120000]",
+                    )
+                out.setdefault(probe, {})[variable] = (low, high)
+        return out
+
+    def span(self, table, variable):
+        """What the probe behind a site's variable can report at all, or None if nobody has said."""
+        sensor = self.site(table).sensor_for(variable)
+        return None if sensor is None else self.sensor_span.get(sensor.name, {}).get(variable)
 
     def _read_row(self, table, row, path):
         """One row of the grid, as {sensor: yes | no | -}."""

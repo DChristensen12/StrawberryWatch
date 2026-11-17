@@ -294,11 +294,30 @@ def recent_noticed(store, ref):
     return [n for n in store.noticed(flagged=True, kinds=sources.LIVE) if n["last_over"] >= since]
 
 
+def data_health(store, ref):
+    """The Data health section: each sensor problem seen in the last day, and since when."""
+    problems = [
+        {"message": p["message"], "since": when_words(p["first_at"], ref)}
+        for p in store.sensor_problems()
+    ]
+    checked = store.pref("health_checked_at")
+    return {"problems": problems, "checked": when_words(float(checked), ref) if checked else None}
+
+
+def collecting(store, ref):
+    """When ingest last got readings, if that was in the last 45 minutes. None otherwise."""
+    last = store.last_ingest(ok=True)
+    if last is None or ref - last["finished_at"] > STALE_MINUTES * 60:
+        return None
+    return last["finished_at"]
+
+
 def site_statuses(store, inventory, applied, ref):
-    """Each site's status: flagged, late, muted (alerts off) or reporting."""
+    """Each site's status: flagged, late, unknown (checks paused), muted (alerts off) or reporting."""
     unusual = {n["site"] for n in recent_noticed(store, ref)}
     last = store.last_readings(live=True)
     dont_flag = set(applied["dont_flag"]) if applied else set()
+    paused = store.pref("checks_paused") == "yes"
     out = {}
     for site in inventory.sites:
         newest = last.get(site, {}).get("time")
@@ -308,6 +327,9 @@ def site_statuses(store, inventory, applied, ref):
             out[site] = {"key": "late", "text": "No data yet"}
         elif ref - newest > LATE_AFTER:
             out[site] = {"key": "late", "text": f"No data for {_span(ref - newest)}"}
+        elif paused:
+            # its readings are arriving, and no model is judging them
+            out[site] = {"key": "unknown", "text": "Unknown, checks paused"}
         elif site in dont_flag:
             out[site] = {"key": "muted", "text": "Alerts off"}
         else:
@@ -516,7 +538,7 @@ def extras_said(item):
     if pool and pool.get("verdict") == "held_back":
         out.append(f"Settling Pool {pool['explanation']}.")
     if item.get("check_weather_ok") == 0:
-        out.append("No weather data for this check, so rain wasn't allowed for.")
+        out.append("Rain data unavailable for this check.")
     return out
 
 

@@ -21,6 +21,10 @@
 #              true_negative  must stay below it
 #              relative_only  a known event that no test grades yet
 #   note     why the event is in the list, and what is odd about it
+#   field_log  optional. Lines of strawberrywatch/field_log.csv that back the entry up,
+#            each written as 'date site sensor event'
+#   known_failure  optional. Why a graded event doesn't pass yet. Its test is then expected
+#            to fail, and says so when it starts passing
 #
 # One event scored at two sites is two entries with the same folder.
 
@@ -65,6 +69,7 @@ events:
     group: sep25_overnight
     site: south_fork_2
     label: anomaly
+    known_failure: the peak clears the threshold on one timestep, and flagging needs three
     note: >
       The same overnight spike at the downstream node. Known failure: the peak
       clears the threshold but only on one timestep, and flagging needs three.
@@ -82,6 +87,7 @@ events:
     group: mar26_hydrant
     site: north_fork_0
     label: anomaly
+    known_failure: two points cross the threshold, and flagging needs three
     note: >
       Euclid Avenue fire-hydrant break running into the North Fork. Confirmed
       real; sf1 absent this window. Known failure: two points cross the

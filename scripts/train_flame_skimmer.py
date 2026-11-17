@@ -33,8 +33,10 @@ from train_cobble_shoal_real import (  # noqa: E402
     stack_batch,
 )
 
+from strawberrywatch import field_log  # noqa: E402
 from strawberrywatch import inventory as inv  # noqa: E402
 from strawberrywatch.anomalies import channel_scoring as scoring  # noqa: E402
+from strawberrywatch.ingest import levels  # noqa: E402
 from strawberrywatch.ingest.raw_data_loader import load_archive_by_table  # noqa: E402
 from strawberrywatch.models.Cobble_Shoal import (  # noqa: E402
     CANONICAL_VARS,
@@ -64,6 +66,9 @@ def build_corpus(args):
     """
     inventory = inv.load()
     tables = load_archive_by_table(earliest=inventory.earliest_plausible_reading)
+    # Reviewed level: what a live check reads, minus the field log's periods
+    tables, why = levels.reviewed(tables, inventory, field_log.load(inventory=inventory))
+    print(f"reviewed level left out {int(levels.removed_by(why)['readings'].sum())} readings")
     tables, dropped = drop_implausible(tables)
     as_of = max(f.index.max() for f in tables.values() if len(f))
     span = (pd.Timestamp(args.start, tz="UTC"), pd.Timestamp(args.end, tz="UTC"))

@@ -1,3 +1,4 @@
+import hashlib
 import pickle
 from pathlib import Path
 
@@ -8,6 +9,59 @@ from strawberrywatch import paths
 
 ROOT = Path(__file__).parent.parent
 MODEL_DIR = paths.checkpoints_dir()
+
+# The real .env holds the email account. No test may change it, or this run fails
+REAL_ENV = (ROOT / ".env", ROOT / ".env.bak")
+
+
+def _env_fingerprints():
+    return {
+        path: hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+        for path in REAL_ENV
+    }
+
+
+@pytest.fixture(scope="session", autouse=True)
+def real_env_untouched():
+    before = _env_fingerprints()
+    yield before
+    changed = [p.name for p, digest in _env_fingerprints().items() if digest != before[p]]
+    assert not changed, f"the test run changed the real {', '.join(changed)}"
+
+
+class _NoSMTP:
+    """Stands in for smtplib.SMTP. A test that sends mail brings its own fake."""
+
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("a test tried to open a real SMTP connection")
+
+
+@pytest.fixture(autouse=True)
+def no_real_mail(monkeypatch, tmp_path, real_env_untouched):
+    """A .env of each test's own, no SMTP, no Cloudflare, and the real .env checked after."""
+    import smtplib
+
+    import requests
+
+    from strawberrywatch.dashboard import mail
+
+    monkeypatch.setattr(mail, "env_path", lambda: tmp_path / ".env")
+    monkeypatch.setattr(smtplib, "SMTP", _NoSMTP)
+    monkeypatch.setattr(smtplib, "SMTP_SSL", _NoSMTP)
+    post = requests.Session.post
+
+    def guarded(self, url, *args, **kwargs):
+        if "cloudflare.com" in str(url):
+            raise AssertionError("a test tried to reach Cloudflare's email API")
+        return post(self, url, *args, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "post", guarded)
+    yield
+    changed = [
+        p.name for p, digest in _env_fingerprints().items() if digest != real_env_untouched[p]
+    ]
+    if changed:
+        pytest.fail(f"this test changed the real {', '.join(changed)}")
 
 
 def _load_metadata(model_name):

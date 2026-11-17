@@ -85,7 +85,17 @@ def dashboard(port=DEFAULT_PORT, open_browser=True):
             flush=True,
         )
     print("Loading the models (a few seconds)...", flush=True)
-    app = create_app(store=ready())
+    store = ready()
+    from strawberrywatch.dashboard import mail
+
+    moved = mail.move_env_list(store)
+    if moved:
+        print(
+            f"Moved {moved} email recipient{'s' if moved != 1 else ''} from .env into "
+            f"StrawberryWatch's own data. .env keeps the email account.",
+            flush=True,
+        )
+    app = create_app(store=store)
     context = app.extensions["strawberrywatch"]
 
     # 127.0.0.1 only. There's no option for another address.
@@ -98,6 +108,10 @@ def dashboard(port=DEFAULT_PORT, open_browser=True):
     print(f"  {url}", flush=True)
     print("The link works once. Press Ctrl+C to stop.", flush=True)
 
+    from strawberrywatch.watch import ingest
+
+    # Ingest keeps its own time and goes on while checks are paused
+    _, stop_ingest = ingest.start(context.store, token=lambda: os.getenv("SCMG_API_TOKEN"))
     context.watcher.start()
     context.watcher.check_now()
     if open_browser:
@@ -109,6 +123,7 @@ def dashboard(port=DEFAULT_PORT, open_browser=True):
     except KeyboardInterrupt:
         print("\nStopped. No checks run until StrawberryWatch is started again.", flush=True)
     finally:
+        stop_ingest.set()
         context.watcher.stop()
         server.server_close()
     return 0

@@ -1,12 +1,10 @@
 """
-Turning a plain readings frame into the windows the model was trained on.
+Turning a plain readings frame into the windows the model reads.
 
-It mirrors prepare_sequences_normalized without the training-only parts (no
-scaler fitting, QC column or validation split). It's separate because that
-module drags in Config, the API client and our file paths.
-
-Keep the two in step. If training builds windows differently, change it here
-too. Otherwise the model gets differently shaped inputs and no error is raised.
+build_windows is the one place that happens. Serving calls it on Night Heron's
+tables, and training's prepare_sequences_normalized calls it after fitting
+its scaler. It lives here because the training module drags in Config, the
+API client and our file paths.
 """
 
 from __future__ import annotations
@@ -106,7 +104,7 @@ def regrid(frame, feature_cols, step):
     return regridded
 
 
-def _impute_short_gaps(frame, feature_cols, limit_hours):
+def impute_short_gaps(frame, feature_cols, limit_hours):
     """
     Interpolate over gaps shorter than limit_hours, per site.
 
@@ -152,6 +150,9 @@ def build_windows(
     window,
     imputation_limit_hours=3.0,
     grid="15min",
+    valid=None,
+    dtype=np.float32,
+    target_mask=False,
 ):
     """
     Slice a long frame into (sequences, targets, timestamps, node_mask).
@@ -174,6 +175,11 @@ def build_windows(
     Returns empty arrays when the frame has no run of consecutive usable steps
     long enough to fill a window. That's normal on a sparse feed, not an error,
     and the caller decides what to do about it.
+
+    Training's three extras: imputation_limit_hours=None when the gaps were
+    filled before the scaler was fitted, valid names a bool column of QC
+    verdicts that the mask also has to pass, and target_mask=True adds the
+    mask at each window's target step as a fifth return.
     """
     sites = [s for s, _ in sorted(location_to_idx.items(), key=lambda kv: kv[1])]
     _check_frame(frame, feature_cols, sites)
@@ -181,7 +187,8 @@ def build_windows(
     frame = frame.sort_index()
     if grid is not None:
         frame = regrid(frame, feature_cols, grid)
-    frame = _impute_short_gaps(frame, feature_cols, imputation_limit_hours)
+    if imputation_limit_hours is not None:
+        frame = impute_short_gaps(frame, feature_cols, imputation_limit_hours)
 
     means = np.array([normalization[c][0] for c in feature_cols], dtype=float)
     scales = np.array([normalization[c][1] for c in feature_cols], dtype=float)
@@ -200,8 +207,13 @@ def build_windows(
 
     cond = feature_cols.index("conductivity") if "conductivity" in feature_cols else None
     reported = ~np.isnan(grid[:, :, cond]) if cond is not None else ~np.isnan(grid).all(axis=2)
+    if valid is not None:
+        # A reading QC doesn't trust is no more a report than a missing one
+        trusted = np.ones((len(stamps), n_nodes), dtype=bool)
+        trusted[rows, cols] = frame[valid].to_numpy(dtype=bool)
+        reported = reported & trusted if cond is not None else trusted
 
-    filled = np.nan_to_num(grid, nan=0.0)
+    filled = np.where(np.isnan(grid), 0.0, grid)
     # Skip steps nobody reported at
     usable = ~np.isnan(grid).all(axis=(1, 2))
 
@@ -212,20 +224,21 @@ def build_windows(
     starts = np.flatnonzero(run[offsets + window + 1] - run[offsets] == window + 1)
 
     if not starts.size:
-        return (
-            np.empty((0, window, n_nodes, n_feat), dtype=np.float32),
-            np.empty((0, n_nodes, n_feat), dtype=np.float32),
+        out = (
+            np.empty((0, window, n_nodes, n_feat), dtype=dtype),
+            np.empty((0, n_nodes, n_feat), dtype=dtype),
             [],
             np.empty((0, window, n_nodes), dtype=bool),
         )
+        return (*out, np.empty((0, n_nodes), dtype=bool)) if target_mask else out
 
-    # Narrowed to float32 before gathering, to avoid a float64 copy of all the
-    # windows
-    narrow = filled.astype(np.float32)
+    # Narrowed before gathering, to avoid a float64 copy of all the windows
+    narrow = filled.astype(dtype, copy=False)
     window_idx = starts[:, None] + np.arange(window)
-    return (
+    out = (
         narrow[window_idx],
         narrow[starts + window],
         [stamps[i + window] for i in starts],
         reported[window_idx],
     )
+    return (*out, reported[starts + window]) if target_mask else out

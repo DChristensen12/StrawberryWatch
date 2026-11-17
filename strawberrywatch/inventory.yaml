@@ -58,6 +58,23 @@ earliest_plausible_reading: '2020-01-01'
 # -9999 in a CTD channel is a wrong SDI-12 channel address, field fixable.
 sentinel_values: [-9999]
 
+# What each kind of probe can report at all. A reading outside its span fails.
+# The fail_range and suspect_range under each site's thresholds: are what that
+# site has produced so far, and a reading outside those is only suspect.
+# ctd is the METER HYDROS 21: conductivity in uS/cm, temperature in C, depth in mm.
+# Depth fails only below -250 mm, ten times the probe's accuracy under zero.
+sensor_span:
+  ctd:
+    conductivity: [0, 120000]
+    temperature: [-40, 60]
+    depth: [-250, 10000]
+
+# A depth down to the Hydros 21's accuracy below zero, 0.25% of its 10,000 mm
+# full scale, is an ordinary reading. Under that and above the span's floor the
+# probe is possibly out of the water: its depth, conductivity and temperature are
+# suspect for those steps, and a sensor alert goes out.
+out_of_water_depth: -25
+
 # Fraction of coincident readings that must match exactly before two sites
 # are called one duplicated feed. From ingest/quality_control.py.
 duplicate_match_fraction: 0.25

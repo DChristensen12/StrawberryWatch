@@ -601,7 +601,8 @@ def test_people_are_added_and_removed_from_the_email_list_straight_away(signed_i
         "Enter an email address with an @"
         in _post(client, "/settings/email", {"email": "ana at example"}).data.decode()
     )
-    assert mail.mailing_list(store).people() == [{"email": "ana@example.org", "name": "Ana"}]
+    people = mail.mailing_list(store).people()
+    assert [(p["email"], p["name"]) for p in people] == [("ana@example.org", "Ana")]
     page = client.get("/settings/email").data.decode()
     assert "ana@example.org" in page and "Email alerts are off. No one is emailed." in page
     assert _remove(client, "ana@example.org").status_code == 302

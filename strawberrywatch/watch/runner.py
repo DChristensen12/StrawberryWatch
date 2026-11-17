@@ -17,7 +17,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from strawberrywatch.watch import decide, sources
+from strawberrywatch.ingest import levels as data_levels
+from strawberrywatch.watch import decide, ingest, sources
 from strawberrywatch.watch import settings as settings_mod
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,25 @@ def screen(tables, sites, grid):
             frame.loc[hits, column] = np.nan
             held[site] = held.get(site, 0) + int(hits.sum())
     return out, held
+
+
+def _policy(name):
+    """The flag levels a model doesn't read: FAIL and MISSING always, plus its own FLAG_POLICY."""
+    from strawberrywatch.models import contracts
+
+    try:
+        own = contracts.flag_policy(settings_mod.model_class(name))
+    except Exception:
+        own = ()
+    return tuple(sorted(set(data_levels.ALWAYS_OUT) | set(own)))
+
+
+def _screened(raw, flags, policy=data_levels.ALWAYS_OUT):
+    """Raw tables with the flagged readings blanked, on the quarter hour grid the models read."""
+    return {
+        site: sources.on_grid(data_levels.keep(frame, flags.get(site), policy))
+        for site, frame in raw.items()
+    }
 
 
 def explain(support, model_name, model_sites, tables, grid, over, held):
@@ -270,8 +290,22 @@ def run_check(
         from strawberrywatch.watch import model_updates
 
         inventory = inv.load()
-        tables = source.tables(list(inventory.sites), start, end)
-        _save_readings(store, tables, live)
+        names = list(inventory.sites)
+        # A live check reads the levels ingest keeps. A replay is screened here, the same way
+        from_levels = live and store.has_levels()
+        if from_levels:
+            last = ingest.ensure(
+                store, token=token, clock=clock, source=source, window=(start, end)
+            )
+            if last is not None and not last["ok"]:
+                # the fetch failed, and the check fails with its reason as it did before
+                raise sources.SourceError(last["message"].split("; ")[0])
+            raw, flags = data_levels.read(store, names, start, end)
+        else:
+            raw = source.raw_tables(names, start, end)
+            flags = data_levels.screen(raw, inventory, start, end, clock())
+            _save_readings(store, {s: sources.on_grid(f) for s, f in raw.items()}, live)
+        tables = _screened(raw, flags)
         on = [m for m in models if applied["models"].get(m.name, {}).get("on")]
         if max_models is not None and len(on) > max_models:
             skipped = ", ".join(m.title for m in on[max_models:])
@@ -289,10 +323,20 @@ def run_check(
             except Exception as exc:
                 problems.append(f"{model.title} didn't run: {_plain(exc)}")
         wants = any(getattr(d, "wants_weather", False) for d in loaded.values()) or applied["rain"]
-        weather = source.weather(start, end) if wants and loaded else None
-        if wants and loaded:
+        weather = None
+        if wants and loaded and from_levels:
+            # The last weather ingest saved. Old or absent, it isn't read as a dry creek
+            weather = data_levels.weather(store, start, end)
+            fetched = store.weather_fetched_at()
+            weather_ok = (
+                weather is not None
+                and fetched is not None
+                and clock() - fetched <= ingest.WEATHER_STALE
+            )
+        elif wants and loaded:
+            weather = source.weather(start, end)
             weather_ok = weather is not None
-        _save_weather(store, weather)
+            _save_weather(store, weather)
         grid = _grid(start, end)
 
         for model in on:
@@ -306,7 +350,9 @@ def run_check(
                 configure_rain(detector, model, applied["rain"], spec["rain_multiplier"])
                 if hasattr(detector, "set_sensitivity"):
                     detector.set_sensitivity(spec.get("rates"), spec.get("thresholds"))
-                mine = {name: tables[name] for name in detector.table_names if name in tables}
+                policy = _policy(model.name)
+                mine = tables if policy == data_levels.ALWAYS_OUT else _screened(raw, flags, policy)
+                mine = {name: mine[name] for name in detector.table_names if name in mine}
                 held = {}
                 if "settling_pool" in spec["support"]:
                     mine, held = screen(mine, model.sites, grid)

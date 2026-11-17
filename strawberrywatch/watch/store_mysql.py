@@ -22,6 +22,10 @@ TABLES = (
     "noticed",
     "readings",
     "weather",
+    "raw_readings",
+    "screened",
+    "ingest_runs",
+    "sensor_alerts",
     "notes",
     "recipients",
     "labels",
@@ -67,7 +71,25 @@ SCHEMA = (
         site VARCHAR(64) NOT NULL, time DOUBLE NOT NULL, conductivity DOUBLE, depth DOUBLE,
         temperature DOUBLE, dissolved_oxygen DOUBLE, floating_conductivity DOUBLE,
         battery DOUBLE, live TINYINT, PRIMARY KEY (site, time))""",
-    """CREATE TABLE IF NOT EXISTS weather (time DOUBLE PRIMARY KEY, rain_mm DOUBLE)""",
+    """CREATE TABLE IF NOT EXISTS weather (
+        time DOUBLE PRIMARY KEY, rain_mm DOUBLE, air_temp_c DOUBLE, shortwave_radiation DOUBLE,
+        fetched_at DOUBLE)""",
+    """CREATE TABLE IF NOT EXISTS raw_readings (
+        site VARCHAR(64) NOT NULL, col VARCHAR(64) NOT NULL, time DOUBLE NOT NULL,
+        fetched_at DOUBLE NOT NULL, value DOUBLE NOT NULL, source VARCHAR(16) NOT NULL,
+        PRIMARY KEY (site, col, time, fetched_at))""",
+    """CREATE TABLE IF NOT EXISTS screened (
+        site VARCHAR(64) NOT NULL, col VARCHAR(64) NOT NULL, time DOUBLE NOT NULL,
+        flag TINYINT NOT NULL, tests TEXT, raw_fetched_at DOUBLE, screened_at DOUBLE NOT NULL,
+        PRIMARY KEY (site, col, time))""",
+    """CREATE TABLE IF NOT EXISTS ingest_runs (
+        id INT AUTO_INCREMENT PRIMARY KEY, started_at DOUBLE NOT NULL, finished_at DOUBLE,
+        ok TINYINT, message TEXT, rows_new INT)""",
+    """CREATE TABLE IF NOT EXISTS sensor_alerts (
+        site VARCHAR(64) NOT NULL, col VARCHAR(64) NOT NULL, kind VARCHAR(32) NOT NULL,
+        message TEXT NOT NULL, value DOUBLE, first_at DOUBLE NOT NULL, last_at DOUBLE NOT NULL,
+        sent_at DOUBLE, cleared_at DOUBLE, cleared_sent_at DOUBLE,
+        PRIMARY KEY (site, col, kind))""",
     """CREATE TABLE IF NOT EXISTS notes (
         id INT AUTO_INCREMENT PRIMARY KEY, noticed_id INT NOT NULL, written_at DOUBLE NOT NULL,
         author VARCHAR(150), text TEXT NOT NULL, INDEX notes_noticed (noticed_id))""",
@@ -97,6 +119,9 @@ ADDED_COLUMNS = (
     ("recipients", "models", "TEXT"),
     ("recipients", "paused_at", "DOUBLE"),
     ("recipients", "paused_until", "DOUBLE"),
+    ("weather", "air_temp_c", "DOUBLE"),
+    ("weather", "shortwave_radiation", "DOUBLE"),
+    ("weather", "fetched_at", "DOUBLE"),
 )
 
 

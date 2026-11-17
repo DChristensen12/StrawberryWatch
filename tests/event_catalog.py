@@ -16,7 +16,9 @@ CATALOG_PATH = Path(__file__).with_name("events.yaml")
 LABELS = ("anomaly", "true_negative", "relative_only")
 
 REQUIRED = ("folder", "group", "site", "label")
-OPTIONAL = ("note",)
+# field_log lists field log lines as evidence, each by its "date site sensor event" key
+# known_failure says why a graded event doesn't pass yet, and its test is expected to fail
+OPTIONAL = ("note", "field_log", "known_failure")
 
 
 class CatalogError(ValueError):
@@ -32,6 +34,8 @@ class Event:
     site: str
     label: str
     note: str = ""
+    field_log: tuple = ()
+    known_failure: str = ""
 
     @property
     def path(self) -> Path:
@@ -48,7 +52,7 @@ def _fail(index, entry, message):
     raise CatalogError(f"tests/events.yaml entry {index} ({name}): {message}")
 
 
-def parse(blob, known_sites=None):
+def parse(blob, known_sites=None, known_lines=None):
     """Validates a parsed mapping and returns its events in file order."""
     # With known_sites, a misspelled site fails here, not as a skipped test
     if not isinstance(blob, dict) or "events" not in blob:
@@ -76,6 +80,19 @@ def parse(blob, known_sites=None):
                 f"site {entry['site']!r} is not a site this repo knows; "
                 f"expected one of {', '.join(sorted(known_sites))}",
             )
+        cited = entry.get("field_log") or []
+        if not isinstance(cited, list):
+            _fail(i, entry, "field_log must be a list of field log lines")
+        if known_lines is not None:
+            for line in cited:
+                if line not in known_lines:
+                    _fail(
+                        i,
+                        entry,
+                        f"field_log names {line!r}, which isn't a line of field_log.csv; "
+                        f"write it as 'date site sensor event', for example "
+                        f"'2026-03-19 south_fork_1 ctd stolen'",
+                    )
         key = (entry["folder"], entry["site"])
         if key in seen:
             _fail(i, entry, f"duplicates entry {seen[key]}: {key[0]} is already scored at {key[1]}")
@@ -87,6 +104,8 @@ def parse(blob, known_sites=None):
                 site=entry["site"],
                 label=entry["label"],
                 note=(entry.get("note") or "").strip(),
+                field_log=tuple(cited),
+                known_failure=(entry.get("known_failure") or "").strip(),
             )
         )
     return events
@@ -113,7 +132,26 @@ def load(path=CATALOG_PATH, check_sites=True):
     if not path.exists():
         raise CatalogError(f"no event catalog at {path}")
     blob = yaml.safe_load(path.read_text()) or {}
-    return parse(blob, known_sites=known_sites() if check_sites else None)
+    return parse(
+        blob,
+        known_sites=known_sites() if check_sites else None,
+        known_lines=known_lines() if check_sites else None,
+    )
+
+
+def known_lines():
+    """The keys of the field log's lines, for checking an entry's evidence."""
+    from strawberrywatch import field_log
+
+    return set(field_log.load()["key"])
+
+
+def true_negative_candidates():
+    """The field log's visit_ok lines as (site, sensor, UTC time, note), for a person to label."""
+    from strawberrywatch import field_log
+
+    visits = field_log.visits(field_log.load())
+    return [(row.site, row.sensor, row.start, row.note) for row in visits.itertuples()]
 
 
 def by_label(label, events=None):
@@ -152,7 +190,9 @@ __all__ = [
     "by_folder",
     "by_label",
     "groups",
+    "known_lines",
     "known_sites",
     "load",
     "parse",
+    "true_negative_candidates",
 ]

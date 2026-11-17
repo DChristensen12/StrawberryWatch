@@ -5,9 +5,12 @@ import pandas as pd
 import pytest
 import torch
 
+from strawberrywatch import inventory as inv
 from strawberrywatch.anomalies import anomaly_detector as _ad
+from strawberrywatch.anomalies import event_scoring
 from strawberrywatch.anomalies.anomaly_detector import _rain_multipliers
 from strawberrywatch.config import Config
+from strawberrywatch.ingest import levels
 from strawberrywatch.models import model_calls
 from tests import event_catalog
 
@@ -36,6 +39,8 @@ MIN_TIMESTEPS_OVER_THRESHOLD = _ad.MIN_TIMESTEPS_OVER_THRESHOLD
 
 # (event_folder, target_site, label, group) from tests/events.yaml. "anomaly" must flag
 # and "true_negative" mustn't. "relative_only" has no test yet
+INVENTORY = inv.load()
+
 EVENT_CATALOG = [e.as_tuple() for e in event_catalog.load()]
 
 
@@ -99,6 +104,9 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df = df.set_index("datetime").sort_index()
         df = df[~df.index.duplicated(keep="first")]
+        # The fixture holds raw readings. Screen them the way a live check does
+        table = {"footbridge": "scnf010"}.get(site, site)
+        df = levels.keep(df, levels.screen_table(df, table, INVENTORY))
         per_site[site] = df
 
     if not per_site:
@@ -300,21 +308,31 @@ def _report(name, errors, thresholds):
     print(f"    curve: {_curve_shape(errors)}")
 
 
-def _is_flagged(errors, thresholds):
-    """Production's Rule 1 verdict on already normalized, rain-adjusted errors and thresholds."""
+def _is_flagged(errors, thresholds, times):
+    """Production's Rule 1 on normalized, rain-adjusted errors, scored by the shared helper."""
     # _rule1_forecast_residual gets an identity median, IQR and multiplier and only counts
-    return bool(
-        _ad._rule1_forecast_residual(
-            np.asarray(errors, dtype=float),
-            0.0,
-            1.0,
-            np.asarray(thresholds, dtype=float),
-            1.0,
-        )["flagged"]
+    verdict = _ad._rule1_forecast_residual(
+        np.asarray(errors, dtype=float),
+        0.0,
+        1.0,
+        np.asarray(thresholds, dtype=float),
+        1.0,
     )
+    times = pd.DatetimeIndex(times)
+    over = verdict["over"] if verdict["flagged"] else np.zeros(len(times), dtype=bool)
+    return event_scoring.caught(times, over, times[0], times[-1])[0]
 
 
-ANOMALOUS_CASES = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "anomaly"]
+# An entry with known_failure in events.yaml is expected to fail, for the reason it gives
+ANOMALOUS_CASES = [
+    pytest.param(
+        e.folder,
+        e.site,
+        e.group,
+        marks=[pytest.mark.xfail(strict=True, reason=e.known_failure)] if e.known_failure else [],
+    )
+    for e in event_catalog.by_label("anomaly")
+]
 TRUE_NEGATIVE_CASES = [(e, s, g) for e, s, lbl, g in EVENT_CATALOG if lbl == "true_negative"]
 
 
@@ -340,7 +358,7 @@ def test_anomaly_detected(event, target, group, model_bundle, edge_index):
         pytest.skip(f"{event}: only {len(errors)} points, too few to judge.")
     thresholds = _rain_adjusted_thresholds(base_threshold, target_times, rain_series)
     _report(f"{model_bundle['name']}/{group}/{target}", errors, thresholds)
-    assert _is_flagged(errors, thresholds), (
+    assert _is_flagged(errors, thresholds, target_times), (
         f"[{model_bundle['name']}] [{group}] {event}/{target}: expected an anomaly but only "
         f"{int((errors > thresholds).sum())} points crossed the threshold. "
         f"Peak {errors.max():.4f}, base {base_threshold:.4f} "
@@ -370,7 +388,7 @@ def test_true_negative_not_flagged(event, target, group, model_bundle, edge_inde
         pytest.skip(f"{event}: only {len(errors)} points, too few to judge.")
     thresholds = _rain_adjusted_thresholds(base_threshold, target_times, rain_series)
     _report(f"{model_bundle['name']}/{group}/{target}", errors, thresholds)
-    assert not _is_flagged(errors, thresholds), (
+    assert not _is_flagged(errors, thresholds, target_times), (
         f"[{model_bundle['name']}] [{group}] {event}/{target}: expected no anomaly but "
         f"{int((errors > thresholds).sum())} points crossed the threshold. "
         f"Peak {errors.max():.4f}, base {base_threshold:.4f} "

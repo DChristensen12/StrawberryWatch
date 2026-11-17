@@ -23,7 +23,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff", "pre-commit", "pytest"]
+# prts scores detections by range, for strawberrywatch/anomalies/event_scoring.py
+dev = ["ruff", "pre-commit", "pytest", "prts"]
 # The local dashboard, `strawberrywatch dashboard`. Left out of the base install
 # so using the models doesn't pull in a web app.
 dashboard = [
@@ -33,6 +34,9 @@ dashboard = [
     "platformdirs>=4",
     # Checks a recipient's address and that its domain takes mail, before it's saved
     "email-validator>=2.2",
+    # Keeps each weather answer for an hour, so ingest asks Open-Meteo once an hour
+    "requests-cache>=1.2",    # Checks each fetched table against the inventory, for the Data health section
+    "pandera>=0.20",
 ]
 # The Workbench, `strawberrywatch workbench`: exploring readings and recalibrating models
 workbench = [
@@ -52,11 +56,14 @@ strawberrywatch = "strawberrywatch.cli:main"
 include = ["strawberrywatch*"]
 
 [tool.setuptools.package-data]
-strawberrywatch = ["settings.yaml", "inventory.yaml"]
+strawberrywatch = ["settings.yaml", "inventory.yaml", "field_log.csv"]
 "strawberrywatch.dashboard" = ["templates/*.html", "static/*", "static/*/*"]
 "strawberrywatch.workbench" = ["copy_deck.toml", "manual/*.md", "templates/*.html", "static/*", "static/*/*"]
 "strawberrywatch.watch" = ["model_files.sha256.json", "events/events.json", "events/*/*.csv"]
 "strawberrywatch.integrations.scmg_website" = ["INSTALL.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
