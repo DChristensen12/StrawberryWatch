@@ -1,0 +1,12 @@
+{
+ "commit": "9d1b7923fe2cb5fde30f4b0398a899579f1840de",
+ "files": {
+  "dusk_crayfish_serving.json": "28a7a5624b2de345f0b8fc96293990ab23f2f1017c490fb96ecce2cf3fea3219",
+  "dusk_crayfish_weights.pt": "3efbb2619c22bb59377e48780adc4d50e3e6321505235ede1b33aecc546e5c5e"
+ },
+ "model": "dusk_crayfish",
+ "name": "hrrr rain seed 0",
+ "origin": "trained",
+ "saved_at": "2026-11-17T20:51:21-08:00",
+ "seed": 0
+}

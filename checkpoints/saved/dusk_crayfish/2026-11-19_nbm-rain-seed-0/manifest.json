@@ -1,0 +1,79 @@
+{
+ "commit": "9d1b7923fe2cb5fde30f4b0398a899579f1840de",
+ "details": {
+  "hrrr_baseline": "checkpoints/saved/dusk_crayfish/2026-11-17_hrrr-rain-seed-0",
+  "live": "made live on 19 November 2026, after the strict xfail on the March 2026 hydrant became an ordinary test and the dashboard sample was anchored on its last alert; the full suite passed (858 passed, 6 skipped)",
+  "node_thresholds": {
+   "north_fork_0": 13.090091400146544,
+   "oxford": 6.3976027965545965,
+   "south_fork_1": 18.953121948242185,
+   "south_fork_2": 11.845595188140909
+  },
+  "rain_gate": "variant 1: lines x2 while the last 12 h hold more than 0.1 mm, tapering over 36 h",
+  "rain_model": "ncep_nbm_conus",
+  "scored": {
+   "how": "leave one storm group out, Water Strider's rain false alarms as the bar",
+   "with_oxford": {
+    "dry_detect": 0.1700507614213198,
+    "dry_fa": 0.14445041544376008,
+    "events_caught": [
+     "jun25_spill/south_fork_1",
+     "sep25_overnight/south_fork_1",
+     "sep25_overnight/south_fork_2",
+     "mar26_hydrant/north_fork_0"
+    ],
+    "rain_fa": 0.4216801317750411,
+    "rain_only_alerted": 4,
+    "rain_only_storms": 21,
+    "ratio": 0.14539937674266032,
+    "s_all": 2.5514,
+    "storm_detect": 0.024725274725274724,
+    "ws_dry_fa": 0.1902108458810405,
+    "ws_rain_fa": 0.4553201469783441
+   },
+   "without_oxford": {
+    "dry_detect": 0.1700507614213198,
+    "dry_fa": 0.12092719849740759,
+    "events_caught": [
+     "jun25_spill/south_fork_1",
+     "sep25_overnight/south_fork_1",
+     "sep25_overnight/south_fork_2",
+     "mar26_hydrant/north_fork_0"
+    ],
+    "rain_fa": 0.49725158562367866,
+    "rain_only_alerted": 4,
+    "rain_only_storms": 21,
+    "ratio": 0.12924389043792028,
+    "s_all": 2.5514,
+    "storm_detect": 0.02197802197802198,
+    "ws_dry_fa": 0.24913934643292196,
+    "ws_rain_fa": 0.5186276573352978
+   }
+  },
+  "sidecar": "rain_model moved into architecture, and format_version 1 added, on 19 November 2026; weights unchanged",
+  "training": {
+   "command": "main.py --mode train --model dusk_crayfish --data-file training_corpus_reviewed.csv --dry-run --seed 0 --rain-model ncep_nbm_conus",
+   "corpus": "reviewed corpus from scripts/build_training_corpus.py",
+   "corpus_sha256": "a41f0c9c1e16eb17479af4446d92997ff1e41cbc7462cb25fd9eddcb4b491ddd",
+   "nbm_archive_starts": "2024-10-08",
+   "period": [
+    "2025-06-04T03:30:00Z",
+    "2026-05-08T01:15:00Z"
+   ],
+   "same_weights_as": "experiments/phase2/winter/models/nbm_s0 (byte for byte)",
+   "steps": 29123,
+   "threads": "6 (pinned in training since 19 November 2026; the weights were trained at torch's default, which is 6 on the training machine)"
+  },
+  "weather": "air_temp_c and shortwave_radiation from Open-Meteo's default model (HRRR at Berkeley), rain_mm from ncep_nbm_conus"
+ },
+ "files": {
+  "dusk_crayfish_serving.json": "d992be71d0f0d950fd5182e361b4305a9f823fa2b59e652dfd6a4da4533ad112",
+  "dusk_crayfish_weights.pt": "17a6355d048b0d999bb048960c6eb446a67ded89949b8ba5ed0c2b0fa4cd1bc9"
+ },
+ "model": "dusk_crayfish",
+ "name": "nbm rain seed 0",
+ "origin": "trained",
+ "saved_at": "2026-11-19T02:10:15-08:00",
+ "seed": 0,
+ "threads": 6
+}

@@ -1,0 +1,10 @@
+{
+ "commit": "d6ffed64ffcd5f9c4838f6f3be2c8b1082cb1c5e",
+ "files": {
+  "water_strider_calibration.json": "3bac273dcb00206a856599ceed6975bad55eea980b7011882cce2432cc199c75"
+ },
+ "model": "water_strider",
+ "name": "production calibration",
+ "origin": "shipped",
+ "saved_at": "2026-11-16T23:58:42-08:00"
+}

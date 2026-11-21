@@ -1,0 +1,11 @@
+{
+ "commit": "9d1b7923fe2cb5fde30f4b0398a899579f1840de",
+ "files": {
+  "dusk_crayfish_serving.json": "27851ef6e89c0bac8def632712ff5f3e4acf27932b45af42b36b71de890899d8",
+  "dusk_crayfish_weights.pt": "0949925c099bf78f9349ca41f65d48d269c35322b837f19ae7b8d199bdb54945"
+ },
+ "model": "dusk_crayfish",
+ "name": "hrrr rain retrained unseeded",
+ "origin": "trained",
+ "saved_at": "2026-11-17T00:18:28-08:00"
+}

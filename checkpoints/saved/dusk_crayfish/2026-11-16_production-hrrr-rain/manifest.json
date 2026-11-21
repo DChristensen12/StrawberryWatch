@@ -1,0 +1,11 @@
+{
+ "commit": "d6ffed64ffcd5f9c4838f6f3be2c8b1082cb1c5e",
+ "files": {
+  "dusk_crayfish_serving.json": "ff4c9cfa301ef57a1d7fa86d58c0be3bcef9fb4b6ec611e56f14cd8f0e3df724",
+  "dusk_crayfish_weights.pt": "f3529eaac06b3ca82e67920fc7d6568059898d3720b5213071a4a80fc34cfafd"
+ },
+ "model": "dusk_crayfish",
+ "name": "production hrrr rain",
+ "origin": "shipped",
+ "saved_at": "2026-11-16T23:58:42-08:00"
+}
