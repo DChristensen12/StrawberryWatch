@@ -18,7 +18,7 @@ from strawberrywatch.models.Cobble_Shoal import CobbleShoal
 from strawberrywatch.models.Dusk_Crayfish import DuskCrayfish
 from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
 from strawberrywatch.support_modules import DEFAULT_Q_TOTAL, SUPPORT_REGISTRY, SupportStack
-from strawberrywatch.training.trainer import train_temporal_gnn
+from strawberrywatch.training.trainer import TRAIN_THREADS, seed_everything, train_temporal_gnn
 from strawberrywatch.utils.graph_utils import create_graph_topology
 
 # --model names to classes. A new model goes here and nowhere else in main.py.
@@ -307,6 +307,8 @@ def main(
     alert_sites=None,
     dry_run=False,
     results_json=None,
+    seed=0,
+    rain_model=None,
 ):
     """
     Run the GNN anomaly detection pipeline in train, update, or inference mode.
@@ -319,6 +321,9 @@ def main(
     detect_anomalies' constants, alert_sites limits who gets emailed about
     (every site is still scored), dry_run prints the alerts instead of sending
     them, and results_json writes what the run found to that path.
+
+    rain_model trains on that Open-Meteo model's rain instead of the default
+    one's. The checkpoint keeps it, and update and inference read it from there.
     """
     requested_mode = mode
     model_dir = paths.model_dir(model_name)
@@ -386,6 +391,12 @@ def main(
     if dry_run:
         print("Dry run:        alerts get printed, nothing is emailed")
 
+    if rain_model is None and mode != "train" and os.path.exists(metadata_path):
+        with open(metadata_path, "rb") as f:
+            rain_model = pickle.load(f).get("rain_model")  # nosec B301
+    if rain_model:
+        print(f"Rain from:      Open-Meteo {rain_model}")
+
     if mode == "inference":
         # Pull only 2 days for speed during live monitoring, at the screened level
         df_featured, df_original, locations = load_and_preprocess_data(
@@ -394,6 +405,7 @@ def main(
             days=2,
             data_source=data_source,
             level="screened",
+            rain_model=rain_model,
         )
     else:
         # Pull 30 days for training/updating, at the reviewed level
@@ -403,6 +415,7 @@ def main(
             days=30,
             data_source=data_source,
             level="reviewed",
+            rain_model=rain_model,
         )
 
     edge_index, _, location_to_idx = create_graph_topology()
@@ -502,6 +515,9 @@ def main(
     model_kwargs = {"num_node_features": num_node_features}
     if "num_nodes" in inspect.signature(ModelClass.__init__).parameters:
         model_kwargs["num_nodes"] = len(location_to_idx)
+    if mode in ("train", "update"):
+        # weight initialization and dropout are the training's only randomness
+        seed_everything(seed)
     model = ModelClass(**model_kwargs).to(Config.DEVICE)
 
     if loading_existing:
@@ -584,6 +600,9 @@ def main(
                     "node_thresholds": node_thresholds,
                     "cond_median": cond_median,
                     "cond_iqr": cond_iqr,
+                    "seed": seed,
+                    "threads": TRAIN_THREADS,
+                    "rain_model": rain_model,
                 },
                 f,
             )
@@ -763,6 +782,19 @@ if __name__ == "__main__":
         help="Also write what the run found to PATH as JSON: per site verdicts, "
         "explainer accounts, and every alert with whether it was sent.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Seed for training. The same seed and data give the same weights.",
+    )
+    parser.add_argument(
+        "--rain-model",
+        default=None,
+        metavar="MODEL",
+        help="Train on this Open-Meteo model's rain, like ncep_nbm_conus, instead of "
+        "the default one's. Update and inference take it from the checkpoint.",
+    )
     args = parser.parse_args()
     main(
         mode=args.mode,
@@ -775,4 +807,6 @@ if __name__ == "__main__":
         alert_sites=args.alert_sites,
         dry_run=args.dry_run,
         results_json=args.results_json,
+        seed=args.seed,
+        rain_model=args.rain_model,
     )

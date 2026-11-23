@@ -9,7 +9,7 @@
    "south_fork_1": 18.953121948242185,
    "south_fork_2": 11.845595188140909
   },
-  "rain_gate": "variant 1: lines x2 while the last 12 h hold more than 0.1 mm, tapering over 36 h",
+  "rain_gate": "the current rain gate: lines x2 while the last 12 h hold more than 0.1 mm, tapering over 36 h",
   "rain_model": "ncep_nbm_conus",
   "scored": {
    "how": "leave one storm group out, Water Strider's rain false alarms as the bar",
@@ -60,7 +60,7 @@
     "2025-06-04T03:30:00Z",
     "2026-05-08T01:15:00Z"
    ],
-   "same_weights_as": "experiments/phase2/winter/models/nbm_s0 (byte for byte)",
+   "same_weights_as": "checkpoints/dusk_crayfish/storm_mode/nbm_s0 (byte for byte)",
    "steps": 29123,
    "threads": "6 (pinned in training since 19 November 2026; the weights were trained at torch's default, which is 6 on the training machine)"
   },

@@ -58,12 +58,13 @@ include = ["strawberrywatch*"]
 [tool.setuptools.package-data]
 strawberrywatch = ["settings.yaml", "inventory.yaml", "field_log.csv"]
 "strawberrywatch.dashboard" = ["templates/*.html", "static/*", "static/*/*"]
-"strawberrywatch.workbench" = ["copy_deck.toml", "manual/*.md", "templates/*.html", "static/*", "static/*/*"]
+"strawberrywatch.workbench" = ["copy_deck.toml", "templates/*.html", "static/*", "static/*/*"]
 "strawberrywatch.watch" = ["model_files.sha256.json", "events/events.json", "events/*/*.csv"]
-"strawberrywatch.integrations.scmg_website" = ["INSTALL.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not live'"
+markers = ["live: reaches the live SCMG, NWS and MySQL endpoints, left out unless run with -m live"]
 
 [tool.ruff]
 line-length = 100
