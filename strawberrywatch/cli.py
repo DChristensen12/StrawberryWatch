@@ -31,8 +31,8 @@ def main(argv=None):
     )
     bench = commands.add_parser(
         "workbench",
-        help="Open the StrawberryWatch Workbench in its own window.",
-        description="Opens the Workbench, for exploring readings and recalibrating models on this computer.",
+        help="Open the StrawberryWatch Model Tuner in its own window.",
+        description="Opens the Model Tuner, for exploring readings and recalibrating models on this computer.",
     )
     bench.add_argument(
         "--browser", action="store_true", help="Open it in a browser tab instead of its own window"
@@ -50,7 +50,7 @@ def workbench(browser=False):
         from strawberrywatch.workbench import window
     except ImportError:
         print(
-            'The Workbench needs its extras: pip install -e ".[workbench]"',
+            'The Model Tuner needs its extras: pip install -e ".[workbench]"',
             file=sys.stderr,
         )
         return 1

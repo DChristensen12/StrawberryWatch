@@ -1,4 +1,4 @@
-"""Every word the Workbench shows comes from copy_deck.toml, and nothing else slips in."""
+"""Every word the Model Tuner shows comes from copy_deck.toml, and nothing else slips in."""
 
 import html
 import re

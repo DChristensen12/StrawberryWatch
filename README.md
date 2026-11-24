@@ -135,106 +135,33 @@ so switching one on makes the model slightly less sensitive elsewhere).
 </table>
 
 
-## Data
+## Dashboards and Apps
 
-StrawberryWatch keeps three levels of the same sensor data, following Campbell et al. (2013). Raw readings are never edited or deleted, and every later level is computed from raw plus recorded decisions. The flags follow the codes of the Quality Assurance / Quality Control of Real-Time Oceanographic Data (QARTOD) program.
+StrawberryWatch has dashboards and apps that are all connected. The admin
+dashboard runs on the SCMG Website, and is only available to EH&S and SCMG
+Project Leads, so it can't be opened from this repository. The admin dashboard
+has the following tabs: Overview, Alerts, History, Models and Settings.
+The local dashboard runs locally on your own computer and checks the creek every 15 minutes
+while it is open. The Creek Explorer is a public dashboard viewable by anyone on the Strawberry Creek
+Monitoring Group website (it is currently in development).
 
-| Level | What it is | Written by | Read by |
-|---|---|---|---|
-| Raw | Each reading as fetched, with its source and fetch time | the ingest job, every 15 minutes | the levels below, and audits |
-| Screened | Raw plus a QARTOD flag for each reading and for each test | the ingest job, right after each fetch | live checks, for every model |
-| Reviewed | Screened minus the periods recorded in the field log | people, through `strawberrywatch/field_log.csv` | training, calibration and tests |
+### Creek Explorer
 
-The ingest job runs apart from the model checks. Thus, readings are still collected while checks are paused. Readings flagged FAIL or MISSING never reach a model, while SUSPECT readings stay in with their flag recorded.
+StrawberryWatch for informative and monitoring purposes with information avaliable publically.
 
-To record what someone saw or did at a sensor, we add one line to the field log and check it:
+Currently being developed! Stay tuned for more information.
 
-    2026-06-01,09:30:00-07:00,south_fork_0,ctd,cleaned,,wiped the cell,Ana,yes,412.5,398.0
+### Model Tuner
 
-    python -m strawberrywatch.field_log
-
-A sensor alert says that a probe needs attention (e.g., a reading of -9999, a feed that stopped, a probe possibly out of the water, a level that moved like a unit change, a daily range far below its normal, or conductivity unchanged while depth rose). Sensor alerts appear under Data health on the Overview page and are emailed when they start and when they clear, on the website only to people labelled Admin or SCMG. They are not creek alerts, which come only from the models.
-
-## What is deployed
-
-**Dusk Crayfish** is the model currently running, as of 2026-08-20. Update the
-date whenever the deployment changes. Nothing else in the code records which
-model is live.
-
-Dusk Crayfish learns the creek's normal behavior from sensor data and flags
-deviations that look like spills or contamination events, without being trained
-on labeled anomalies. It treats the creek as a connected graph of sensor sites
-and combines a graph neural network with a Long Short Term Memory architecture
-to reason about both where a sensor sits in the flow and how its readings change
-over time.
-
-The map below shows the sensors on the actual creek, with each fork tracing the
-real water flow down to the Oxford Street confluence. To see the creek in more
-detail, view the map on the Strawberry Creek website.
-
-<p align="center">
-  <img src="assets/diagrams/Strawberry_Creek_Physical_Graph_Topology.png" width="80%">
-</p>
-
-<p align="center"><i>The physical sensor network along Strawberry Creek, overlaid on the creek's real flow. Both forks converge at the Oxford Street confluence. This is the full field deployment, not the modeled graph: four of these sites are modeled, north_fork_0, south_fork_1, south_fork_2, and Oxford.</i></p>
-
-The model is trained and validated on a four-node core of that network, the main
-flow path where conductivity data is reliable. The remaining sites are brought in
-as their data ingestion is completed. The north path runs straight from
-north_fork_0 to Oxford because the footbridge node between them was retired; the
-water still flows that way, there is just no sensor reporting in between.
-
-```mermaid
-graph LR
-    %% Focused Horizontal Network Layout with No Legend
-    subgraph ST_Backbone [DuskCrayfish&nbsp;Network&nbsp;Topology]
-        %% Active South Fork Path
-        SF1([South Fork 1]) --> SF2([South Fork 2])
-
-        %% Active North Fork Path, contracted through the retired footbridge node
-        NF0([North Fork 0])
-
-        %% Convergence Sink
-        SF2 --> OX{Oxford Street}
-        NF0 --> OX
-
-        %% Isolated Node kept inline horizontally to the right of the sink
-        CC[[Codornices Creek]]
-        OX ~~~ CC
-    end
-
-    %% Color Palette Configurations
-    classDef nodeStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#fff;
-    classDef targetStyle fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff;
-    classDef controlStyle fill:#334155,stroke:#94a3b8,stroke-width:2px,color:#cbd5e1,stroke-dasharray: 5 5;
-
-    class SF1,SF2,NF0 nodeStyle;
-    class OX targetStyle;
-    class CC controlStyle;
-```
-
-<p align="center"><i>Dusk Crayfish Active Graph Topology: the 4-node subnetwork the model actually trains and serves on.</i></p>
-
-The system pulls sensor readings, merges in weather, learns what normal looks
-like across the whole network, and then scores new data by how badly the model
-fails to predict it. A large, sustained prediction error on conductivity that
-shows up across connected sites is the signature of a real event.
-
-The model is unsupervised. It is trained only to predict the next reading from
-recent history. Anything it cannot predict well is, by definition, something it
-has not seen before, which is what an anomaly is.
-
-## Workbench
-
-The StrawberryWatch Workbench is a desktop app for exploring Strawberry Creek
+The StrawberryWatch Model Tuner is a desktop app for exploring Strawberry Creek
 readings and recalibrating the anomaly detection models on this computer,
-separate from the admin dashboard. It reads readings from the Strawberry Creek
-website, a folder of CSV files, or a MySQL database, and works offline once the
+separate from the admin dashboard (so that tuning the model doesn't require access to the administrative dashboard).
+It reads readings from the Strawberry Creek website, a folder of CSV files, or a MySQL database, and works offline once the
 readings are downloaded. It provides seven tabs: Home, Model tuning (Pick data,
 Explore, Recalibrate), Sensors, Events, Past calibrations, User manual and
 Settings. Recalibrating moves each model's alert line (threshold) using the
 picked data, and the model itself does not change. This first version
-recalibrates Dusk Crayfish and Cobble Shoal.
+recalibrates Dusk Crayfish only.
 
 Install it with its extras:
 
@@ -252,7 +179,7 @@ strawberrywatch workbench --browser
 Its window needs a pywebview backend, Qt or GTK on Linux. The `--browser` flag
 works without one.
 
-Saved calibrations, events marked in the Workbench and downloaded readings are
+Saved calibrations, events marked in the Model Tuner and downloaded readings are
 stored in one folder, `platformdirs.user_data_dir("StrawberryWatch")/workbench`
 (on Linux, `~/.local/share/StrawberryWatch/workbench`). The API token and the
 MySQL password are kept in the system keychain, never in a file. The shipped

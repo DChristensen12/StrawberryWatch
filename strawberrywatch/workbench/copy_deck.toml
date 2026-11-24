@@ -1,6 +1,6 @@
-# StrawberryWatch Workbench copy deck, version 0.2
+# StrawberryWatch Model Tuner copy deck, version 0.2
 #
-# Every word the Workbench shows comes from this file. Each section names the
+# Every word the Model Tuner shows comes from this file. Each section names the
 # file its strings must appear in, word for word.
 #
 # strings      text from the mockup, checked against the file's visible text
@@ -14,7 +14,7 @@
 file = "templates/base.html"
 strings = [
   "StrawberryWatch",
-  "Workbench",
+  "Model Tuner",
   "Home",
   "Model tuning",
   "Sensors",
@@ -466,5 +466,5 @@ new_strings = [
   "Should a model alert?",
   "Now",
   "After recalibrating",
-  "Made with the StrawberryWatch Workbench on {date}.",
+  "Made with the StrawberryWatch Model Tuner on {date}.",
 ]

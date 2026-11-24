@@ -508,9 +508,9 @@ Keys you leave out keep `settings.yaml`'s value. The run's header prints
 `Settings: settings.yaml + my_settings.yaml`, so the log says which numbers it
 actually ran on.
 
-### The Workbench
+### The Model Tuner
 
-The Workbench explores the creek's readings and recalibrates the models on
+The Model Tuner explores the creek's readings and recalibrates the models on
 this computer, apart from the dashboards. It reads from the Strawberry Creek
 website, a folder of CSV files or a MySQL database, and works offline once the
 readings are downloaded. Recalibrating moves a model's alert line (threshold)
@@ -1854,15 +1854,15 @@ internet.
 
 ---
 
-## Appendix E. Workbench pages
+## Appendix E. Model Tuner pages
 
-These are the pages of the Workbench's User manual tab, which reads them from here.
+These are the pages of the Model Tuner's User manual tab, which reads them from here.
 
 ### Getting started
 
-This page explains what the Workbench is for and the order in which we recommend using its tabs.
+This page explains what the Model Tuner is for and the order in which we recommend using its tabs.
 
-The Workbench runs on this computer. It reads Strawberry Creek readings from one of three data sources: (1) the Strawberry Creek website, (2) a folder of CSV files, or (3) a MySQL database. Each source is set up once in Settings. An API token or a database password is kept in this computer's keychain, never in a file.
+The Model Tuner runs on this computer. It reads Strawberry Creek readings from one of three data sources: (1) the Strawberry Creek website, (2) a folder of CSV files, or (3) a MySQL database. Each source is set up once in Settings. An API token or a database password is kept in this computer's keychain, never in a file.
 
 Home shows the creek right now, any unfinished tuning, and each model with its drift check. Sensors lists every sensor and when it last sent a reading. Events lists known spills, rain, sensor problems and field visits. Model tuning has 3 steps: Pick data, Explore and Recalibrate. Past calibrations keeps every calibration saved on this computer, and the one each model shipped with.
 
@@ -1996,13 +1996,13 @@ Export event list (CSV) on the Events tab saves every event with its name, kind,
 
 Export summary (PDF) in Past calibrations saves a 1-page summary of one calibration, for sharing with Environment, Health & Safety (EH&S).
 
-In the Workbench window, each export asks where to save the file, and the page shows where it went. In a browser tab, exports download like any other file.
+In the Model Tuner window, each export asks where to save the file, and the page shows where it went. In a browser tab, exports download like any other file.
 
 No export contains an API token or a database password.
 
 ### When something looks wrong
 
-This page explains what to check when the Workbench shows something unexpected.
+This page explains what to check when the Model Tuner shows something unexpected.
 
 If no readings load, we recommend checking (1) that the data source is set up in Settings, (2) that Test connection says Connected, and (3) that the picked dates have readings. A folder of CSV files needs one file per site, named after the site.
 
@@ -2020,7 +2020,7 @@ If the downloaded readings look out of date, Clear downloaded readings in Settin
 
 ### Glossary
 
-This page explains the words the Workbench uses.
+This page explains the words the Model Tuner uses.
 
 Alert line (threshold): the line a model's score must cross before the model raises an alert.
 

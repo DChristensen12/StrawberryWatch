@@ -61,7 +61,7 @@ def main(browser=False):
             import webview
         except ImportError:
             print(
-                'The Workbench window needs pywebview: pip install -e ".[workbench]", or use --browser'
+                'The Model Tuner window needs pywebview: pip install -e ".[workbench]", or use --browser'
             )
             return 1
     # Werkzeug logs every request line, and the first one carries the login token
@@ -74,7 +74,7 @@ def main(browser=False):
     url = f"http://127.0.0.1:{server.port}/login?token={login.token}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
     if browser:
-        print(f"Workbench running at {url}", flush=True)
+        print(f"Model Tuner running at {url}", flush=True)
         webbrowser.open(url)
         try:
             threading.Event().wait()
@@ -84,7 +84,7 @@ def main(browser=False):
             server.shutdown()
         return 0
     webview.create_window(
-        "StrawberryWatch Workbench",
+        "StrawberryWatch Model Tuner",
         url,
         width=1280,
         height=860,

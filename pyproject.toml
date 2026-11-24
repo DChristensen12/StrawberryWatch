@@ -38,7 +38,7 @@ dashboard = [
     "requests-cache>=1.2",    # Checks each fetched table against the inventory, for the Data health section
     "pandera>=0.20",
 ]
-# The Workbench, `strawberrywatch workbench`: exploring readings and recalibrating models
+# The Model Tuner, `strawberrywatch workbench`: exploring readings and recalibrating models
 workbench = [
     "flask>=3.1",
     "flask-wtf>=1.2",

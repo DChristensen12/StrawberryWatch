@@ -1,4 +1,4 @@
-"""The Workbench's Flask app and every route."""
+"""The Model Tuner's Flask app and every route."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ from strawberrywatch.workbench import calibrate, checks, data, events, export, s
 
 HERE = Path(__file__).resolve().parent
 DASHBOARD_STATIC = HERE.parent / "dashboard" / "static"
-# What the Workbench borrows from the dashboard's static folder
+# What the Model Tuner borrows from the dashboard's static folder
 SHARED = ("scmg-logo.png", "fonts/sen-latin.woff2", "fonts/sen-latin-ext.woff2", "fonts/OFL.txt")
 SHARED_DIRS = ("uplot/",)
 QUIET_MINUTES = 60
@@ -1364,14 +1364,14 @@ def settings_clear():
 
 
 def manual_pages():
-    """Each page of the repository manual's Workbench pages appendix, as its own document."""
+    """Each page of the repository manual's Model Tuner pages appendix, as its own document."""
     path = HERE.parents[1] / "USER_MANUAL.md"
     if not path.is_file():
         return {}
     pages, current, inside = {}, None, False
     for line in path.read_text().splitlines():
         if line.startswith("## "):
-            inside, current = line.endswith("Workbench pages"), None
+            inside, current = line.endswith("Model Tuner pages"), None
         elif line == "---":
             current = None
         elif inside and line.startswith("### "):

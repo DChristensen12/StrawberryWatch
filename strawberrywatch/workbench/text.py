@@ -1,4 +1,4 @@
-"""Words the Workbench shows outside its templates, and the helpers that format them."""
+"""Words the Model Tuner shows outside its templates, and the helpers that format them."""
 
 from __future__ import annotations
 

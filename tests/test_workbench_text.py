@@ -1,4 +1,4 @@
-"""The Workbench's formatting helpers."""
+"""The Model Tuner's formatting helpers."""
 
 from datetime import date, datetime
 

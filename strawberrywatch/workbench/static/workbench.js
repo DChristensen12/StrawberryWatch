@@ -1,4 +1,4 @@
-/* StrawberryWatch Workbench. Vanilla JS, no build step */
+/* StrawberryWatch Model Tuner. Vanilla JS, no build step */
 
 (function () {
   "use strict";

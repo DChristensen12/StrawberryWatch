@@ -332,7 +332,7 @@ def test_signed_in_sees_the_website_dashboard(django_site, tmp_path):
     assert response.status_code == 200, page[:500]
     assert "Data source: strawberrycreek.org sensor database" in page
     assert 'href="/strawberrywatch/setup"' not in page and ">Change<" not in page
-    assert ">Workbench<" not in page and 'href="/logout/"' in page
+    assert ">Model Tuner<" not in page and 'href="/logout/"' in page
     assert 'data-root="/strawberrywatch"' in page
     assert store.source()["kind"] == sources.SITE
     # The first page with a form starts the dashboard's own session, kept to its path

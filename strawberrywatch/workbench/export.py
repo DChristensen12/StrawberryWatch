@@ -12,7 +12,7 @@ TITLE = "StrawberryWatch calibration summary"
 LABELS = ("Model", "Saved", "Data", "Left out", "False alarms", "Notes")
 TABLE_TITLE = "Past events"
 COLUMNS = ("Event", "Should a model alert?", "Now", "After recalibrating")
-FOOTER = "Made with the StrawberryWatch Workbench on {date}."
+FOOTER = "Made with the StrawberryWatch Model Tuner on {date}."
 
 
 def csv_text(header, rows):

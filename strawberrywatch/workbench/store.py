@@ -12,6 +12,7 @@ from pathlib import Path
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
+# The app's old name, kept so a token saved before the rename still loads
 KEYCHAIN = "StrawberryWatch Workbench"
 SECRETS = ("api_token", "mysql_password")
 SHIPPED = "shipped"
