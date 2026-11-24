@@ -12,6 +12,7 @@ import numpy as np
 
 from strawberrywatch.watch import decide, sources
 from strawberrywatch.watch import settings as ws
+from strawberrywatch.watch import store as st
 
 H = 3600
 STEP = 900
@@ -301,7 +302,11 @@ def data_health(store, ref):
         for p in store.sensor_problems()
     ]
     checked = store.pref("health_checked_at")
-    return {"problems": problems, "checked": when_words(float(checked), ref) if checked else None}
+    return {
+        "problems": problems,
+        "checked": when_words(float(checked), ref) if checked else None,
+        "no_nbm_column": bool(store.pref(st.NO_NBM_COLUMN)),
+    }
 
 
 def collecting(store, ref):
@@ -312,17 +317,47 @@ def collecting(store, ref):
     return last["finished_at"]
 
 
+def pauses(store, models, ref):
+    """Whether every check is paused and each paused model, each with its next try."""
+    from strawberrywatch.watch import runner
+
+    def next_try(at):
+        # a try comes with the first check after the hour is up
+        return clock(max(at + runner.RETRY_SECONDS, ref))
+
+    paused = store.pref("checks_paused") == "yes"
+    try:
+        at = float(store.pref("checks_paused_at") or ref)
+    except ValueError:
+        at = ref
+
+    def paused_at(at):
+        words = when_words(at, ref)
+        relative = words.split()[0] in ("Today", "Yesterday")
+        return f"Paused {words[0].lower() + words[1:]}" if relative else f"Paused on {words}"
+
+    off = [
+        {**m, "next_try": next_try(m["since"]), "since": paused_at(m["since"])}
+        for m in runner.paused_models(store, models)
+    ]
+    return {"paused": paused, "next_try": next_try(at) if paused else None, "models": off}
+
+
 def site_statuses(store, inventory, applied, ref):
     """Each site's status: flagged, late, unknown (checks paused), muted (alerts off) or reporting."""
     unusual = {n["site"] for n in recent_noticed(store, ref)}
     last = store.last_readings(live=True)
     dont_flag = set(applied["dont_flag"]) if applied else set()
     paused = store.pref("checks_paused") == "yes"
+    # with ingest keeping up, a quiet site is quiet. Without it a pause hides that
+    unsure = paused and collecting(store, ref) is None
     out = {}
     for site in inventory.sites:
         newest = last.get(site, {}).get("time")
         if site in unusual:
             out[site] = {"key": "flagged", "text": "Alert"}
+        elif unsure:
+            out[site] = {"key": "unknown", "text": "Unknown, checks paused"}
         elif newest is None:
             out[site] = {"key": "late", "text": "No data yet"}
         elif ref - newest > LATE_AFTER:

@@ -10,6 +10,7 @@ around `key`, no two-argument MAX), and store_mysql.py reuses it.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -18,7 +19,11 @@ import threading
 import time
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
+
 DB_NAME = "strawberrywatch.db"
+# In prefs while weather is saved without Dusk Crayfish's rain column, for Overview
+NO_NBM_COLUMN = "weather_without_rain_nbm_mm"
 SCORE_DAYS = 30
 READING_DAYS = 8
 PRUNE_EVERY = 86400
@@ -53,7 +58,7 @@ CREATE TABLE IF NOT EXISTS readings (
     live INTEGER, PRIMARY KEY (site, time));
 CREATE TABLE IF NOT EXISTS weather (
     time REAL PRIMARY KEY, rain_mm REAL, air_temp_c REAL, shortwave_radiation REAL,
-    fetched_at REAL);
+    fetched_at REAL, rain_nbm_mm REAL);
 CREATE TABLE IF NOT EXISTS raw_readings (
     site TEXT NOT NULL, col TEXT NOT NULL, time REAL NOT NULL, fetched_at REAL NOT NULL,
     value REAL NOT NULL, source TEXT NOT NULL, PRIMARY KEY (site, col, time, fetched_at));
@@ -106,6 +111,7 @@ ADDED_COLUMNS = (
     ("weather", "air_temp_c", "REAL"),
     ("weather", "shortwave_radiation", "REAL"),
     ("weather", "fetched_at", "REAL"),
+    ("weather", "rain_nbm_mm", "REAL"),
 )
 
 # Recipient labels, website only. They're for telling people apart and don't grant access.
@@ -472,18 +478,47 @@ class Store:
         return {r["site"]: dict(r) for r in rows}
 
     def save_weather(self, rows, fetched_at=None):
-        """rows: (time, rain_mm), or (time, rain_mm, air_temp_c, shortwave_radiation)."""
-        with self.db() as db:
-            if not self.has_levels():
+        """rows: (time, rain_mm), or (time, rain_mm, air_temp_c, shortwave_radiation, rain_nbm_mm)."""
+        if not self.has_levels():
+            with self.db() as db:
                 db.executemany(
                     "REPLACE INTO weather (time, rain_mm) VALUES (?, ?)", [r[:2] for r in rows]
                 )
-                return
-            db.executemany(
-                "REPLACE INTO weather (time, rain_mm, air_temp_c, shortwave_radiation, "
-                "fetched_at) VALUES (?, ?, ?, ?, ?)",
-                [(*(*row, None, None)[:4], fetched_at) for row in rows],
+            return
+        rows = [(*(*row, None, None, None)[:5], fetched_at) for row in rows]
+        has_nbm = self._has_nbm_column()
+        with self.db() as db:
+            if has_nbm:
+                db.executemany(
+                    "REPLACE INTO weather (time, rain_mm, air_temp_c, shortwave_radiation, "
+                    "rain_nbm_mm, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
+            else:
+                # An install updated without running setup_tables again
+                db.executemany(
+                    "REPLACE INTO weather (time, rain_mm, air_temp_c, shortwave_radiation, "
+                    "fetched_at) VALUES (?, ?, ?, ?, ?)",
+                    [r[:4] + r[5:] for r in rows],
+                )
+        if not has_nbm:
+            logger.warning(
+                "weather has no rain_nbm_mm column, so it was saved without NBM rain. "
+                "Run setup_tables to add it"
             )
+            self.set_pref(NO_NBM_COLUMN, "yes")
+        elif self.pref(NO_NBM_COLUMN):
+            self.set_pref(NO_NBM_COLUMN, "")
+
+    def _has_nbm_column(self):
+        if not getattr(self, "_nbm_column", False):
+            try:
+                with self.db() as db:
+                    db.execute("SELECT rain_nbm_mm FROM weather LIMIT 1").fetchall()
+            except Exception:
+                return False
+            self._nbm_column = True
+        return True
 
     def weather(self, since, until):
         with self.db() as db:

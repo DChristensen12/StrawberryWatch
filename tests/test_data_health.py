@@ -298,6 +298,65 @@ def test_a_sensor_alert_is_never_a_creek_alert(store, monkeypatch):
     assert store.noticed() == []
 
 
+def _held(monkeypatch, rise):
+    """A feed whose South Fork 1 conductivity holds at one value for all its readings."""
+    from strawberrywatch.ingest import api_client
+
+    feed = Feed()
+    monkeypatch.setattr(api_client, "fetch_creek_data", feed.fetch)
+    monkeypatch.setattr(sources.Source, "weather", lambda _self, a, b: feed.weather(a, b))
+    for i in range(len(feed.stamps)):
+        feed.changed[("south_fork_1", COND, i)] = 412.5
+        feed.changed[("south_fork_1", DEPTH, i)] = 150.0 + rise * i / (len(feed.stamps) - 1)
+    return feed
+
+
+def test_conductivity_held_through_a_depth_rise_is_a_sensor_alert(store, monkeypatch):
+    _held(monkeypatch, rise=60.0)
+    ingest.run(store, token="t")
+    stuck = [p for p in store.sensor_problems() if p["kind"] == health.STUCK]
+    assert [(p["site"], p["message"]) for p in stuck] == [
+        (
+            "south_fork_1",
+            "Sensor problem at South Fork 1 conductivity: unchanged at 412.5 uS/cm for 6 hours "
+            "while depth moved 60 mm, possibly stuck",
+        )
+    ]
+    assert store.noticed() == []
+
+
+def test_conductivity_held_while_the_creek_is_steady_is_not(store, monkeypatch):
+    # 8 mm is under the storm trigger's 10 mm
+    _held(monkeypatch, rise=8.0)
+    ingest.run(store, token="t")
+    assert [p for p in store.sensor_problems() if p["kind"] == health.STUCK] == []
+
+
+def _hold(n, step, rise):
+    """n identical conductivity readings at this spacing while depth rises by rise mm."""
+    stamps = pd.date_range("2026-01-05 12:00", periods=n, freq=step, tz="UTC")
+    return pd.Series(412.5, stamps), pd.Series(150.0 + np.linspace(0, rise, n), stamps)
+
+
+@pytest.mark.parametrize(
+    "n, step, held",
+    [(9, "15min", True), (8, "15min", False), (25, "5min", True), (24, "5min", False)],
+)
+def test_the_stuck_window_is_two_hours_whatever_the_spacing(inventory, n, step, held):
+    cond, depth = _hold(n, step, rise=30.0)
+    hits = health.stuck_steps(cond, depth, inventory.stuck_hours, inventory.stuck_min_readings)
+    assert bool(hits) == held
+    if held:
+        assert hits[-1][2] == 2.0 and round(hits[-1][3]) == 30
+
+
+@pytest.mark.parametrize("n, step, held", [(3, "60min", False), (4, "40min", True)])
+def test_the_stuck_window_needs_four_readings(inventory, n, step, held):
+    cond, depth = _hold(n, step, rise=30.0)
+    hits = health.stuck_steps(cond, depth, inventory.stuck_hours, inventory.stuck_min_readings)
+    assert bool(hits) == held
+
+
 def test_a_failing_health_check_never_stops_ingest(store, monkeypatch):
     from strawberrywatch.ingest import api_client
 

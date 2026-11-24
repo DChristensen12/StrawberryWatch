@@ -294,6 +294,8 @@ class Inventory:
         self.duplicate_match_fraction = float(raw.get("duplicate_match_fraction", 0.25))
         self.flat_line_suspect_count = int(raw.get("flat_line_suspect_count", 24))
         self.flat_line_fail_count = int(raw.get("flat_line_fail_count", 96))
+        self.stuck_hours = float(raw.get("stuck_hours", 2))
+        self.stuck_min_readings = int(raw.get("stuck_min_readings", 4))
         self.window_steps = int(raw.get("window_steps", 24))
         self.sensor_variables = dict(raw.get("sensor_variables") or {})
         self.sensor_columns = dict(raw.get("sensor_columns") or {})

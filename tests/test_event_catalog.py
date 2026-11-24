@@ -55,7 +55,7 @@ def test_no_true_negative_coverage_yet(events):
     """No test checks yet that the detector stays quiet."""
     # The April rain rows came out on 2026-09-06 for the 2026-09-03 storm, not a fixture yet.
     # test_true_negative_not_flagged runs over an empty list, and this keeps that visible.
-    # Delete it once the storm is in (see future_work.md)
+    # Delete it once the storm is in (USER_MANUAL.md, Appendix F)
     assert not [e for e in events if e.label == "true_negative"], (
         "true negatives are back. Add them to the graded set in "
         "test_the_graded_events_are_still_graded and delete this test."

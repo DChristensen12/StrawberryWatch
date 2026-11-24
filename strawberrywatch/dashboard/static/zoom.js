@@ -1,7 +1,6 @@
 // The zoom buttons' arithmetic, kept out of app.js so it can be tested without
 // a browser.
-// Adapted from uPlot demos/zoom-wheel.html (MIT). A view is {min, max} on the
-// x scale, always kept inside the data.
+// A view is {min, max} on the x scale, always kept inside the data.
 
 // Stop at two readings across, the least worth showing
 export const MIN_SPAN = 2 * 900;

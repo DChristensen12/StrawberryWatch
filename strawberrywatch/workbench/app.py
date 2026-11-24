@@ -1363,9 +1363,27 @@ def settings_clear():
 # User manual
 
 
+def manual_pages():
+    """Each page of the repository manual's Workbench pages appendix, as its own document."""
+    path = HERE.parents[1] / "USER_MANUAL.md"
+    if not path.is_file():
+        return {}
+    pages, current, inside = {}, None, False
+    for line in path.read_text().splitlines():
+        if line.startswith("## "):
+            inside, current = line.endswith("Workbench pages"), None
+        elif line == "---":
+            current = None
+        elif inside and line.startswith("### "):
+            current = pages.setdefault(text.slug(line[4:]), [f"# {line[4:]}"])
+        elif current is not None:
+            # a page's own subheadings sit two levels down in the manual
+            current.append("## " + line[5:] if line.startswith("#### ") else line)
+    return {slug: "\n".join(lines).strip() + "\n" for slug, lines in pages.items()}
+
+
 def manual_text(slug):
-    path = HERE / "manual" / f"{slug}.md"
-    return path.read_text() if path.is_file() else None
+    return manual_pages().get(slug)
 
 
 @bp.route("/manual")

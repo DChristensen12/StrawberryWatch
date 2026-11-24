@@ -49,6 +49,8 @@ class Feed:
         self.changed = {}
         self.left_out = set()
         self.rain = 0.2
+        # NBM's rain, for a checkpoint that trained on it. None leaves the column out
+        self.nbm = None
         self.down = False
 
     def fetch(self, site, _start, _end, variables=None, token=None):
@@ -74,7 +76,10 @@ class Feed:
         if self.rain is None:
             return None
         index = pd.date_range(start.floor("15min"), end, freq="15min")
-        return pd.DataFrame({"rain_mm": self.rain, "air_temp_c": 12.0}, index=index)
+        frame = pd.DataFrame({"rain_mm": self.rain, "air_temp_c": 12.0}, index=index)
+        if self.nbm is not None:
+            frame["rain_nbm_mm"] = self.nbm
+        return frame
 
 
 @pytest.fixture
@@ -108,13 +113,13 @@ def _check(store, models, **kw):
     return seen
 
 
-# The three time tests copied from ioos_qc
+# The three time tests
 
 
 def test_time_gap_flags_the_reading_after_a_gap():
     hours = np.array([0, 1, 2, 6, 7]) * 3600.0
     assert qc.time_gap(hours, fail_span=2).tolist() == [qc.GOOD, qc.GOOD, qc.GOOD, qc.FAIL, qc.GOOD]
-    # the first point takes the second's flag, as upstream does
+    # the first point takes the second's flag
     assert qc.time_gap(np.array([0, 9, 10]) * 3600.0, fail_span=2)[0] == qc.FAIL
     assert qc.time_gap([0.0]).tolist() == [qc.GOOD]
 
@@ -311,6 +316,40 @@ def test_a_failed_weather_fetch_is_not_zero_rain(store, models, feed):
     assert store.last_ingest()["ok"] and store.last_check()["ok"]
 
 
+def test_nbm_rain_is_saved_beside_the_default_and_handed_to_checks(store, models, feed):
+    feed.rain, feed.nbm = 1.5, 0.7
+    seen = _check(store, models)
+    rows = store.weather_rows(st.EARLIEST, st.LATEST)
+    assert rows and all(r["rain_mm"] == 1.5 and r["rain_nbm_mm"] == 0.7 for r in rows)
+    assert (seen.weather["rain_mm"] == 1.5).all() and (seen.weather["rain_nbm_mm"] == 0.7).all()
+
+
+def test_weather_without_the_nbm_column_is_saved_and_says_to_run_setup_tables(tmp_path, caplog):
+    from strawberrywatch.dashboard import view
+
+    store = st.Store(tmp_path / "updated")
+    # an install that hasn't run setup_tables since rain_nbm_mm was added
+    with store.db() as db:
+        db.execute("DROP TABLE weather")
+        db.execute(
+            "CREATE TABLE weather (time REAL PRIMARY KEY, rain_mm REAL, air_temp_c REAL, "
+            "shortwave_radiation REAL, fetched_at REAL)"
+        )
+    store._nbm_column = False
+    with caplog.at_level("WARNING"):
+        store.save_weather([(900.0, 1.5, 10.0, 200.0, 0.7)], fetched_at=1000.0)
+    assert "setup_tables" in caplog.text
+    row = store.weather_rows(0, 2000)[0]
+    assert (row["rain_mm"], row["air_temp_c"], row["fetched_at"]) == (1.5, 10.0, 1000.0)
+    assert view.data_health(store, 2000.0)["no_nbm_column"]
+    # setup_tables adds it, and the next save clears the warning
+    with store.db() as db:
+        db.execute("ALTER TABLE weather ADD COLUMN rain_nbm_mm REAL")
+    store.save_weather([(900.0, 1.5, 10.0, 200.0, 0.7)], fetched_at=1100.0)
+    assert store.weather_rows(0, 2000)[0]["rain_nbm_mm"] == 0.7
+    assert not view.data_health(store, 2000.0)["no_nbm_column"]
+
+
 def test_checks_use_the_last_saved_rain_and_say_when_it_is_old(store, models, feed):
     from strawberrywatch.dashboard import view
 
@@ -453,9 +492,11 @@ def test_a_site_with_data_arriving_reads_unknown_while_checks_are_paused(store, 
     store.set_pref("checks_paused", "yes")
     status = view.site_statuses(store, inventory, applied, ref)[SITE]
     assert status == {"key": "unknown", "text": "Unknown, checks paused"}
-    # a site whose data stopped still says so
-    late = view.site_statuses(store, inventory, applied, ref + 6 * 3600)[SITE]
-    assert late["key"] == "late"
+    # with ingest 6 hours behind too, a pause can't tell a quiet site from a stopped feed
+    later = view.site_statuses(store, inventory, applied, ref + 6 * 3600)[SITE]
+    assert later == {"key": "unknown", "text": "Unknown, checks paused"}
+    store.set_pref("checks_paused", "no")
+    assert view.site_statuses(store, inventory, applied, ref + 6 * 3600)[SITE]["key"] == "late"
     assert view.collecting(store, ref) is not None
     assert view.collecting(store, ref + 6 * 3600) is None
 
@@ -692,3 +733,65 @@ def test_a_depth_under_the_span_floor_fails_and_marks_nothing_else():
     assert flags[COND]["out_of_water"].iloc[8] == qc.GOOD
     assert flags[DEPTH]["flag"].iloc[16] == qc.SUSPECT
     assert flags[COND]["flag"].iloc[16] == qc.SUSPECT
+
+
+# Pauses
+
+
+class Broken(Seen):
+    """A detector whose scoring always fails."""
+
+    calls = 0
+
+    def scores(self, tables, weather, leave_out=None):
+        self.calls += 1
+        raise RuntimeError("its weights don't load")
+
+
+def test_a_model_that_keeps_failing_pauses_alone_and_tries_again_in_an_hour(store, models, feed):
+    settings = ws.defaults(models)
+    settings["models"]["water_strider"]["on"] = True
+    clean, problems, _ = ws.check(settings, models, list(inv.load().sites))
+    assert not problems
+    store.apply(clean)
+    broken, healthy = Broken(), Seen()
+    start = time.time()
+
+    def check(at, dusk):
+        runner.run_check(
+            store,
+            models,
+            token="t",
+            detectors={"dusk_crayfish": dusk, "water_strider": healthy},
+            clock=lambda: at,
+        )
+        runner.count_outcome(store, store.last_check()["id"], at)
+
+    for i in range(runner.PAUSE_AFTER):
+        check(start + i * 900, broken)
+    at = start + runner.PAUSE_AFTER * 900
+    assert runner.model_paused(store, "dusk_crayfish", at)
+    # the check itself didn't fail, so nothing else pauses
+    assert store.last_check()["ok"] and store.pref("checks_paused") != "yes"
+    assert "its weights don't load" in store.pref("model_paused_reason:dusk_crayfish")
+    healthy.tables = None
+    check(at, broken)
+    assert broken.calls == runner.PAUSE_AFTER and healthy.tables is not None
+    # an hour on it runs again, and a good turn puts it back
+    retry = start + (runner.PAUSE_AFTER - 1) * 900 + runner.RETRY_SECONDS
+    check(retry, Seen())
+    assert not runner.model_paused(store, "dusk_crayfish", retry + 1)
+    assert store.pref("model_failures:dusk_crayfish") == "0"
+
+
+def test_a_pause_of_every_check_tries_again_each_hour_until_one_works(store):
+    start = 1_800_000_000.0
+    for _ in range(runner.PAUSE_AFTER):
+        runner.count_check(store, False, start)
+    assert runner.checks_paused(store, start + 60)
+    assert not runner.checks_paused(store, start + runner.RETRY_SECONDS)
+    # the retry failed, so another hour
+    runner.count_check(store, False, start + runner.RETRY_SECONDS)
+    assert runner.checks_paused(store, start + runner.RETRY_SECONDS + 60)
+    runner.count_check(store, True, start + 2 * runner.RETRY_SECONDS)
+    assert store.pref("checks_paused") == "no" and store.pref("check_failures") == "0"

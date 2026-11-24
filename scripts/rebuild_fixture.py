@@ -37,6 +37,7 @@ FIXTURE_COLUMNS = [
     "air_temp_c",
     "rain_mm",
     "shortwave_radiation",
+    "rain_nbm_mm",
 ]
 
 # site name -> raw_data filename, only listed where it doesn't match "{site}.csv"
@@ -154,13 +155,17 @@ def _find_covering_rain_cache(start, end):
 
 def _get_weather(start, end):
     """
-    Returns 15-minute air_temp_c, rain_mm, shortwave_radiation for [start, end].
+    Returns 15-minute air_temp_c, rain_mm, shortwave_radiation, rain_nbm_mm for [start, end].
     Rain reuses data/rain_cache/ when a cache file already covers the range.
     air_temp_c/shortwave_radiation have no cache of their own and always
     come straight from Open-Meteo. If rain wasn't cached, this fetch supplies
     it too and gets written to rain_cache under the usual rain_{start}_{end}.csv name.
+    rain_nbm_mm is NBM's rain, for a checkpoint that trained on it, and isn't cached.
     """
-    from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
+    from strawberrywatch.ingest.historical_weather_client import (
+        add_model_rain,
+        fetch_open_meteo_weather,
+    )
 
     cached_rain = _find_covering_rain_cache(start, end)
 
@@ -181,7 +186,10 @@ def _get_weather(start, end):
             f"  no cache covered this range, fetched rain fresh and cached to {os.path.basename(cpath)}"
         )
 
-    return weather[["air_temp_c", "rain_mm", "shortwave_radiation"]]
+    weather = add_model_rain(weather, start, end)
+    if "rain_nbm_mm" not in weather.columns:
+        raise RuntimeError("Open-Meteo returned no NBM rain for this range")
+    return weather[["air_temp_c", "rain_mm", "shortwave_radiation", "rain_nbm_mm"]]
 
 
 def rebuild(site, folder, output_path, exclude_from_window=None):

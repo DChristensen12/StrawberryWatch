@@ -378,13 +378,11 @@ def test_advanced_settings_has_a_slider_per_test_and_back_to_calibrated(client, 
     assert set(draft["rates"].values()) == {wsm.Q_TOTAL} and draft["thresholds"] == {}
 
 
-def test_the_models_card_and_the_readme_say_what_it_is(client):
+def test_the_models_card_and_the_manual_say_what_it_is(client):
     c, _ = client
     page = c.get("/models").data.decode()
     assert "Checks each sensor for spikes, lasting shifts and slow drift" in page
-    readme = (ROOT / "README.md").read_text()
-    assert "checks each sensor for spikes, lasting shifts and slow drift." in readme
-    assert (
-        '<td align="center" width="33%">TBD</td>\n    <td align="center" width="33%">A Bayesian'
-        not in readme
-    )
+    manual = (ROOT / "USER_MANUAL.md").read_text()
+    row = next(line for line in manual.splitlines() if line.startswith("| Water Strider |"))
+    assert "checks each sensor for spikes, lasting shifts and slow drift." in row
+    assert "Not built" not in row

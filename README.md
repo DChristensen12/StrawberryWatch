@@ -153,7 +153,7 @@ To record what someone saw or did at a sensor, we add one line to the field log 
 
     python -m strawberrywatch.field_log
 
-A sensor alert says that a probe needs attention (e.g., a reading of -9999, a feed that stopped, a probe possibly out of the water, a level that moved like a unit change, or a daily range far below its normal). Sensor alerts appear under Data health on the Overview page and are emailed when they start and when they clear, on the website only to people labelled Admin or SCMG. They are not creek alerts, which come only from the models.
+A sensor alert says that a probe needs attention (e.g., a reading of -9999, a feed that stopped, a probe possibly out of the water, a level that moved like a unit change, a daily range far below its normal, or conductivity unchanged while depth rose). Sensor alerts appear under Data health on the Overview page and are emailed when they start and when they clear, on the website only to people labelled Admin or SCMG. They are not creek alerts, which come only from the models.
 
 ## What is deployed
 

@@ -84,6 +84,14 @@ duplicate_match_fraction: 0.25
 flat_line_suspect_count: 24
 flat_line_fail_count: 96
 
+# Hours conductivity must sit unchanged, while depth moves by the storm
+# trigger, before the data checks call the probe stuck. Its own window, apart
+# from the flat line counts, since a 6 hour storm is often over by then.
+stuck_hours: 2
+# And how many readings that window must hold, so a feed that posts once an
+# hour can't trip it on three.
+stuck_min_readings: 4
+
 # Window, in timesteps, that the flat line, attenuation and rate of change
 # tests look back over. 24 steps is six hours at 15 minute posting.
 window_steps: 24

@@ -18,8 +18,7 @@ import pandas as pd
 from strawberrywatch import field_log, paths
 from strawberrywatch import inventory as inv
 from strawberrywatch.config import Config
-from strawberrywatch.ingest import levels
-from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
+from strawberrywatch.ingest import levels, weather_archive
 from strawberrywatch.ingest.quality_control import (
     inter_site_duplicate_check,
     repeated_streak_check,
@@ -29,7 +28,6 @@ from strawberrywatch.ingest.raw_data_loader import load_all_raw_sites
 from strawberrywatch.serving.windows import add_time_features
 
 ANOMALIES_DIR = os.path.join("data", "anomalies")
-RAIN_CACHE_DIR = paths.rain_cache_dir()
 OUTPUT_PATH = os.path.join("data", "processed_data", "training_corpus.csv")
 
 GRID_FREQ = "15min"
@@ -149,40 +147,15 @@ def _resample_site(site_df, site_name, grid):
 # Weather
 
 
-def _load_rain_cache():
-    """Concatenates every data/rain_cache/*.csv into one 15-min rain_mm series."""
-    frames = []
-    for path in sorted(glob.glob(os.path.join(RAIN_CACHE_DIR, "*.csv"))):
-        cached = pd.read_csv(path)
-        cached["datetime"] = pd.to_datetime(cached["datetime"], utc=True)
-        frames.append(cached.set_index("datetime")["rain_mm"])
-    if not frames:
-        return pd.Series(dtype=float)
-    combined = pd.concat(frames)
-    return combined[~combined.index.duplicated(keep="first")].sort_index()
-
-
 def _merge_weather(grid):
-    """
-    Native 15-min air_temp_c/rain_mm/shortwave_radiation for the grid's span,
-    from Open-Meteo's Historical Forecast API. rain_mm prefers data/rain_cache/
-    where a cached 15-min step exists, falls back to the fresh fetch otherwise.
-    Source cadence already matches the grid, and needs no disaggregating.
-    """
-    print(f"fetching Open-Meteo weather {grid.min().date()} to {grid.max().date()}...")
-    weather = fetch_open_meteo_weather(grid.min(), grid.max())
+    """Native 15 minute air_temp_c, rain_mm and shortwave_radiation for the grid, a month at a time."""
+    # The monthly cache of Open-Meteo's Historical Forecast API, the rain live checks read.
+    # One request for the whole year comes back empty
+    print(f"loading Open-Meteo weather {grid.min().date()} to {grid.max().date()}...")
+    weather = weather_archive.load_weather(grid.min(), grid.max())
     if weather.empty:
         raise RuntimeError("Open-Meteo returned no weather data for this range")
-
-    cached_rain = _load_rain_cache()
-    n_from_cache = 0
-    if not cached_rain.empty:
-        overlap = weather.index.intersection(cached_rain.index)
-        n_from_cache = len(overlap)
-        weather.loc[overlap, "rain_mm"] = cached_rain.loc[overlap]
-    print(
-        f"  rain_mm: {n_from_cache:,}/{len(weather):,} 15-min steps from rain_cache, rest from Open-Meteo"
-    )
+    print(f"  rain_mm: {int(weather['rain_mm'].notna().sum()):,}/{len(weather):,} steps known")
 
     quarter_key = pd.Series(grid, index=grid).dt.floor("15min")
     merged = pd.DataFrame(index=grid)

@@ -1,13 +1,13 @@
 """
 The Models page's cards: a name, two sentences, a picture and where to read
 more, kept in one place instead of spread through the templates. Pictures are
-the README's, shrunk to ship with the package. Whether a model can run comes
+from assets/biota, shrunk to ship with the package. Whether a model can run comes
 from serving.available().
 """
 
 from __future__ import annotations
 
-README = "https://github.com/DChristensen12/StrawberryWatch#models"
+MANUAL = "https://github.com/DChristensen12/StrawberryWatch/blob/main/USER_MANUAL.md#4-the-models"
 
 CARDS = (
     {
@@ -82,4 +82,4 @@ def cards():
     from strawberrywatch.serving import available
 
     runnable = set(available())
-    return [{**card, "can_run": card["name"] in runnable, "read_more": README} for card in CARDS]
+    return [{**card, "can_run": card["name"] in runnable, "read_more": MANUAL} for card in CARDS]

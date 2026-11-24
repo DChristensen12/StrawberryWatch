@@ -10,7 +10,7 @@ data/processed_data/
 !strawberrywatch/watch/events/**/*.csv
 # The field log, edited by hand
 !strawberrywatch/field_log.csv
-# The data levels design note, kept out until phase 2 settles its numbers
+# The data levels design note, kept out until its numbers settle
 documents/Data-Levels/
 documents/Data_Levels_and_Quality_Control.pdf
 # The baseline tables, small and worth reading in a diff
@@ -57,3 +57,8 @@ documents/*/build/
 
 # Temporary files
 /temp
+# Saved model versions, weights included. An identical copy costs git nothing
+!checkpoints/saved/**
+# The winter verdict's frozen storm-mode models, weights included
+!checkpoints/dusk_crayfish/storm_mode/**
+!checkpoints/water_strider/storm_mode/**

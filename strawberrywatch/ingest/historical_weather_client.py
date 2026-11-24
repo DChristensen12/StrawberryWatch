@@ -28,12 +28,14 @@ _OPEN_METEO_VARIABLES = [
     ("shortwave_radiation", "shortwave_radiation"),
 ]
 
+# Open-Meteo models a checkpoint can take its rain from, and the column each
+# one's rain arrives in. rain_mm stays the default model's (HRRR at Berkeley).
+RAIN_MODELS = {"ncep_nbm_conus": "rain_nbm_mm"}
+
 
 def cached_session(folder, expire_after=3600, retries=5, backoff_factor=0.2):
     """A session that keeps each answer for an hour and retries a failed request."""
-    # Cache and retry setup from the openmeteo-requests README (MIT). The
-    # retries are urllib3's own Retry, mounted the way requests documents
-    # https://github.com/open-meteo/python-requests/blob/main/README.md
+    # urllib3's own Retry, mounted on the session the way requests documents
     from requests.adapters import HTTPAdapter
     from urllib3.util import Retry
 
@@ -81,10 +83,12 @@ def fetch_open_meteo_weather(
     longitude: float | None = None,
     session=None,
     timeout=60,
+    models=None,
 ) -> pd.DataFrame:
     """
     Fetch native 15-minute weather from Open-Meteo's Historical Forecast API
-    for the given date range.
+    for the given date range. models names an Open-Meteo model, like
+    "ncep_nbm_conus", instead of the default best match.
 
     Returns a DataFrame with a UTC DatetimeIndex and the same columns as
     fetch_nws_weather (air_temp_c, rain_mm, shortwave_radiation). data_loader
@@ -117,6 +121,8 @@ def fetch_open_meteo_weather(
         "minutely_15": ",".join(om_name for om_name, _ in _OPEN_METEO_VARIABLES),
         "timezone": "UTC",
     }
+    if models:
+        params["models"] = models
 
     try:
         resp = (session or requests).get(_OPEN_METEO_URL, params=params, timeout=timeout)
@@ -160,3 +166,17 @@ def fetch_open_meteo_weather(
         f"with features: {list(df.columns)}"
     )
     return df
+
+
+def add_model_rain(frame, start_time, end_time, session=None, timeout=60):
+    """frame with a RAIN_MODELS column for each model. A model that returns nothing leaves its column out."""
+    frame = frame.copy() if frame is not None else pd.DataFrame()
+    for model, column in RAIN_MODELS.items():
+        got = fetch_open_meteo_weather(
+            start_time, end_time, session=session, timeout=timeout, models=model
+        )
+        if got.empty or "rain_mm" not in got.columns:
+            continue
+        rain = got["rain_mm"].rename(column)
+        frame = frame.join(rain, how="outer") if not frame.empty else rain.to_frame()
+    return frame

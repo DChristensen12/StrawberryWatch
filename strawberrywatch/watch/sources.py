@@ -31,7 +31,7 @@ EVENTS_DIR = Path(__file__).resolve().parent / "events"
 # is a few MB.
 MAX_CSV_BYTES = 50 * 1024 * 1024
 TIME_COLUMNS = ("DateTimeUTC", "timestamp", "datetime")
-WEATHER_COLUMNS = ("rain_mm", "air_temp_c", "shortwave_radiation")
+WEATHER_COLUMNS = ("rain_mm", "air_temp_c", "shortwave_radiation", "rain_nbm_mm")
 # The corpus calls the Wickson Footbridge footbridge. Night Heron calls it scnf010.
 FILE_ALIASES = {"scnf010": ("scnf010", "footbridge")}
 
@@ -116,6 +116,10 @@ class Source:
 
             frame = client.fetch_open_meteo_weather(
                 start.to_pydatetime(), end.to_pydatetime(), session=client.shared_session()
+            )
+            # the rain a checkpoint trained on, when it isn't the default model's
+            frame = client.add_model_rain(
+                frame, start.to_pydatetime(), end.to_pydatetime(), session=client.shared_session()
             )
         except Exception as exc:
             logger.warning("weather fetch failed (%s), checking without it", type(exc).__name__)

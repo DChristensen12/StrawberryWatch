@@ -89,3 +89,9 @@ def test_drift_phrase():
 def test_manual_slugs():
     assert text.slug("What recalibrating does") == "what-recalibrating-does"
     assert len(text.MANUAL_PAGES) == 11
+
+
+def test_every_manual_page_is_in_the_user_manual():
+    from strawberrywatch.workbench import app
+
+    assert sorted(app.manual_pages()) == sorted(text.slug(t) for t in text.MANUAL_PAGES)

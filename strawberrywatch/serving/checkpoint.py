@@ -18,6 +18,8 @@ import pickle
 from pathlib import Path
 
 SIDECAR_SUFFIX = "_serving.json"
+# The newest sidecar layout this code reads. A sidecar without one is 1
+FORMAT_VERSION = 1
 
 # Everything detect_anomalies looks up per site. Kept in one place because the
 # sidecar and the pickle both have to carry all of it or neither is usable.
@@ -47,6 +49,7 @@ class Checkpoint:
         calibration,
         architecture=None,
         source=None,
+        rain_model=None,
     ):
         self.weights_path = Path(weights_path)
         self.feature_cols = list(feature_cols)
@@ -56,6 +59,8 @@ class Checkpoint:
         self.calibration = calibration
         self.architecture = architecture or {}
         self.source = source
+        # The Open-Meteo model its rain_mm came from in training. None is the default one
+        self.rain_model = rain_model
 
     @property
     def sites(self):
@@ -75,12 +80,20 @@ class Checkpoint:
         }
 
     def as_dict(self):
+        architecture = dict(self.architecture)
+        # Inside architecture, which code from before rain_model passes to the
+        # model class. That fails, so an older install refuses the checkpoint
+        # instead of feeding it the default rain. Left out when unset, so
+        # sidecars from before it are unchanged
+        if self.rain_model:
+            architecture["rain_model"] = self.rain_model
         return {
+            "format_version": FORMAT_VERSION,
             "feature_cols": self.feature_cols,
             "location_to_idx": self.location_to_idx,
             "means": self.means,
             "scales": self.scales,
-            "architecture": self.architecture,
+            "architecture": architecture,
             **self.calibration,
         }
 
@@ -95,6 +108,12 @@ def _paths(checkpoint_dir, model_name):
 
 
 def _from_blob(blob, weights, source, scaler=None):
+    version = blob.get("format_version", 1)
+    if not isinstance(version, int) or version > FORMAT_VERSION:
+        raise CheckpointError(
+            f"{source} is format {version}, and this StrawberryWatch reads up to "
+            f"{FORMAT_VERSION}. It needs a newer StrawberryWatch installed first."
+        )
     feature_cols = blob.get("feature_cols")
     location_to_idx = blob.get("location_to_idx")
     if not feature_cols or not location_to_idx:
@@ -125,6 +144,9 @@ def _from_blob(blob, weights, source, scaler=None):
             f"skipped and the run would look clean no matter what the water did."
         )
 
+    # The sidecar keeps rain_model in architecture (see as_dict), the pickle beside it
+    architecture = dict(blob.get("architecture") or {})
+    rain_model = architecture.pop("rain_model", None) or blob.get("rain_model")
     return Checkpoint(
         weights_path=weights,
         feature_cols=feature_cols,
@@ -132,8 +154,9 @@ def _from_blob(blob, weights, source, scaler=None):
         means=means,
         scales=scales,
         calibration=calibration,
-        architecture=blob.get("architecture"),
+        architecture=architecture,
         source=source,
+        rain_model=rain_model,
     )
 
 

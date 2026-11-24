@@ -133,7 +133,7 @@
     return response.ok ? response.json() : null;
   }
 
-  // Step 1: Pick data
+  // Pick data
 
   const pick = document.getElementById("pick-form");
   if (pick) {
@@ -247,12 +247,12 @@
     setTimeout(poll, 2000);
   }
 
-  // Step 2: Explore
+  // Explore
 
   const explore = document.getElementById("explore");
   if (explore && window.uPlot) {
     const query = `site=${encodeURIComponent(explore.dataset.site)}&reading=${encodeURIComponent(explore.dataset.reading)}`;
-    // See https://github.com/leeoniya/uPlot/blob/master/demos/sync-cursor.html
+    // one cursor across every chart
     const sync = uPlot.sync("wb");
     const charts = [];
 
@@ -306,7 +306,7 @@
       if (!d || !el) return;
       const ink = token("--wb-chart");
       const water = token("--wb-water");
-      // See https://github.com/leeoniya/uPlot/blob/master/demos/high-low-bands.html
+      // the band between the low and high lines
       charts.push(
         new uPlot(
           {
@@ -402,7 +402,7 @@
     });
   }
 
-  // Step 3: Recalibrate
+  // Recalibrate
 
   const checkForm = document.getElementById("check-form");
   if (checkForm) {

@@ -213,16 +213,23 @@ class WaterStriderDetector:
     def _multipliers(self, index, rain_series):
         if rain_series is None or self.gate.mode == "off":
             return np.ones(len(index))
-        rain = rain_series.reindex(index).fillna(0.0).to_numpy(dtype=float)
-        return self.gate.multipliers(rain, index.tz_localize(None).to_numpy())
+        from strawberrywatch.anomalies.anomaly_detector import rain_known
+
+        rain = rain_series.reindex(index)
+        lines = self.gate.multipliers(
+            rain.fillna(0.0).to_numpy(dtype=float), index.tz_localize(None).to_numpy()
+        )
+        # Unknown rain keeps the dry line. It's never read as no rain
+        known = rain_known(index, rain_series, self.gate.lookback_hours)
+        return np.where(known, lines, 1.0)
 
 
 def _rain(weather):
-    """Rain in mm per quarter hour. A gap counts as dry, as cobble.py's _rain_on does."""
+    """Rain in mm per quarter hour, NaN where nothing came."""
     if weather is None or weather.empty or "rain_mm" not in weather.columns:
         return None
     rain = utc_indexed("weather", weather)["rain_mm"]
-    return pd.to_numeric(rain, errors="coerce").resample("15min").sum()
+    return pd.to_numeric(rain, errors="coerce").resample("15min").sum(min_count=1)
 
 
 def _siblings(key, sensors, ratios, index):

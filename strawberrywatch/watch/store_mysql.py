@@ -73,7 +73,7 @@ SCHEMA = (
         battery DOUBLE, live TINYINT, PRIMARY KEY (site, time))""",
     """CREATE TABLE IF NOT EXISTS weather (
         time DOUBLE PRIMARY KEY, rain_mm DOUBLE, air_temp_c DOUBLE, shortwave_radiation DOUBLE,
-        fetched_at DOUBLE)""",
+        fetched_at DOUBLE, rain_nbm_mm DOUBLE)""",
     """CREATE TABLE IF NOT EXISTS raw_readings (
         site VARCHAR(64) NOT NULL, col VARCHAR(64) NOT NULL, time DOUBLE NOT NULL,
         fetched_at DOUBLE NOT NULL, value DOUBLE NOT NULL, source VARCHAR(16) NOT NULL,
@@ -122,6 +122,7 @@ ADDED_COLUMNS = (
     ("weather", "air_temp_c", "DOUBLE"),
     ("weather", "shortwave_radiation", "DOUBLE"),
     ("weather", "fetched_at", "DOUBLE"),
+    ("weather", "rain_nbm_mm", "DOUBLE"),
 )
 
 

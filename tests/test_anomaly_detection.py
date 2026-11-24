@@ -11,6 +11,7 @@ from strawberrywatch.anomalies import event_scoring
 from strawberrywatch.anomalies.anomaly_detector import _rain_multipliers
 from strawberrywatch.config import Config
 from strawberrywatch.ingest import levels
+from strawberrywatch.ingest.historical_weather_client import RAIN_MODELS
 from strawberrywatch.models import model_calls
 from tests import event_catalog
 
@@ -80,7 +81,7 @@ def _add_time_features(index):
     }
 
 
-def _load_event_grid(event_folder, feature_cols, location_to_idx):
+def _load_event_grid(event_folder, feature_cols, location_to_idx, rain_model=None):
     """Returns (data_3d, node_mask, time_index, live_sites, rain_series) on one 15-minute grid."""
     # data_3d is (time, node, feature) with gaps as 0, node_mask True where conductivity is real
     # A site that barely lands on the grid, like footbridge, ends up masked as missing
@@ -104,6 +105,9 @@ def _load_event_grid(event_folder, feature_cols, location_to_idx):
         df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
         df = df.set_index("datetime").sort_index()
         df = df[~df.index.duplicated(keep="first")]
+        if rain_model:
+            # the rain its checkpoint trained on, and none when the fixture lacks it
+            df["rain_mm"] = df.get(RAIN_MODELS[rain_model], np.nan)
         # The fixture holds raw readings. Screen them the way a live check does
         table = {"footbridge": "scnf010"}.get(site, site)
         df = levels.keep(df, levels.screen_table(df, table, INVENTORY))
@@ -232,7 +236,7 @@ def _reconstruction_errors(
     error_iqr = model_metadata["error_iqr"][target_site]
 
     data_3d, node_mask, grid, live_sites, rain_series = _load_event_grid(
-        event_folder, feature_cols, location_to_idx
+        event_folder, feature_cols, location_to_idx, model_metadata.get("rain_model")
     )
 
     # The target node must itself be live, or there's no score

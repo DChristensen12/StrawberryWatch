@@ -1,4 +1,4 @@
-"""A store that looks live: one real check of a past event, moved so its last reading is now."""
+"""A store that looks live: one real check of a past event, moved so its last alert is now."""
 # test_live_dashboard/run.py does the same with more checks
 
 import time
@@ -8,8 +8,9 @@ from strawberrywatch.watch import runner, sources
 from strawberrywatch.watch import settings as ws
 from strawberrywatch.watch import store as st
 
-# Dusk Crayfish flags south_fork_1's conductivity, and it lasts until 17 hours
-# before the event's last reading. Moved to now, it shows on Overview
+# Dusk Crayfish flags south_fork_1's conductivity. How long before the event's
+# last reading the alert ends depends on the model, so the sample is moved by its
+# last alert, and the readings after it are dropped
 EVENT = "anomaly_2025_09_10_overnight_sf"
 STEP = 900
 TIMES = {
@@ -29,16 +30,19 @@ def live_store(folder, models, event=EVENT):
     runner.run_check(store, models)
     now = time.time()
     with store.db() as db:
-        check = db.execute("SELECT * FROM checks ORDER BY id DESC LIMIT 1").fetchone()
-        delta = (now // STEP) * STEP - check["window_end"]
+        last = db.execute("SELECT MAX(last_over) FROM noticed WHERE flagged = 1").fetchone()[0]
+        delta = (now // STEP) * STEP - last
         for table, columns in TIMES.items():
             # Through negatives, to keep primary keys from colliding halfway
             away = ", ".join(f"{c} = -({c} + ?)" for c in columns)
             db.execute(f"UPDATE {table} SET {away}", [delta] * len(columns))
             db.execute(f"UPDATE {table} SET {', '.join(f'{c} = -{c}' for c in columns)}")
+        for table in ("readings", "scores", "weather"):
+            db.execute(f"DELETE FROM {table} WHERE time > ?", (now,))
         db.execute(
-            "UPDATE checks SET source = ?, source_detail = NULL, started_at = ?, finished_at = ?",
-            (sources.SITE, now - 60, now - 30),
+            "UPDATE checks SET source = ?, source_detail = NULL, started_at = ?, finished_at = ?,"
+            " window_end = ?",
+            (sources.SITE, now - 60, now - 30, (now // STEP) * STEP),
         )
         db.execute("UPDATE noticed SET created_at = first_over + ?", (STEP,))
         db.execute("UPDATE readings SET live = 1")

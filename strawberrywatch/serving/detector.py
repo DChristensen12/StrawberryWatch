@@ -43,6 +43,10 @@ COLUMNS = {
 
 WEATHER = ("rain_mm", "air_temp_c", "shortwave_radiation")
 
+# Open-Meteo models a checkpoint's rain can come from, and the weather column
+# each arrives in. Copied from ingest/historical_weather_client.py for the same reason.
+RAIN_MODELS = {"ncep_nbm_conus": "rain_nbm_mm"}
+
 # One entry per (directory, model, device). It stays small and lives long, and
 # a plain dict under a lock is enough.
 _cache = {}
@@ -88,6 +92,11 @@ class DuskCrayfishDetector:
         self.imputation_limit_hours = imputation_limit_hours
         self.grid = grid
         self._normalization = checkpoint.normalization()
+        if checkpoint.rain_model and checkpoint.rain_model not in RAIN_MODELS:
+            raise CheckpointError(
+                f"{checkpoint.source} trained on {checkpoint.rain_model} rain, which no "
+                f"weather column carries. Known: {', '.join(RAIN_MODELS)}"
+            )
 
     @classmethod
     def load(
@@ -197,14 +206,17 @@ class DuskCrayfishDetector:
             logger.info("%s: no conductivity column on any table, nothing to judge", self.name)
             return None
 
+        weather = _own_rain(weather, self.checkpoint.rain_model)
         frame, got_weather = _merge_weather(frame, self.features, weather)
         if not got_weather:
             logger.info("%s: scoring without weather context", self.name)
+        # not the training mean _fill_absent gives a missing column, which reads as steady rain
+        got_rain = got_weather and "rain_mm" in frame.columns
 
         sensor_cols = [c for c in self.features if c in frame.columns] + ["location"]
         frame = _fill_absent(frame[sensor_cols], self.features, self._normalization)
 
-        rain = frame["rain_mm"] if got_weather and "rain_mm" in frame.columns else None
+        rain = frame["rain_mm"] if got_rain else None
         result = self.score(frame, rain=rain)
         if not result["windows"]:
             logger.info("%s: not enough consecutive readings to fill a window", self.name)
@@ -397,6 +409,16 @@ class DuskCrayfishDetector:
             "timestamps": stamps,
             "rain_applied": rain is not None,
         }
+
+
+def _own_rain(weather, rain_model):
+    """weather with rain_mm taken from the column of the model the checkpoint's rain came from."""
+    if not rain_model or weather is None:
+        return weather
+    column = RAIN_MODELS[rain_model]
+    # no column means no rain, never the default model's in its place
+    out = weather.drop(columns=["rain_mm"], errors="ignore")
+    return out.rename(columns={column: "rain_mm"}) if column in out.columns else out
 
 
 def _merge_weather(frame, features, weather):

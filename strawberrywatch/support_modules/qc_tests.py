@@ -132,9 +132,7 @@ def spike(values, threshold, fail_threshold=None):
 
 def window_count(timestamps, seconds, default):
     """How many readings span this many seconds, at the series' own median spacing."""
-    # The conversion ioos_qc's flat_line_test makes from its time thresholds,
-    # rounded to the nearest reading
-    # https://github.com/ioos/ioos_qc/blob/53246ba5c3d1c06ece3b74c5a5c9e9a0c1f655bc/ioos_qc/qartod.py
+    # a time threshold as a reading count, rounded to the nearest reading
     t = np.asarray(timestamps, dtype=float)
     t = t[~np.isnan(t)]
     if t.size < 2:
@@ -159,7 +157,7 @@ def rate_of_change(values, threshold, window, timestamps=None, span=None):
         if np.isnan(prior):
             continue
         # threshold is the change allowed over span seconds, held to the same rate
-        # for readings further apart or closer, as ioos_qc's test does
+        # for readings further apart or closer
         limit = threshold
         if t is not None and t[i] - t[i - window] != span:
             limit = threshold * (t[i] - t[i - window]) / span
@@ -246,8 +244,7 @@ def staleness(timestamps, present, max_gap_seconds):
     return flags
 
 
-# The three time tests are adapted from ioos_qc (Apache 2.0), on epoch seconds
-# https://github.com/ioos/ioos_qc/blob/53246ba5c3d1c06ece3b74c5a5c9e9a0c1f655bc/ioos_qc/qartod.py
+# The three time tests, on epoch seconds
 
 
 def _time_base(timestamps):

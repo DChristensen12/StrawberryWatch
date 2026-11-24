@@ -41,6 +41,8 @@ EVENTS = (
     "units_changed",
     "bad",
     "visit_ok",
+    # something other than rain entering the creek, such as a spill or a hydrant flush
+    "discharge",
 )
 # Readings inside one of these aren't measurements of the creek
 EXCLUDED = ("bad", "fouled", "out_of_water", "buried")
@@ -63,6 +65,16 @@ def _problem(path, line, what, fix):
     """The same error shape as the inventory's: where, what, then how to fix it."""
     where = f"{os.path.basename(path)} line {line}" if line else os.path.basename(path)
     return FieldLogError(f"{where}: {what}\n\n{fix}\n")
+
+
+def day_end(day):
+    """The next Pacific midnight after a date or a moment, in UTC. A clock-change day is 23 or 25 hours."""
+    local = pd.Timestamp(day)
+    local = local.tz_convert(LOCAL).tz_localize(None) if local.tzinfo else local
+    following = local.normalize() + pd.Timedelta(days=1)
+    return following.tz_localize(LOCAL, ambiguous=True, nonexistent="shift_forward").tz_convert(
+        "UTC"
+    )
 
 
 def _moment(path, line, date, clock, where):
@@ -163,7 +175,7 @@ def _read_line(path, line, cells, inventory):
         day, clock = cells["end"][:10], cells["end"][11:]
         end = _moment(path, line, day, clock, "end")
         # a day with no time runs to its last minute
-        end += pd.Timedelta(minutes=1) if clock else pd.Timedelta(days=1)
+        end = end + pd.Timedelta(minutes=1) if clock else day_end(day)
         if end <= start:
             raise _problem(
                 path,

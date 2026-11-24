@@ -103,6 +103,7 @@ def load_and_preprocess_data(
     days=30,
     data_source="api",
     level=None,
+    rain_model=None,
 ):
     """
     Load creek data from the cache CSV, fetching fresh if the cache is missing
@@ -126,6 +127,9 @@ def load_and_preprocess_data(
     level="screened" hands back a pull at the screened level, which live
     checks read, and level="reviewed" at the reviewed level, which training
     reads. A wide corpus was built at the reviewed level already.
+
+    rain_model swaps rain_mm for that Open-Meteo model's rain, for a checkpoint
+    that trained on it (see weather_archive.model_rain).
     """
     if file_path is None:
         file_path = Config.data_file()
@@ -195,6 +199,13 @@ def load_and_preprocess_data(
         df = df.set_index("datetime").sort_index()
         if level is not None:
             df = _leveled(df, level)
+
+    if rain_model and "rain_mm" in df.columns:
+        from strawberrywatch.ingest import weather_archive
+
+        rain = weather_archive.model_rain(rain_model, df.index.min(), df.index.max())
+        df["rain_mm"] = rain.reindex(pd.DatetimeIndex(df.index).floor("15min")).to_numpy()
+        print(f"rain_mm from {rain_model}: {int(df['rain_mm'].notna().sum()):,}/{len(df):,} known")
 
     print("data loaded:")
     print(f"Rows: {df.shape[0]:,}")

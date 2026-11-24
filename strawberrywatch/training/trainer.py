@@ -1,3 +1,6 @@
+import os
+import random
+
 import numpy as np
 import torch
 from torch.amp import GradScaler, autocast
@@ -23,6 +26,24 @@ def _masked_mse(predictions, target, target_mask, scored_feature_idx=None):
     denom = mask.sum() * squared_error.shape[-1]
     denom = denom.clamp(min=1.0)
     return (squared_error * mask).sum() / denom
+
+
+# The same seed gives different weights at a different thread count, so training
+# pins it. 6 is what the saved NBM seed 0 weights were trained with.
+TRAIN_THREADS = 6
+
+
+def seed_everything(seed, threads=TRAIN_THREADS):
+    """Seeds random, numpy and torch, pins torch's threads, and asks for deterministic kernels."""
+    # The steps in PyTorch's reproducibility notes
+    torch.set_num_threads(threads)
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def train_temporal_gnn(

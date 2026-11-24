@@ -11,7 +11,7 @@ PLACEHOLDER = re.compile(r"^example\d*@", re.IGNORECASE)
 
 
 def addresses():
-    """Every address on an active Night Heron rule, once each, in the order first seen."""
+    """Every address on a Night Heron rule that's on, once each, in the order first seen."""
     from strawberrywatch.ingest import sql_client
 
     seen = {}
@@ -19,8 +19,12 @@ def addresses():
         cursor = conn.cursor()
         for table in RULE_TABLES:
             try:
+                # A rule that just fired sits at active = 0 until its reactivate_at.
                 # The table names are the constants above
-                cursor.execute(f"SELECT email_list FROM `{table}` WHERE active = 1")  # nosec B608
+                cursor.execute(
+                    f"SELECT email_list FROM `{table}` "  # nosec B608
+                    "WHERE active = 1 OR reactivate_at IS NOT NULL"
+                )
             except Exception:
                 continue  # a site without this kind of rule
             for (field,) in cursor.fetchall():

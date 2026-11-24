@@ -344,7 +344,7 @@ def combine(pvalues=None, raw=None, rule="fisher"):
     about 33. Comparing a node with itself over time is safe, ranking nodes
     against each other isn't. Every fix tried (standardising by dof, per-node
     nulls or thresholds, Cauchy) traded that for more firing in rain. See
-    future_work.md.
+    USER_MANUAL.md, Appendix F.
     """
     if rule == "max":
         stack = np.stack([np.asarray(v, float) for v in raw.values()])

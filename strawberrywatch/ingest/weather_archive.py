@@ -42,7 +42,7 @@ def _read_chunk(path):
     return df.set_index("datetime").sort_index()
 
 
-def load_weather(start, end, cache_dir=None, allow_fetch=True):
+def load_weather(start, end, cache_dir=None, allow_fetch=True, rain_model=None):
     """
     15-min air_temp_c/rain_mm/shortwave_radiation over [start, end], UTC.
 
@@ -50,6 +50,9 @@ def load_weather(start, end, cache_dir=None, allow_fetch=True):
     the rest of the repo already reads. A partial trailing month is fetched but
     not cached. Written out, it would look like a full month and be short as
     soon as the archive grows.
+
+    rain_model swaps rain_mm for that Open-Meteo model's rain, cached the same
+    way under rain_{model}_{start}_{end}.csv. A step it has no rain for is NaN.
     """
     cache_dir = cache_dir or paths.rain_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -78,4 +81,37 @@ def load_weather(start, end, cache_dir=None, allow_fetch=True):
     weather = weather[~weather.index.duplicated(keep="first")].sort_index()
     weather = weather.loc[(weather.index >= start) & (weather.index <= end)]
     logger.info("weather: %d cached months, %d fetched, %d rows", hits, misses, len(weather))
-    return weather.reindex(columns=COLUMNS)
+    weather = weather.reindex(columns=COLUMNS)
+    if rain_model:
+        weather["rain_mm"] = model_rain(rain_model, start, end, cache_dir, allow_fetch).reindex(
+            weather.index
+        )
+    return weather
+
+
+def model_rain(model, start, end, cache_dir=None, allow_fetch=True):
+    """One Open-Meteo model's 15-min rain_mm over [start, end], UTC, a month at a time."""
+    cache_dir = cache_dir or paths.rain_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    start, end = _utc(start), _utc(end)
+
+    chunks = []
+    for lo, hi in _month_starts(start, end):
+        path = cache_dir / f"rain_{model}_{lo:%Y-%m-%d}_{hi:%Y-%m-%d}.csv"
+        if path.exists():
+            chunks.append(_read_chunk(path)["rain_mm"])
+            continue
+        if not allow_fetch:
+            raise RuntimeError(f"no cached {model} rain at {path} and fetching is off")
+        got = fetch_open_meteo_weather(lo, hi, models=model)
+        if got.empty or "rain_mm" not in got.columns:
+            raise RuntimeError(
+                f"Open-Meteo returned no {model} rain for {lo:%Y-%m-%d}..{hi:%Y-%m-%d}"
+            )
+        if hi == (lo + pd.offsets.MonthEnd(1)).normalize():
+            got[["rain_mm"]].rename_axis("datetime").to_csv(path)
+        chunks.append(got["rain_mm"])
+
+    rain = pd.concat(chunks)
+    rain = rain[~rain.index.duplicated(keep="first")].sort_index()
+    return rain.loc[(rain.index >= start) & (rain.index <= end)]

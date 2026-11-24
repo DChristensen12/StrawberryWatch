@@ -191,12 +191,15 @@ def test_a_quiet_day_says_everything_looks_normal_and_nothing_else(models, tmp_p
 
 
 def test_something_noticed_shows_on_overview_and_in_full_on_unusual_readings(signed_in):
-    client, _, _ = signed_in
+    client, store, _ = signed_in
+    # the sample's last alert ends now, whichever site the model flags last
+    last = max(store.noticed(flagged=True), key=lambda n: n["last_over"])
+    name = view.site_name(last["site"])
     overview = client.get("/").data.decode()
-    assert "Alert at South Fork 1" in overview
+    assert re.search(rf"Alerts? at [^<]*{re.escape(name)}", overview)
     assert 'href="/unusual"' in overview and 'class="nav-count"' in overview
     page = client.get("/unusual").data.decode()
-    assert "Conductivity alert at South Fork 1" in page
+    assert f"Conductivity alert at {name}" in page
     assert (
         "Conductivity didn&#39;t match the model&#39;s forecast from" in page
         and "Flagged by Dusk Crayfish." in page
@@ -235,8 +238,17 @@ def test_by_hour_folds_quiet_hours_and_a_day_shows_every_hour(signed_in):
     day = datetime.fromtimestamp(item["first_over"], view.PACIFIC).date().isoformat()
     section = page[page.index(f'/history/day/{day}"') :]
     section = section[: section.index("</section>")]
-    assert len(re.findall(ROW, section)) == 1 + (hour > 0) + (hour < 23)
-    assert "to midnight" in section and "No alerts." in section
+    now = datetime.now(view.PACIFIC)
+    if day == now.date().isoformat():
+        # today runs to this hour, whose row holds the check
+        after = (now.hour > hour + 1) + (now.hour > hour)
+        assert "to midnight" not in section
+    else:
+        after = hour < 23
+        # One quiet hour after it shows on its own, as "11 pm"
+        assert ("to midnight" in section) == (hour < 22)
+    assert len(re.findall(ROW, section)) == 1 + (hour > 0) + after
+    assert "No alerts." in section or hour == 0 == after
     hourly = client.get(f"/history/day/{day}").data.decode()
     assert len(re.findall(ROW, hourly)) == 24 and "(Dusk Crayfish)" in hourly
     today = datetime.now(view.PACIFIC).date().isoformat()
@@ -275,7 +287,7 @@ def test_notes_add_up_on_a_reading_and_show_under_it_in_history(signed_in):
 
 def test_notes_page_filters_and_downloads_a_csv_or_a_page_to_save_as_pdf(signed_in):
     client, store, _ = signed_in
-    item = store.noticed(flagged=True)[0]
+    item = next(n for n in store.noticed(flagged=True) if n["site"] == "south_fork_1")
     store.add_note(item["id"], '=HYPERLINK("http://example.invalid")')
     second = store.add_note(item["id"], "Cloudy water, µS/cm way up")
     page = client.get("/history/notes").data.decode()
@@ -651,7 +663,8 @@ def test_a_check_emails_each_person_separately_and_only_from_live_readings(
     # Filters score a message with no Date or Message-ID, and smtplib adds neither
     assert message["Date"] and message["Message-ID"]
     # Site names the way the website writes them, not the table name
-    assert message["Subject"] == "StrawberryWatch: conductivity alert at South Fork 1"
+    # the September replay flags south_fork_1 and south_fork_2
+    assert message["Subject"] == "StrawberryWatch: 2 alerts"
     body = message.get_content()
     assert "Conductivity alert at South Fork 1, Stephens Hall" in body
     assert "Flagged by Dusk Crayfish." in body and "take you off it" in body

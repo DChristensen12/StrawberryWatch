@@ -36,22 +36,35 @@ def run_model_over_sequences(model, sequences, node_mask, edge_index, device):
 
 
 def _extract_rain_series(df_original, locations):
-    """
-    Rain from the first site that has it, since it's the same across the
-    creek. A rain_mm Series by time, or None.
-    """
+    """Rain per quarter hour from every site's rows, since it's the same across the creek. Or None."""
     has_rain = (
         df_original is not None
         and "rain_mm" in df_original.columns
         and not df_original["rain_mm"].isna().all()
-        and "location" in df_original.columns
         and len(locations) > 0
-        and (df_original["location"] == locations[0]).any()
     )
     if not has_rain:
         return None
-    site_rows = df_original[df_original["location"] == locations[0]]
-    return site_rows["rain_mm"]
+    # one value a quarter hour, whichever site's row carries it. A gap stays NaN
+    rain = pd.to_numeric(df_original["rain_mm"], errors="coerce")
+    return rain.groupby(pd.DatetimeIndex(rain.index).floor("15min")).first()
+
+
+def rain_known(timestamps, rain_series, hours, step="15min"):
+    """True at each timestamp whose trailing hours of rain have a value every quarter hour."""
+    stamps = pd.DatetimeIndex(timestamps)
+    if rain_series is None or len(stamps) == 0:
+        return np.zeros(len(stamps), dtype=bool)
+    rain = pd.Series(rain_series.to_numpy(dtype=float), index=pd.DatetimeIndex(rain_series.index))
+    rain = rain.groupby(rain.index.floor(step)).first()
+    lookback = pd.Timedelta(hours=hours)
+    grid = pd.date_range((stamps.min() - lookback).floor(step), stamps.max().ceil(step), freq=step)
+    missing = rain.reindex(grid).isna().to_numpy(dtype=np.int64)
+    run = np.concatenate([[0], np.cumsum(missing)])
+    # quarter hours from ts - hours to ts, both ends in, as the lookback sum counts them
+    hi = np.searchsorted(grid, stamps.floor(step), side="right")
+    lo = np.searchsorted(grid, (stamps - lookback).ceil(step), side="left")
+    return (run[hi] - run[lo]) == 0
 
 
 def _rain_multipliers(
@@ -73,7 +86,11 @@ def _rain_multipliers(
     if rain_series is None or rain_series.empty:
         return multipliers, rain_flags
 
+    known = rain_known(timestamps, rain_series, rain_window_hours)
     for i, ts in enumerate(timestamps):
+        # Unknown rain keeps the dry line. It's never read as no rain
+        if not known[i]:
+            continue
         lookback_start = ts - pd.Timedelta(hours=rain_window_hours)
         recent = rain_series[(rain_series.index >= lookback_start) & (rain_series.index <= ts)]
         if recent.sum() > rain_amount_threshold:
@@ -285,6 +302,10 @@ def detect_anomalies(
             continue  # not calibrated for this node, no threshold to judge against
 
         real = real_mask[:, node_idx]
+        if node_mask is not None and np.ndim(node_mask) == 3:
+            # After an outage longer than the gap fill, a node isn't judged until
+            # its whole input window holds readings again
+            real = real & np.asarray(node_mask)[:, :, node_idx].all(axis=1)
         n_real = int(real.sum())
         if n_real < op["min_timesteps_to_judge"]:
             results[site] = {"judged": False, "reason": "insufficient_real_data", "n_real": n_real}

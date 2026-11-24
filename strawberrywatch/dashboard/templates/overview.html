@@ -16,6 +16,9 @@
 <p class="muted small">{{ status.models }} <a href="{{ url_for('main.models') }}">See all models</a></p>
 
 <h2>Data health</h2>
+{% if health.no_nbm_column %}
+  <p><strong>Dusk Crayfish's rain isn't being saved.</strong> The weather table has no <code>rain_nbm_mm</code> column yet. Run <code>setup_tables</code> to add it.</p>
+{% endif %}
 {% if health.problems %}
   <p>Sensor problems, not creek alerts. Each one is emailed{% if not profile.email_in_env %} to Admin and SCMG{% endif %} when it starts and when it clears.</p>
   <ul>

@@ -167,7 +167,11 @@ reads the feature count from the data it receives at runtime and sizes its
 input and output layers to match, which lets it adapt when a weather channel is
 missing. We write $F$ for that count and treat $F = 10$ as the deployed case
 throughout. Table~\ref{tab:notation} collects the symbols used in the rest of
-this document.
+this document. Since November 2026, rainfall comes from the National Blend of
+Models (Open-Meteo's \texttt{ncep\_nbm\_conus}), in training and in the rain
+gate of Section~\ref{sec:rain}. Air temperature and solar radiation come from
+Open-Meteo's default model, which is HRRR at Berkeley, as does the rain Water
+Strider reads.
 
 \begin{table}[t]
   \centering

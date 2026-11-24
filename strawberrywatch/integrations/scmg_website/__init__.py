@@ -1,4 +1,4 @@
-"""The dashboard as the website runs it, mounted at /strawberrywatch/ (see INSTALL.md)."""
+"""The dashboard as the website runs it, mounted at /strawberrywatch/ (see USER_MANUAL.md, Appendix B)."""
 
 from __future__ import annotations
 

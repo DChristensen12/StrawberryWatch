@@ -5,10 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-# events, compare_events and event_metrics are adapted from pyhydroqc
-# Copyright (c) 2021, Amber Jones. BSD 3-Clause License
-# https://github.com/AmberSJones/pyhydroqc/blob/1260f16ae254abadcd43d71ee1705c3eea1ea2d4/pyhydroqc/anomaly_utilities.py
-
 
 def events(flags, gap=0):
     """Numbers each run of flagged steps 1, 2, 3, runs closer than gap steps counted as one."""

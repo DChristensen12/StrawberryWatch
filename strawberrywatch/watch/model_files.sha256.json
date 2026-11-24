@@ -1,8 +1,8 @@
 {
   "cobble_shoal_calibration_real.json": "4e8f76506772a9ce40325aa9e6315c2daee0537400189ac69b21e9f6fd86dd93",
   "cobble_shoal_weights.pt": "de2950c7eb59880d64475d0f26816f87b1efab424ec6dfcd024cb453357048d5",
-  "dusk_crayfish_serving.json": "ff4c9cfa301ef57a1d7fa86d58c0be3bcef9fb4b6ec611e56f14cd8f0e3df724",
-  "dusk_crayfish_weights.pt": "f3529eaac06b3ca82e67920fc7d6568059898d3720b5213071a4a80fc34cfafd",
+  "dusk_crayfish_serving.json": "d992be71d0f0d950fd5182e361b4305a9f823fa2b59e652dfd6a4da4533ad112",
+  "dusk_crayfish_weights.pt": "17a6355d048b0d999bb048960c6eb446a67ded89949b8ba5ed0c2b0fa4cd1bc9",
   "flame_skimmer_temp_clock.pt": "4bfc66104cb2be6df21557d162eebbe8ef37081083a4bfd33f97735581f40d6e",
   "flame_skimmer_temp_clock_calibration.json": "3862757dbe6b8a5567a20b7f1cf76c06315347302f34409768e099a9090e2d83",
   "water_strider_calibration.json": "3bac273dcb00206a856599ceed6975bad55eea980b7011882cce2432cc199c75"

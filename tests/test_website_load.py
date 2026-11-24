@@ -328,3 +328,45 @@ def _dashboard(store):
     client.get = lambda url, **k: real_get(url, base_url="https://localhost", **k)
     client.post = lambda url, **k: real_post(url, base_url="https://localhost", **k)
     return client
+
+
+def test_a_check_ended_while_a_model_runs_pauses_that_model_alone(store):
+    from strawberrywatch.watch import runner
+
+    def run(command, timeout=None, **_):
+        store.set_pref(runner.RUNNING, "flame_skimmer")
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    for _ in range(runner.PAUSE_AFTER):
+        gnn_alerts._check_in_child(NOW, store=store, run=run)
+    assert runner.model_paused(store, "flame_skimmer", NOW.timestamp())
+    assert store.pref("checks_paused") != "yes" and store.pref("check_failures") in (None, "0")
+    page = _dashboard(store).get("/strawberrywatch/").data.decode()
+    assert "Flame Skimmer paused after 3 failed checks. The other models still run." in page
+    assert (
+        "Flame Skimmer was running when the check ended. Stopped: took longer than 7 minutes."
+        in page
+    )
+
+
+def test_paused_checks_try_again_on_their_own_after_an_hour(store):
+    from datetime import timedelta
+
+    def timeout(command, timeout=None, **_):
+        raise subprocess.TimeoutExpired(command, timeout)
+
+    for _ in range(3):
+        gnn_alerts._check_in_child(NOW, store=store, run=timeout)
+    assert store.pref("checks_paused") == "yes"
+    page = _dashboard(store).get("/strawberrywatch/").data.decode()
+    assert "Checks try again every hour until one works." in page
+    calls = []
+
+    def works(command, **_):
+        calls.append(command)
+        return _finished(json.dumps({"check_id": 9, "ok": True, "alerts": [], "email_on": False}))
+
+    gnn_alerts._check_in_child(NOW + timedelta(minutes=30), store=store, run=works)
+    assert calls == []
+    gnn_alerts._check_in_child(NOW + timedelta(minutes=61), store=store, run=works)
+    assert len(calls) == 1 and store.pref("checks_paused") == "no"

@@ -29,8 +29,13 @@ _last_good = {}
 INTERVAL = timedelta(minutes=settings_mod.INTERVAL_MINUTES)
 LOOKBACK = timedelta(days=settings_mod.LOOKBACK_DAYS)
 HASHES_PATH = Path(__file__).resolve().parent / "model_files.sha256.json"
-# Failed or skipped checks in a row before checks pause, as gnn_alerts does on the website
+# Failed checks in a row before a model, or every check, pauses. Stops a broken
+# model from sending bad alerts or loading the shared server check after check
 PAUSE_AFTER = 3
+# A pause tries again on its own after this long
+RETRY_SECONDS = 60 * 60
+# The model a check is loading or scoring, so a check that's killed counts against it
+RUNNING = "check_running_model"
 # Saved beside a model update's files, the fingerprints they were checked against
 HASHES = "hashes.json"
 
@@ -74,8 +79,15 @@ def load_detector(name, folder=None):
 
     folder = Path(folder) if folder else paths.model_dir(name)
     cls = detector_class(name)
-    listed = folder / HASHES
-    verify_files(cls, folder, json.loads(listed.read_text()) if listed.exists() else None)
+    listed, saved = folder / HASHES, folder / "manifest.json"
+    if listed.exists():
+        hashes = json.loads(listed.read_text())
+    elif saved.exists():
+        # a saved version, see model_updates.save_version
+        hashes = json.loads(saved.read_text())["files"]
+    else:
+        hashes = None
+    verify_files(cls, folder, hashes)
     return cls.cached(folder, device="cpu")
 
 
@@ -228,6 +240,20 @@ SETTINGS_NOTICE = (
     "The saved settings couldn't be read, so this check used the last ones that could."
 )
 NO_WEATHER = "Weather wasn't available for this check"
+# Rain read before a check's window: the rain gate's 12 hour lookback and 36 hour taper
+RAIN_CONTEXT = pd.Timedelta(hours=48)
+RAIN_LOOKBACK_HOURS = 12
+
+
+def rain_covered(weather, start, end):
+    """Whether every step from start + the lookback to end has its rain known."""
+    from strawberrywatch.anomalies.anomaly_detector import rain_known
+
+    if weather is None or "rain_mm" not in weather.columns:
+        return False
+    steps = _grid(start + pd.Timedelta(hours=RAIN_LOOKBACK_HOURS), end)
+    rain = pd.to_numeric(weather["rain_mm"], errors="coerce")
+    return bool(len(steps)) and bool(rain_known(steps, rain, RAIN_LOOKBACK_HOURS).all())
 
 
 def run_check(
@@ -284,6 +310,8 @@ def run_check(
     live = sources.is_live(source.kind)
     durations = {}
     problems = [notice] if notice else []
+    # {model name: why it failed}, and notes that fail nothing
+    failed, notes = {}, []
     weather_ok = None
     try:
         from strawberrywatch import inventory as inv
@@ -307,35 +335,41 @@ def run_check(
             _save_readings(store, {s: sources.on_grid(f) for s, f in raw.items()}, live)
         tables = _screened(raw, flags)
         on = [m for m in models if applied["models"].get(m.name, {}).get("on")]
+        # a paused model sits out until its retry is due, and the others keep their turn
+        on = [m for m in on if not model_paused(store, m.name, clock())]
         if max_models is not None and len(on) > max_models:
             skipped = ", ".join(m.title for m in on[max_models:])
-            problems.append(f"{skipped} didn't run: only {max_models} can run at once.")
+            notes.append(f"{skipped} didn't run: only {max_models} can run at once.")
             on = on[:max_models]
         loaded = {}
         for model in on:
+            store.set_pref(RUNNING, model.name)
             try:
                 loaded[model.name] = (detectors or {}).get(model.name) or load_detector(
                     model.name, model_updates.model_folder(store, model.name, folder)
                 )
             except ModelFileError as exc:
                 logger.warning("%s is unavailable: %s", model.name, exc)
-                problems.append(f"{model.title} is unavailable: its files are missing or changed")
+                failed[model.name] = (
+                    f"{model.title} is unavailable: its files are missing or changed"
+                )
             except Exception as exc:
-                problems.append(f"{model.title} didn't run: {_plain(exc)}")
+                failed[model.name] = f"{model.title} didn't run: {_plain(exc)}"
+        store.set_pref(RUNNING, "")
         wants = any(getattr(d, "wants_weather", False) for d in loaded.values()) or applied["rain"]
         weather = None
         if wants and loaded and from_levels:
             # The last weather ingest saved. Old or absent, it isn't read as a dry creek
-            weather = data_levels.weather(store, start, end)
+            weather = data_levels.weather(store, start - RAIN_CONTEXT, end)
             fetched = store.weather_fetched_at()
             weather_ok = (
-                weather is not None
+                rain_covered(weather, start, end)
                 and fetched is not None
                 and clock() - fetched <= ingest.WEATHER_STALE
             )
         elif wants and loaded:
             weather = source.weather(start, end)
-            weather_ok = weather is not None
+            weather_ok = rain_covered(weather, start, end)
             _save_weather(store, weather)
         grid = _grid(start, end)
 
@@ -346,6 +380,7 @@ def run_check(
             spec = applied["models"][model.name]
             began = time.monotonic()
             before = memory() if memory else None
+            store.set_pref(RUNNING, model.name)
             try:
                 configure_rain(detector, model, applied["rain"], spec["rain_multiplier"])
                 if hasattr(detector, "set_sensitivity"):
@@ -379,20 +414,25 @@ def run_check(
                 )
             except Exception as exc:
                 logger.exception("%s failed this check", model.name)
-                problems.append(f"{model.title} failed this check: {_plain(exc)}")
+                failed[model.name] = f"{model.title} failed this check: {_plain(exc)}"
+            store.set_pref(RUNNING, "")
             durations[model.name] = round(time.monotonic() - began, 2)
             if memory:
                 durations.setdefault("memory_mb", {})[model.name] = round(
                     max(0.0, memory() - before), 1
                 )
+        for model in on:
+            model_outcome(store, model.name, failed.get(model.name), clock())
         if memory:
             durations["peak_mb"] = round(memory(), 1)
         if live:
             store.prune_daily(clock())
-        message = "; ".join(problems) if problems else ""
+        # a model's failure is its own count, so it doesn't fail the check for the others
+        message = "; ".join(problems + list(failed.values()) + notes)
         store.finish_check(check_id, not problems, message, durations, weather_ok)
     except Exception as exc:
         logger.exception("check failed")
+        store.set_pref(RUNNING, "")
         store.finish_check(check_id, False, _plain(exc), durations, weather_ok)
     return check_id
 
@@ -500,8 +540,8 @@ class Watcher:
     overlap. A request during one waits for the next turn.
 
     Follows two of the website's limits: max_models_on from settings.yaml, and
-    a pause after PAUSE_AFTER failures in a row until someone presses Restart
-    checks.
+    a pause after PAUSE_AFTER failures in a row that tries again every hour, or
+    when someone presses Restart checks.
     """
 
     def __init__(
@@ -567,7 +607,7 @@ class Watcher:
         try:
             began = time.time()
             self.next_at = began + self.interval
-            if self.store.pref("checks_paused") == "yes":
+            if checks_paused(self.store, began):
                 return None
             from strawberrywatch.watch.check_once import peak_mb
 
@@ -579,7 +619,7 @@ class Watcher:
                 max_models=int(settings_mod.website_limits()["max_models_on"]),
                 **self.check_kw,
             )
-            count_outcome(self.store, check_id)
+            count_outcome(self.store, check_id, began)
             if self.after_check is not None:
                 self.after_check(check_id)
             return check_id
@@ -587,16 +627,46 @@ class Watcher:
             self._busy.release()
 
 
-def count_outcome(store, check_id):
-    """
-    A good check clears the count. A failed or skipped one adds to it, and
-    PAUSE_AFTER in a row pause the checks, as gnn_alerts does on the website.
-    """
+def count_outcome(store, check_id, now=None):
+    """Counts a finished check towards the pause, as gnn_alerts does on the website."""
     if check_id is None:
         return
     last = store.last_check()
-    if last and last.get("ok"):
-        store.set_pref("check_failures", "0")
+    count_check(store, bool(last and last.get("ok")), now)
+
+
+def _when(store, key):
+    try:
+        return float(store.pref(key) or "")
+    except ValueError:
+        return None
+
+
+def checks_paused(store, now=None):
+    """True while every check is paused and its hourly retry isn't due yet."""
+    if store.pref("checks_paused") != "yes":
+        return False
+    now = now or time.time()
+    at = _when(store, "checks_paused_at")
+    if at is None:
+        # paused before pauses kept their time. The hour starts now
+        store.set_pref("checks_paused_at", repr(now))
+        return True
+    return now - at < RETRY_SECONDS
+
+
+def count_check(store, ok, now=None):
+    """
+    A good check clears the count and any pause. A failed or skipped one adds
+    to it, and PAUSE_AFTER in a row pause every check for an hour, then again
+    after each retry that fails.
+    """
+    if ok:
+        if store.pref("check_failures") not in (None, "0"):
+            store.set_pref("check_failures", "0")
+        if store.pref("checks_paused") == "yes":
+            store.set_pref("checks_paused", "no")
+            logger.info("a check worked, model checks resumed")
         return
     try:
         count = int(store.pref("check_failures") or 0) + 1
@@ -605,4 +675,60 @@ def count_outcome(store, check_id):
     store.set_pref("check_failures", str(count))
     if count >= PAUSE_AFTER:
         store.set_pref("checks_paused", "yes")
-        logger.warning("%s checks failed in a row, model checks paused", count)
+        store.set_pref("checks_paused_at", repr(now or time.time()))
+        logger.warning("%s checks failed in a row, model checks paused for an hour", count)
+
+
+def model_paused(store, name, now=None):
+    """True while one model is paused and its hourly retry isn't due yet."""
+    at = _when(store, f"model_paused_at:{name}")
+    return at is not None and (now or time.time()) - at < RETRY_SECONDS
+
+
+def model_outcome(store, name, problem=None, now=None):
+    """
+    One model's turn in a check. A good one clears its count and its pause.
+    PAUSE_AFTER failures in a row pause that model alone for an hour, then
+    again after each retry that fails.
+    """
+    count_key, at_key, why_key = (
+        f"model_failures:{name}",
+        f"model_paused_at:{name}",
+        f"model_paused_reason:{name}",
+    )
+    if problem is None:
+        if store.pref(count_key) not in (None, "0"):
+            store.set_pref(count_key, "0")
+        if store.pref(at_key):
+            store.set_pref(at_key, "")
+            logger.info("%s worked again and is back on", name)
+        return
+    try:
+        count = int(store.pref(count_key) or 0) + 1
+    except ValueError:
+        count = 1
+    store.set_pref(count_key, str(count))
+    store.set_pref(why_key, problem)
+    if count >= PAUSE_AFTER:
+        store.set_pref(at_key, repr(now or time.time()))
+        logger.warning("%s failed %s checks in a row, paused for an hour", name, count)
+
+
+def paused_models(store, models):
+    """[{name, title, reason, since}] for each model that's paused."""
+    out = []
+    for model in models:
+        at = _when(store, f"model_paused_at:{model.name}")
+        if at is not None:
+            reason = store.pref(f"model_paused_reason:{model.name}") or ""
+            out.append({"name": model.name, "title": model.title, "reason": reason, "since": at})
+    return out
+
+
+def resume(store, models):
+    """What Restart checks does: clears every count and pause, the models' too."""
+    store.set_pref("check_failures", "0")
+    store.set_pref("checks_paused", "no")
+    for model in models:
+        store.set_pref(f"model_failures:{model.name}", "0")
+        store.set_pref(f"model_paused_at:{model.name}", "")

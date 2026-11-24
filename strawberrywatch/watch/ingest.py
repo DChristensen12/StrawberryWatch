@@ -35,8 +35,7 @@ BATTERY = "EnviroDIY_Mayfly_Batt"
 _running = threading.Lock()
 
 
-# Extract, transform and load, the split HydroServer's ETL uses
-# https://hydroserver2.github.io/hydroserver/applications/hydroserverpy/etl.html
+# Extract, transform and load
 
 
 def extract(source, sites, start, end):
@@ -165,7 +164,8 @@ def _pass(store, token, clock, source=None, lookback=LOOKBACK, window=None, mail
             end,
             clock(),
         )
-        if not weather(store, source, start, end, clock()):
+        # from far enough back for a check's rain gate to know its first steps
+        if not weather(store, source, start - runner.RAIN_CONTEXT, end, clock()):
             problems.append("Weather fetch failed")
         # Raw is saved by now, and the health checks can't stop it
         health.after_pass(store, inventory, tables, start, end, clock(), mail)

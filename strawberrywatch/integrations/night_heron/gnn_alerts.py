@@ -79,9 +79,6 @@ MODELS = _model_names()
 # alone until the website's half is in place too
 DASHBOARD = os.getenv("GNN_DASHBOARD", "0").strip().lower() in ("1", "true", "yes", "on")
 
-# Failed or skipped checks in a row before the checks pause, until an editor
-# presses Restart checks. Stops a crash loop.
-PAUSE_AFTER = 3
 
 # Inventory names to Night Heron's sensor names. Theirs where they have one,
 # since that key picks the unit in their email, and the raw column code where
@@ -191,9 +188,12 @@ def _weather(start, end):
     against. A failed fetch comes back None and the models go on without it.
     """
     try:
-        from strawberrywatch.ingest.historical_weather_client import fetch_open_meteo_weather
+        from strawberrywatch.ingest.historical_weather_client import (
+            add_model_rain,
+            fetch_open_meteo_weather,
+        )
 
-        weather = fetch_open_meteo_weather(start, end)
+        weather = add_model_rain(fetch_open_meteo_weather(start, end), start, end)
     except Exception as exc:
         logger.warning("gnn: weather fetch failed (%s), scoring without it", exc)
         return None
@@ -350,20 +350,22 @@ def _check_in_child(now, store=None, run=subprocess.run):
     """
     One dashboard check as python -m strawberrywatch.watch.check_once, read back
     as JSON. Skipped when the server is low on memory, stopped when it runs
-    past the time limit, and paused after PAUSE_AFTER failures in a row.
+    past the time limit, and paused for an hour after runner.PAUSE_AFTER
+    failures in a row.
     """
+    from strawberrywatch.watch import runner
     from strawberrywatch.watch import settings as ws
     from strawberrywatch.watch.store_mysql import MysqlStore
 
     store = store or MysqlStore()
     limits = ws.website_limits()
     _restore_cooldowns(store, now)
-    if store.pref("checks_paused") == "yes":
-        logger.info("gnn: model checks are paused until someone presses Restart checks")
+    if runner.checks_paused(store, now.timestamp()):
+        logger.info("gnn: model checks are paused, the next try is within the hour")
         return []
     free = ws.free_memory_mb()
     if free is not None and free < limits["min_free_memory_mb"]:
-        _failed(store, "Skipped: the server was low on memory")
+        _failed(store, "Skipped: the server was low on memory", now, blame=False)
         logger.warning(
             "gnn: %.0f MB free, under the %.0f MB floor, check skipped",
             free,
@@ -379,7 +381,7 @@ def _check_in_child(now, store=None, run=subprocess.run):
             timeout=minutes * 60,
         )
     except subprocess.TimeoutExpired:
-        _failed(store, f"Stopped: took longer than {minutes:g} minutes")
+        _failed(store, f"Stopped: took longer than {minutes:g} minutes", now)
         return []
     lines = [line for line in (done.stdout or "").splitlines() if line.strip()]
     try:
@@ -390,15 +392,12 @@ def _check_in_child(now, store=None, run=subprocess.run):
             if done.returncode < 0
             else "The check stopped with an error before it could say what it found"
         )
-        _failed(store, reason)
+        _failed(store, reason, now)
         logger.error(
             "gnn: check process exited %s: %s", done.returncode, (done.stderr or "")[-500:]
         )
         return []
-    if result.get("ok"):
-        store.set_pref("check_failures", "0")
-    else:
-        _count_failure(store)
+    runner.count_check(store, bool(result.get("ok")), now.timestamp())
     phones = _recipients("GNN_ALERT_PHONES") if result.get("email_on") else []
     if not phones:
         return []
@@ -419,9 +418,13 @@ def _check_in_child(now, store=None, run=subprocess.run):
     return alerts
 
 
-def _failed(store, message):
-    """Record a check that didn't run or didn't finish, for the dashboard to show."""
-    from strawberrywatch.watch import sources
+def _failed(store, message, now, blame=True):
+    """
+    Record a check that didn't run or didn't finish, for the dashboard to show.
+    Ended while a model was loading or scoring, it counts against that model
+    alone, so the others keep running. Otherwise against every check.
+    """
+    from strawberrywatch.watch import runner, sources
 
     last = store.last_check()
     if last is not None and last.get("finished_at") is None:
@@ -429,18 +432,20 @@ def _failed(store, message):
     else:
         check = store.start_check(sources.SITE, None, None, None)
         store.finish_check(check, False, message, {})
-    _count_failure(store)
+    name = store.pref(runner.RUNNING)
+    if name:
+        store.set_pref(runner.RUNNING, "")
+    if name and blame:
+        reason = f"{_title(name)} was running when the check ended. {message}"
+        runner.model_outcome(store, name, reason, now.timestamp())
+    else:
+        runner.count_check(store, False, now.timestamp())
 
 
-def _count_failure(store):
-    try:
-        count = int(store.pref("check_failures") or 0) + 1
-    except ValueError:
-        count = 1
-    store.set_pref("check_failures", str(count))
-    if count >= PAUSE_AFTER:
-        store.set_pref("checks_paused", "yes")
-        logger.warning("gnn: %s checks failed in a row, model checks paused", count)
+def _title(name):
+    from strawberrywatch.watch import models
+
+    return next((m.title for m in models.registered() if m.name == name), name)
 
 
 def _restore_cooldowns(store, now):

@@ -223,6 +223,16 @@ def build_windows(
     offsets = np.arange(n_starts)
     starts = np.flatnonzero(run[offsets + window + 1] - run[offsets] == window + 1)
 
+    # A window can't run across a jump in time, such as an event cut from the
+    # training corpus. A regridded frame has none
+    spacing = cadence(frame)
+    if spacing is not None and len(stamps) > 1:
+        jump = np.concatenate(
+            [[0], np.asarray(stamps[1:] - stamps[:-1] != spacing, dtype=np.int64)]
+        )
+        crossed = np.concatenate([[0], np.cumsum(jump)])
+        starts = starts[crossed[starts + window + 1] - crossed[starts + 1] == 0]
+
     if not starts.size:
         out = (
             np.empty((0, window, n_nodes, n_feat), dtype=dtype),

@@ -66,7 +66,7 @@ SECTION4_MAGNITUDES = (
     500.0,
     2000.0,
 )  # 500/2000 exist to settle
-# whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one, see 4b
+# whether "not reached" at spill-scale magnitudes is a calibration problem or a structural one, see the sensitivity curve
 RELIABLE_DETECTION_RATE = 0.5  # "reliably detected" = flagged in most windows
 
 FP_RATE_CAVEAT = 0.2  # false positive rate above this gets flagged in the verdict
@@ -398,7 +398,7 @@ def portion_skill_vs_persistence(
 
 def section1(model, metadata):
     print("=" * 70)
-    print("SECTION 1: overfitting vs generalization")
+    print("Overfitting vs generalization")
     print("=" * 70)
 
     ctx = load_full_split(metadata)
@@ -410,7 +410,7 @@ def section1(model, metadata):
     scaler = metadata["scaler"]
     cond_mean, cond_scale = scaler.mean_[cond_idx], scaler.scale_[cond_idx]
 
-    print("\n1a. split check")
+    print("\nSplit check")
     print("main.py: split_idx = int(len(sequences) * Config.TRAIN_SPLIT); positional slice,")
     print("no shuffling anywhere in the pipeline. Chronological, confirmed (same as the skill")
     print("baseline script established).")
@@ -442,7 +442,7 @@ def section1(model, metadata):
 
     raw_cond, qc_valid = build_real_observation_lookups(node_names)
 
-    print("1b. conductivity MAE (raw uS/cm) and skill vs persistence, train vs held-out")
+    print("Conductivity MAE (raw uS/cm) and skill vs persistence, train vs held-out")
     print("-" * 100)
     header = f"{'node':15s} {'train n':>9s} {'train MAE':>10s} {'train skill':>12s}   {'held n':>8s} {'held MAE':>10s} {'held skill':>11s}   {'MAE gap':>8s}"
     print(header)
@@ -484,7 +484,7 @@ def section1(model, metadata):
         )
         rows.append({"node": site, "train": train_r, "held": held_r, "status": "ok", "gap": gap})
 
-    print("\n1c. interpretation")
+    print("\nInterpretation")
     for row in rows:
         site = row["node"]
         if row["status"] == "insufficient":
@@ -522,7 +522,7 @@ def section1(model, metadata):
 
 def section2(model, metadata):
     print("=" * 70)
-    print("SECTION 2: false positive rate on clean data")
+    print("False positive rate on clean data")
     print("=" * 70)
 
     location_to_idx = metadata["location_to_idx"]
@@ -542,7 +542,7 @@ def section2(model, metadata):
     held_start, held_end = held_out_range(corpus)
     print(f"held-out span: {held_start} -> {held_end}")
 
-    print("\n2a. clean window extraction")
+    print("\nClean window extraction")
     print(
         f"window size: {WINDOW_STEPS} steps (2 days), minimum viable: {MIN_WINDOW_STEPS} steps "
         f"(SEQUENCE_LENGTH={Config.SEQUENCE_LENGTH} + MIN_TIMESTEPS_TO_JUDGE={tad.MIN_TIMESTEPS_TO_JUDGE})"
@@ -552,7 +552,7 @@ def section2(model, metadata):
     for i, w in enumerate(windows):
         print(f"  window {i:2d}: {w[0]} -> {w[-1]}  ({len(w)} steps)")
 
-    print("\n2b/2c. running the real detection path per window per node")
+    print("\nRunning the real detection path per window per node")
     print(
         "(robust-normalized error, per-node rain-adjusted threshold, _is_flagged"
         f" with MIN_TIMESTEPS_OVER_THRESHOLD={tad.MIN_TIMESTEPS_OVER_THRESHOLD})"
@@ -607,7 +607,7 @@ def section2(model, metadata):
                     results[site]["n_flagged_rain"] += 1
 
     print()
-    print("2c. false positive rate per node")
+    print("False positive rate per node")
     print("-" * 90)
     print(
         f"{'node':15s} {'evaluated':>10s} {'flagged':>8s} {'FP rate':>9s}   {'rain wins':>10s} {'flag@rain':>10s} {'flag@dry':>9s}"
@@ -636,7 +636,7 @@ def section2(model, metadata):
 
 def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_WINDOWS):
     print("=" * 70)
-    print(f"SECTION 3: synthetic injection, detection and localization (X={magnitude:.0f} uS/cm)")
+    print(f"Synthetic injection, detection and localization (X={magnitude:.0f} uS/cm)")
     print("=" * 70)
 
     location_to_idx = metadata["location_to_idx"]
@@ -746,7 +746,7 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
         f"no usable neighbors to check = {skipped['no_usable_neighbors']}\n"
     )
 
-    print("3c. DETECTION: did the injected node flag, per node per shape")
+    print("Detection: did the injected node flag, per node per shape")
     print("-" * 60)
     print(f"{'node':15s} {'step':>15s} {'ramp':>15s} {'spike':>15s}")
     for site in node_names:
@@ -760,7 +760,7 @@ def section3(model, metadata, magnitude=CONFIRM_MAGNITUDE, n_windows=N_SECTION3_
                 cells.append(f"{d['detected']}/{d['tested']} ({rate:.0%})")
         print(f"{site:15s} {cells[0]:>15s} {cells[1]:>15s} {cells[2]:>15s}")
 
-    print("\n3d. LOCALIZATION: did a clean neighbor false-flag when a DIFFERENT node was perturbed")
+    print("\nLocalization: did a clean neighbor false-flag when a different node was perturbed")
     print("-" * 60)
     print(
         f"{'injected node':15s} {'injections':>11s} {'neighbor checks':>16s} {'false flags':>12s} {'rate':>7s}"
@@ -794,7 +794,7 @@ def section4(
     rare enough that a 6-point sweep would mostly be "no data".
     """
     print("=" * 70)
-    print("SECTION 4: sensitivity curve (step injection, magnitude sweep)")
+    print("Sensitivity curve (step injection, magnitude sweep)")
     print("=" * 70)
 
     location_to_idx = metadata["location_to_idx"]
@@ -897,7 +897,7 @@ def section4(
             )
 
     print(
-        "\n4c. why this caps out instead of climbing with magnitude: a step injection is a single\n"
+        "\nWhy this caps out instead of climbing with magnitude: a step injection is a single\n"
         "level shift. The model predicts one step ahead, so as soon as the elevated reading enters\n"
         "its own input history (the very next timestep), it starts predicting the NEW value as\n"
         "normal. The residual collapses back down immediately. That caps a step at roughly 1\n"

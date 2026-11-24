@@ -18,10 +18,12 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -226,6 +228,87 @@ def running_hashes(store, name):
         return dict(update["hashes"])
     installed = installed_hashes()
     return {f: installed.get(f) for f in _files(name)}
+
+
+# Saved versions. One folder each under checkpoints/saved/<model>/, never edited
+# after it's made, with the same file fingerprints an update keeps in hashes.json
+
+SAVED = "saved"
+MANIFEST = "manifest.json"
+ORIGINS = ("shipped", "update", "workbench", "trained")
+
+
+def save_version(
+    name,
+    title,
+    folder,
+    files,
+    origin,
+    commit,
+    base=None,
+    now=None,
+    seed=None,
+    threads=None,
+    details=None,
+):
+    """
+    Copies a model's files into a new saved folder and returns its path. seed and
+    threads are the training seed and torch thread count, and details anything
+    else worth keeping with it, like the training data and how it scored.
+    """
+    from strawberrywatch import paths
+
+    if origin not in ORIGINS:
+        raise ValueError(f"origin {origin!r} isn't one of {', '.join(ORIGINS)}")
+    now = now or datetime.now().astimezone()
+    root = Path(base or paths.checkpoints_dir()) / SAVED / name
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    target, count = root / f"{now:%Y-%m-%d}_{slug}", 1
+    # saving again makes a new folder
+    while target.exists():
+        count += 1
+        target = root / f"{now:%Y-%m-%d}_{slug}-{count}"
+    temp = target.with_name(f".{target.name}.tmp")
+    temp.mkdir(parents=True)
+    hashes = {}
+    for file in files:
+        shutil.copy2(Path(folder) / file, temp / file)
+        hashes[file] = sha256((temp / file).read_bytes())
+    manifest = {
+        "model": name,
+        "name": title,
+        "saved_at": now.isoformat(timespec="seconds"),
+        "origin": origin,
+        "commit": commit,
+        "seed": seed,
+        "threads": threads,
+        "files": hashes,
+    }
+    if details:
+        manifest["details"] = details
+    (temp / MANIFEST).write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    temp.rename(target)
+    return target
+
+
+def saved_versions(name, base=None):
+    """(folder, manifest) for each saved version of a model whose files still match, newest first."""
+    from strawberrywatch import paths
+
+    root = Path(base or paths.checkpoints_dir()) / SAVED / name
+    out = []
+    for folder in sorted(root.iterdir(), reverse=True) if root.is_dir() else []:
+        path = folder / MANIFEST
+        if folder.name.startswith(".") or not path.is_file():
+            continue
+        manifest = json.loads(path.read_text())
+        files = manifest.get("files", {})
+        if all(
+            (folder / f).is_file() and sha256((folder / f).read_bytes()) == h
+            for f, h in files.items()
+        ):
+            out.append((folder, manifest))
+    return sorted(out, key=lambda pair: pair[1]["saved_at"], reverse=True)
 
 
 # An update

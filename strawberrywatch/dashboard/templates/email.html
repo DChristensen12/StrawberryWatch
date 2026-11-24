@@ -157,7 +157,7 @@
   <p class="small muted">{{ copied }}</p>
 {% elif can_copy and can_edit %}
   <h2>Copy from Night Heron</h2>
-  <p>Adds every address on Night Heron's active alert rules to this list, once. After that the two lists are separate, and changes to one don't reach the other.</p>
+  <p>Adds every address on Night Heron's alert rules that are on, including ones waiting out their time between alerts, to this list, once. After that the two lists are separate, and changes to one don't reach the other.</p>
   <form method="post" action="{{ url_for('main.copy_list') }}" class="sw-form-row">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label for="copy-label">Label them</label>

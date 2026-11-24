@@ -229,7 +229,7 @@ def _session_cookie(user):
 
 
 def _site(tmp_path):
-    """The site's own app with the dashboard mounted, as INSTALL.md says to."""
+    """The site's own app with the dashboard mounted, as the manual says to."""
     from werkzeug.middleware.dispatcher import DispatcherMiddleware
     from werkzeug.test import Client
 
@@ -483,3 +483,27 @@ def test_the_website_email_list_lives_in_its_database(django_site, tmp_path, mon
         },
     )
     assert [p["email"] for p in store.recipients()] == ["ana@example.org"]
+
+
+def test_the_copied_list_keeps_rules_that_just_fired_and_drops_ones_switched_off(monkeypatch):
+    import contextlib
+    import sqlite3
+
+    from strawberrywatch.ingest import sql_client
+    from strawberrywatch.integrations.scmg_website import night_heron_list
+
+    db = sqlite3.connect(":memory:")
+    db.execute(
+        "CREATE TABLE base_staticthreshold (email_list TEXT, active INT, reactivate_at TEXT)"
+    )
+    db.executemany(
+        "INSERT INTO base_staticthreshold VALUES (?, ?, ?)",
+        [
+            ("on@lab.test", 1, None),
+            # Night Heron switches a rule off until reactivate_at each time it fires
+            ("cooling@lab.test", 0, "2026-11-23 20:00:00"),
+            ("off@lab.test", 0, None),
+        ],
+    )
+    monkeypatch.setattr(sql_client, "_connect", lambda: contextlib.nullcontext(db))
+    assert night_heron_list.addresses() == ["on@lab.test", "cooling@lab.test"]

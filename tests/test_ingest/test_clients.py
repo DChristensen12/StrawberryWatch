@@ -1,10 +1,15 @@
 # Connectivity smoke checks against live endpoints, not correctness tests. A pass means the
 # network and credentials worked today, and a failure may be an outage. Four return a bool
-# instead of asserting and pass whatever the endpoint says
+# instead of asserting and pass whatever the endpoint says. Marked live, so the suite leaves
+# them out unless run with -m live
 import argparse
 import sys
 import traceback
 from datetime import UTC, datetime, timedelta
+
+import pytest
+
+pytestmark = pytest.mark.live
 
 
 def banner(title):
@@ -34,7 +39,7 @@ def show_df(df, label):
 
 
 def test_imports():
-    banner("Layer 0: imports")
+    banner("Imports")
     from strawberrywatch.config import Config  # noqa: F401
 
     print("  strawberrywatch.config        :)")
@@ -50,7 +55,7 @@ def test_imports():
 
 
 def test_config():
-    banner("Layer 1: Config loads")
+    banner("Config loads")
     from strawberrywatch.config import Config
 
     print(f"  API_BASE_URL    = {Config.API_BASE_URL}")
@@ -72,7 +77,7 @@ def test_config():
 
 
 def test_api():
-    banner("Layer 2a: API client")
+    banner("API client")
     from strawberrywatch.config import Config
     from strawberrywatch.ingest.api_client import fetch_creek_data, fetch_network_snapshot
 
@@ -101,7 +106,7 @@ def test_api():
 
 
 def test_nws():
-    banner("Layer 2b: NWS weather client")
+    banner("NWS weather client")
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 
     end = datetime.now(UTC)
@@ -124,7 +129,7 @@ def test_nws():
 
 
 def test_sql():
-    banner("Layer 2c: SQL client")
+    banner("SQL client")
     from strawberrywatch.config import Config
     from strawberrywatch.ingest.sql_client import fetch_creek_data_sql, fetch_network_snapshot_sql
 
@@ -155,7 +160,7 @@ def test_sql():
 
 
 def test_integration():
-    banner("Layer 3: timestamp alignment between sources")
+    banner("Timestamp alignment between sources")
     from strawberrywatch.ingest.api_client import fetch_network_snapshot
     from strawberrywatch.ingest.weather_client import fetch_nws_weather
 

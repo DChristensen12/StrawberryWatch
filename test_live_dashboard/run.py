@@ -265,7 +265,7 @@ def stand_in_github(state):
 
 
 def build(store, username, can_edit, github, port=PORT):
-    """The site with the dashboard mounted, as INSTALL.md's wsgi.py lines do it."""
+    """The site with the dashboard mounted, as the manual's wsgi.py lines do it."""
     from strawberrywatch.dashboard import create_app, profiles
     from strawberrywatch.integrations.scmg_website import MOUNT, NoWatcher
     from strawberrywatch.watch import models as wm
@@ -361,6 +361,7 @@ def main(argv=None):
     else:
         store = st.Store(DATA)
     store.set_pref("checks_paused", "yes" if args.paused else "no")
+    store.set_pref("checks_paused_at", repr(time.time()) if args.paused else "")
     if not MODEL_FILES.exists():
         copy_model_files()
     github = stand_in_github(args.github)

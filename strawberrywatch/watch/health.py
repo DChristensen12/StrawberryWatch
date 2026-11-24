@@ -32,6 +32,10 @@ RANGE_QUANTILE = 0.05
 RANGE_SHARE = 0.25
 MUTED_DAYS = 2
 FULL_DAY = 48
+# Depth moving this much is the storm trigger's rise: 10 mm, or 10% of the
+# lowest depth when that is more
+TRIGGER_MM = 10.0
+TRIGGER_SHARE = 0.10
 
 # Kinds of sensor alert
 READING = "reading"
@@ -40,9 +44,10 @@ DEAD = "dead_feed"
 LEVEL = "level_shift"
 MUTED = "muted"
 DATA_CHECK = "data_check"
+STUCK = "stuck"
 # Found every pass, and cleared after a day unseen. The daily kinds clear when
 # the next daily run misses them
-EACH_PASS = (READING, OUT_OF_WATER, DATA_CHECK)
+EACH_PASS = (READING, OUT_OF_WATER, DATA_CHECK, STUCK)
 
 LABELS = {
     "conductivity": "conductivity",
@@ -200,11 +205,74 @@ def reading_problems(site, raw, flags, inventory):
     return out
 
 
+# Conductivity that holds still while the creek rises
+
+
+def stuck_steps(cond, depth, hours, min_readings=1):
+    """
+    (time, value, hours, mm) for each reading whose run of unchanged
+    conductivity spans at least hours and min_readings readings, while depth
+    moved by more than the storm trigger over the same run.
+    """
+    cond, depth = cond.dropna(), depth.dropna()
+    run = cond.ne(cond.shift()).cumsum()
+    began = cond.index.to_series().groupby(run.to_numpy()).transform("min")
+    # a sparse feed can hold one value for hours on a handful of readings
+    count = cond.groupby(run.to_numpy()).cumcount().to_numpy() + 1
+    held = (cond.index - pd.DatetimeIndex(began) >= pd.Timedelta(hours=hours)) & (
+        count >= min_readings
+    )
+    out = []
+    for t in cond.index[held]:
+        d = depth[(depth.index >= began[t]) & (depth.index <= t)]
+        if len(d) < 2:
+            continue
+        moved = float(d.max() - d.min())
+        if moved > max(TRIGGER_MM, TRIGGER_SHARE * abs(float(d.min()))):
+            out.append((t, float(cond[t]), (t - began[t]).total_seconds() / 3600, moved))
+    return out
+
+
+def stuck(store, site, inventory, start, end):
+    """A sensor alert for conductivity unchanged for stuck_hours while depth moved."""
+    cols = {variable: col for col, variable in _sensors(site, inventory)}
+    cond, depth = cols.get("conductivity"), cols.get("depth")
+    if cond is None or depth is None:
+        return []
+    # back far enough for the longest run the screen still passes
+    since = start - levels.STEP * (inventory.flat_line_fail_count + 1)
+    raw, flags = levels.read(store, [site], since, end)
+    table = levels.keep(raw.get(site, pd.DataFrame()), flags.get(site, {}))
+    if cond not in table or depth not in table:
+        return []
+    hits = [
+        h
+        for h in stuck_steps(
+            table[cond], table[depth], inventory.stuck_hours, inventory.stuck_min_readings
+        )
+        if h[0] >= start
+    ]
+    if not hits:
+        return []
+    _, value, hours, moved = hits[-1]
+    return [
+        problem(
+            site,
+            cond,
+            STUCK,
+            f"Sensor problem at {where(site, cond, inventory)}: unchanged at {value:g}"
+            f"{UNITS['conductivity']} for {hours:.3g} hours while depth moved {moved:.0f} mm, "
+            f"possibly stuck",
+            value,
+        )
+    ]
+
+
 # The daily checks
 
 
 def dead_feed(site, col, newest, inventory, now):
-    """A dead feed past the inventory's staleness_hours, by ioos_qc's data reception test."""
+    """A dead feed past the inventory's staleness_hours, by the data reception test."""
     if newest is None:
         return problem(
             site, col, DEAD, f"Sensor problem at {where(site, col, inventory)}: no readings"
@@ -316,6 +384,7 @@ def after_pass(store, inventory, tables, start, end, now, mail=None):
             raw, flags = levels.read(store, [site], start, end)
             if site in raw:
                 found += reading_problems(site, raw[site], flags[site], inventory)
+                found += stuck(store, site, inventory, start, end)
         daily_ran = now - float(store.pref("health_checked_at") or 0) >= DAY
         if daily_ran:
             found += run_daily(store, inventory, now)
@@ -385,4 +454,6 @@ __all__ = [
     "run_daily",
     "schema",
     "send_summary",
+    "stuck",
+    "stuck_steps",
 ]

@@ -25,6 +25,18 @@ def test_the_shipped_log_loads_and_every_line_is_a_known_event():
     assert list(pd.read_csv(field_log.path_for(), nrows=0).columns) == list(field_log.COLUMNS)
 
 
+def test_an_end_date_on_a_clock_change_day_runs_to_its_midnight(tmp_path):
+    path = _log(
+        tmp_path,
+        "2026-10-30,,south_fork_0,conductivity,bad,2026-11-01,flat,dan,no,,",
+        "2026-03-06,,south_fork_0,conductivity,bad,2026-03-08,flat,dan,no,,",
+    )
+    autumn, spring = field_log.load(path).itertuples()
+    # 1 November runs 25 hours and 8 March 23, so both end at the next Pacific midnight
+    assert autumn.end == pd.Timestamp("2026-11-02 08:00", tz="UTC")
+    assert spring.end == pd.Timestamp("2026-03-09 07:00", tz="UTC")
+
+
 def test_a_time_carries_its_offset_and_a_bare_date_is_the_pacific_day(tmp_path):
     path = _log(
         tmp_path,

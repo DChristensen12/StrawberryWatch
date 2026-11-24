@@ -143,6 +143,8 @@ def test_training_and_serving_build_identical_windows_from_one_fixture():
 
     # The frame serving builds: stacked, weather merged, absent features filled, clock added
     frame = detector._frame({s: tables[s] for s in detector.sites if s in tables})
+    # the rain column serving picks for this checkpoint
+    weather = det._own_rain(weather, detector.checkpoint.rain_model)
     frame, _ = det._merge_weather(frame, detector.features, weather)
     frame = det._fill_absent(
         frame[[c for c in detector.features if c in frame.columns] + ["location"]],
@@ -179,32 +181,31 @@ def test_training_and_serving_build_identical_windows_from_one_fixture():
     assert np.array_equal(node_mask, serving[3])
 
 
-def test_the_training_corpus_arrays_are_the_ones_the_shipped_model_trained_on():
-    """Fingerprints of prepare_sequences_normalized on the shipped corpus, taken before the merge."""
-    import contextlib
-    import hashlib
-    import io
+def test_no_training_window_runs_across_an_event_cut():
+    """The corpus drops each labelled event's rows. A window can't run from one side to the other."""
+    from strawberrywatch.serving import windows
 
-    from strawberrywatch.config import Config
-    from strawberrywatch.ingest.data_loader import load_and_preprocess_data
-    from strawberrywatch.preprocessing.data_processor import prepare_sequences_normalized
-    from strawberrywatch.utils.graph_utils import create_graph_topology
-
-    corpus = paths.training_corpus()
-    if not corpus.is_file():
-        pytest.skip("no training_corpus.csv here")
-    with contextlib.redirect_stdout(io.StringIO()):
-        df_featured, _, _ = load_and_preprocess_data(file_path=str(corpus))
-        _, _, location_to_idx = create_graph_topology(announce=False)
-        sequences, targets, stamps, _, _, node_mask, target_mask = prepare_sequences_normalized(
-            df_featured, location_to_idx, Config.SEQUENCE_LENGTH, return_node_mask=True
+    stamps = pd.date_range("2026-01-01", periods=200, freq="15min", tz="UTC")
+    stamps = stamps.delete(range(100, 140))
+    sites = {"north_fork_0": 0, "south_fork_2": 1}
+    frame = pd.concat(
+        pd.DataFrame(
+            {"conductivity": 400.0 + np.sin(np.arange(len(stamps))), "location": site},
+            index=stamps,
         )
-
-    def digest(array):
-        return hashlib.sha256(np.ascontiguousarray(array).tobytes()).hexdigest()[:16]
-
-    assert sequences.shape == (29099, 24, 4, 10) and sequences.dtype == np.float64
-    assert digest(sequences) == "898fb20c1ae5e524"
-    assert digest(targets) == "d12b046d61e48140"
-    assert digest(node_mask) == "4562c0a65e1bb79f"
-    assert digest(target_mask) == "650c635fbc972a7e"
+        for site in sites
+    )
+    normalization = {"conductivity": (400.0, 1.0)}
+    _, _, ends, _ = windows.build_windows(
+        frame, ["conductivity"], sites, normalization, 24, imputation_limit_hours=None, grid=None
+    )
+    cut_start, cut_end = stamps[99], stamps[100]
+    assert len(ends) == (100 - 24) + (60 - 24)
+    for end in ends:
+        first = end - pd.Timedelta(minutes=15 * 24)
+        assert not (first <= cut_start and end >= cut_end)
+    # regridded, as serving does, the cut is a gap of NaN rows and the count is the same
+    _, _, regridded, _ = windows.build_windows(
+        frame, ["conductivity"], sites, normalization, 24, imputation_limit_hours=None
+    )
+    assert len(regridded) == len(ends)

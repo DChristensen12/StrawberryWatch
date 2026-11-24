@@ -170,8 +170,10 @@ def test_rain_rule_is_step_plus_taper_not_a_pure_step(doc, flat):
     import pandas as pd
 
     grid = pd.date_range("2026-04-01", periods=400, freq="15min")
-    rain = pd.Series(np.zeros(len(grid)), index=grid)
-    rain.iloc[20:44] = 0.5  # six hours of rain
+    # a dry lookback's worth of rain before the grid, since unknown rain keeps the dry line
+    history = pd.date_range(end=grid[0], periods=4 * Config.RAIN_WINDOW_HOURS + 1, freq="15min")
+    rain = pd.Series(0.0, index=history[:-1].append(grid))
+    rain.loc[grid[20:44]] = 0.5  # six hours of rain
     mult, _flags = ad._rain_multipliers(
         grid,
         rain,

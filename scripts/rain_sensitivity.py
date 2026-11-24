@@ -2,10 +2,8 @@
 How much a weather-context Cobble Shoal depends on its rain channels being right.
 
 We're not asking "is Open-Meteo accurate" but "what happens when the rain
-source is wrong, and in which direction does that hurt". On 2026-09-03 a storm
-fell on the catchment that most weather products didn't report at all. The
-zeroed variant below is what those products would have handed the model that
-day.
+source is wrong, and in which direction does that hurt". The zeroed variant
+below is what a product that missed a storm entirely would hand the model.
 
 Three context variants, same weights, same windows, same threshold. Only the
 three rain channels change:
@@ -22,7 +20,7 @@ model has no rain channels and all columns will read the same.
 
 Reads the labelled fixtures under data/anomalies/ directly instead of the test
 catalog. We need the rain events here, and they're no longer listed in
-tests/events.yaml (see future_work.md). Writes no files.
+tests/events.yaml (see USER_MANUAL.md, Appendix F). Writes no files.
 
 Caveat on the thresholds. Counts here are each model's own z_q, not a matched
 false-alarm rate. The columns compare against themselves and not against each

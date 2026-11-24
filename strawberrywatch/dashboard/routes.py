@@ -178,7 +178,7 @@ def common():
         "profile": ctx().profile,
         "can_edit": security.can_edit(),
         "readings": None if g.get("error_page") else _readings_line(),
-        "paused": not g.get("error_page") and ctx().store.pref("checks_paused") == "yes",
+        "pauses": None if g.get("error_page") else view.pauses(ctx().store, ctx().models, now()),
         "collecting": None if g.get("error_page") else _collecting(),
         "model_updates": ctx().updater is not None,
         # The site's own sign-out page on the website, ours locally
@@ -1116,9 +1116,10 @@ def _costs(models):
 
 @bp.route("/checks/resume", methods=["POST"])
 def resume_checks():
-    """Try the model checks again after they paused."""
-    ctx().store.set_pref("check_failures", "0")
-    ctx().store.set_pref("checks_paused", "no")
+    """Try the model checks again after they paused, and every paused model with them."""
+    from strawberrywatch.watch import runner
+
+    runner.resume(ctx().store, ctx().models)
     ctx().watcher.check_now()
     flash(
         "Checks restarted. A check is running now."

@@ -69,10 +69,11 @@ events:
     group: sep25_overnight
     site: south_fork_2
     label: anomaly
-    known_failure: the peak clears the threshold on one timestep, and flagging needs three
     note: >
-      The same overnight spike at the downstream node. Known failure: the peak
-      clears the threshold but only on one timestep, and flagging needs three.
+      The same overnight spike at the downstream node. It failed until November
+      2026, when the peak cleared the threshold on one timestep and flagging needs
+      three. The fixture then carried hourly reanalysis rain (3.3 mm) that raised
+      the line. Rebuilt with native 15-minute rain, which shows none, it passes.
 
   - folder: anomaly_2025_11_05_foam_nf1
     group: nov25_foam
@@ -87,11 +88,11 @@ events:
     group: mar26_hydrant
     site: north_fork_0
     label: anomaly
-    known_failure: two points cross the threshold, and flagging needs three
     note: >
       Euclid Avenue fire-hydrant break running into the North Fork. Confirmed
-      real; sf1 absent this window. Known failure: two points cross the
-      threshold and flagging needs three. See KNOWN_EXCEPTIONS in
+      real; sf1 absent this window. It failed until November 2026, when two
+      points crossed the threshold and flagging needs three. The model trained
+      on NBM rain puts three over it, and it passes. See KNOWN_EXCEPTIONS in
       support_modules/spill_signatures.py for the temperature anomaly.
 
 
@@ -105,7 +106,7 @@ events:
 #
 #   Removing them took the true-negative count to zero, and test_true_negative_not_flagged
 #   now parametrizes over an empty list. The gap is temporary. In test_event_catalog.py,
-#   test_no_true_negative_coverage_yet keeps it visible, future_work.md describes it, and it
+#   test_no_true_negative_coverage_yet keeps it visible, USER_MANUAL.md's Appendix F describes it, and it
 #   closes when the September storm is cut into a fixture.
 #
 # anomaly_2026_01_botanical_actuator

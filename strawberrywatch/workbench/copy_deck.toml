@@ -312,7 +312,7 @@ attrs = [
 ]
 
 [manual_recalibrating]
-file = "manual/what-recalibrating-does.md"
+file = "../../USER_MANUAL.md"
 strings = [
   "What recalibrating does",
   "Each model turns the latest readings into a score. When the score crosses the alert line (threshold), the model raises an alert. Recalibrating moves the alert line using data you pick. The model itself does not change.",
